@@ -79,8 +79,9 @@
 #  ifdef __MMLIBC386__
 #    include <mmlibc386.h>
 #  else
-#    include <stdlib.h>  /* exit(...). */
+#    include <stdlib.h>  /* exit(...), abort(...). */
 #    include <string.h>
+#    include <limits.h>   /* INT_MAX. */
     /* Turbo C++ 1.01 defines __MSDOS__. OpenWatcom C compiler defines __DOS__, __NT__ or __OS2__. */
 #    if defined(MSDOS) || defined(_MSDOS) || defined(_WIN32) || defined(_WIN64) || defined(__DOS__) || defined(__NT__) || defined(__MSDOS__) || defined(__OS2__)
 #      include <fcntl.h>  /* O_BINARY. */
@@ -92,6 +93,20 @@
 #      include <stdio.h>  /* fprintf(stderr, ...); */
 #    endif
 #  endif
+#endif
+
+#if (INT_MAX >> 15 >> 15 || __INT_MAX__ >> 15 >> 15 || __SIZEOF_INT__ >= 4 || __INTSIZE >= 4 || defined(__LP64__) || defined(_LP64) \
+     || defined(vax) || defined(sun) \
+     || defined(_WIN32) || defined(_WIN64) || defined(__NT__) || defined(WIN32) || defined(__WIN32__) || defined(__DOS32__) \
+     || defined(__i386) || defined(__i386__) || defined(__386) || defined(__386__) || defined(_M_I386) \
+     || defined(__amd64__) || defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64) || defined(__X86_64__) || defined(__x86_64) || defined(_M_X64) \
+     || defined(_M_ARM64) || defined(__AARCH64EB__) || defined(__AARCH64EL__) || defined(__aarch64__) \
+     || defined(__ia64__) || defined(_M_IA64) || defined(__s390x__) || defined(__ppc64__) || defined(__PPC64__) \
+     || defined(__riscv__) || defined(__mips__) \
+    ) && !(defined(__WATCOMC__) && _M_I86)
+typedef unsigned int um32;  /* Avoid using 8 bytes for um32. */
+#else
+typedef unsigned long um32;  /* At least 32 bits. */
 #endif
 
 #ifndef   STDIN_FILENO
@@ -195,12 +210,51 @@ struct scolzh_big {
   um16 pt_table[1U << 8];
 };
 
+#define COMPACT_NF 258
+
+typedef um16 compact_dicti_t;
+typedef um16 compact_diri_t;
+typedef um16 compact_dictini_t;
+typedef um8 compact_flags_t;
+
+struct compact_fpoint {
+  compact_dicti_t fpdni;  /* NULL is indicated by the value NFNULL == NF. */
+  compact_flags_t flags;
+};
+
+struct compact_index {
+  compact_dicti_t ipt;
+  compact_diri_t nextri;
+};
+
+struct compact_son {
+  compact_dictini_t spdii;  /* NFNULL value not allowed for the dicti_t. */
+  compact_diri_t topri;
+  um32 count;
+};
+
+struct compact_node {
+  struct compact_fpoint fath;
+  struct compact_son sons[2];
+};
+
+struct compact_big {
+  struct compact_node dict[COMPACT_NF];
+  struct compact_fpoint in[COMPACT_NF];
+  struct compact_index dir[COMPACT_NF << 1];
+};
+
 /* This contains the large arrays other than global_read_buffer and global_write_buffer. */
 extern union big_big {
   struct scolzh_big scolzh;
+  struct compact_big compact;
 } big;
+
+/* This is always true, otherwise there is no way to communicate the write_idx. !! Add global_write_idx. */
+#define LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS 1
 
 /* These functions decompress from stdin (fd STDIN_FILENO == 0) to stdout. */
 void decompress_scolzh_nohdr(void);
+void decompress_compact_nohdr(void);
 
 #endif  /* Of #ifndef _LUUZCAT_H */

@@ -65,18 +65,30 @@ union big_big big;
 #endif
 
 main0() {
-  unsigned int i;
+  unsigned int b;
 
 #if O_BINARY  /* For DOS, Windows (Win32 and Win64) and OS/2. */
   setmode(STDIN_FILENO, O_BINARY);
   setmode(STDOUT_FILENO, O_BINARY);  /* Prevent writing (in write(2)) LF as CRLF on DOS, Windows (Win32) and OS/2. */
 #endif
-  while ((int)(i = try_byte()) >= 0) {  /* zcat in gzip also accepts empty stdin. */
-    if (i != 0x1f) fatal_msg("compressed signature not recognized\n");
-    if ((i = try_byte()) == 0xa0) {
-      decompress_scolzh_nohdr();
+  /* !! Test reinitialization by decompressing the same file again, and also a different file. */
+  while ((int)(b = try_byte()) >= 0) {  /* zcat in gzip also accepts empty stdin. */
+    if (b == 0x1f) {
+      if ((b = try_byte()) == 0xa0) {
+        decompress_scolzh_nohdr();
+      } else if (b == 0xff) {  /* This is the less common signature for Compact. */
+        do_compact: decompress_compact_nohdr();
+      } else {
+        goto bad_signature;
+      }
+    } else if (b == 0xff) {
+      if ((b = try_byte()) == 0x1f) {  /* This is the more common signature for Compact. */
+        goto do_compact;
+      } else {
+        goto bad_signature;
+      }
     } else {
-      fatal_msg("missing scolzh signature\n");
+      bad_signature: fatal_msg("compressed signature not recognized\n");
     }
   }
   main0_exit0();  /* return EXIT_SUCCESS; */

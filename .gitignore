@@ -12,11 +12,17 @@
 /luuzcatc.com
 /kvikdos
 /*.try/
+/uncompact.c.orig
 
-# Test files.
+# --- Test files.
+
 *.bin
 *.good
 # SCO LZH test files.
 /XFileMgro*
-# SCO LZH test files.
+# SCO LZH compressed test files.
 *.sz
+# gzip compressed tsxt files.
+*.gz
+# Compact compressed test files.
+*.bin.C

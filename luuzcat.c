@@ -1,0 +1,83 @@
+/* by pts@fazekas.hu at Thu Oct  2 22:32:09 CEST 2025 */
+
+#define LUUZCAT_MAIN 1  /* Make luuzcat.h generate some functions early for the DOS .com target. */
+#include "luuzcat.h"
+
+#if defined(__TURBOC__) && defined(__MSDOS__)
+  unsigned _stklen = 0x300;  /* Global variable used by Turbo C++ 1.x libc _start. */
+#endif
+
+/* --- Error reporting. */
+
+__noreturn void fatal_msg(const char *msg) {
+  write_nonzero_void(STDERR_FILENO, WRITE_PTR_ARG_CAST(msg), strlen(msg));
+  exit(EXIT_FAILURE);
+}
+
+__noreturn void fatal_read_error(void) { fatal_msg("read error\n"); }  /* !! "\r\n" for _DOSCOMSTART, also in the other files */
+__noreturn void fatal_write_error(void) { fatal_msg("write error\n"); }
+__noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF\n"); }
+__noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input\n"); }
+
+uc8 global_read_buffer[0x2000];  /* !! Overlap with deflate to save memory. */
+unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
+unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
+
+/* --- Reading. */
+
+unsigned int read_byte(ub8 is_eof_ok) {
+  int got;
+  if (global_inptr < global_insize) return global_read_buffer[global_inptr++];
+  if ((got = read(STDIN_FILENO, (char*)global_read_buffer, (int)sizeof(global_read_buffer))) < 0) fatal_read_error();
+  if (got == 0) {
+    if (is_eof_ok) return BEOF;
+    fatal_unexpected_eof();
+  }
+  global_insize = got;
+  global_inptr = 1;
+  return global_read_buffer[0];
+}
+
+/* --- Writing. */
+
+uc8 global_write_buffer[WRITE_BUFFER_SIZE];
+
+/* Always returns 0, which is the new buffer write index. */
+unsigned int flush_write_buffer(unsigned int size) {
+  unsigned int size_i;
+  int got;
+  for (size_i = 0; size_i < size; ) {
+    got = (int)(size - size_i);
+    if (sizeof(int) == 2 && got < 0) got = 0x4000;
+    if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer + size_i), got)) <= 0) fatal_write_error();
+    size_i += got;
+  }
+  return 0;
+}
+
+/* --- main. */
+
+union big_big big;
+
+#ifndef main0
+#  define main0() int main(void)
+#  define main0_exit0() return EXIT_SUCCESS
+#endif
+
+main0() {
+  unsigned int i;
+
+#if O_BINARY  /* For DOS, Windows (Win32 and Win64) and OS/2. */
+  setmode(STDIN_FILENO, O_BINARY);
+  setmode(STDOUT_FILENO, O_BINARY);  /* Prevent writing (in write(2)) LF as CRLF on DOS, Windows (Win32) and OS/2. */
+#endif
+  while ((int)(i = try_byte()) >= 0) {  /* zcat in gzip also accepts empty stdin. */
+    if (i != 0x1f) fatal_msg("compressed signature not recognized\n");
+    if ((i = try_byte()) == 0xa0) {
+      decompress_scolzh_nohdr();
+    } else {
+      fatal_msg("missing scolzh signature\n");
+    }
+  }
+  main0_exit0();  /* return EXIT_SUCCESS; */
+}

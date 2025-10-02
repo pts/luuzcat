@@ -1,0 +1,22 @@
+*~
+*.o
+*.obj
+*.err
+*.out
+*.com
+*.c.[0-9]*
+/luuzcat
+/luuzcat.mini
+/luuzcat.exe
+/luuzcat.*.exe
+/luuzcatc.com
+/kvikdos
+/*.try/
+
+# Test files.
+*.bin
+*.good
+# SCO LZH test files.
+/XFileMgro*
+# SCO LZH test files.
+*.sz

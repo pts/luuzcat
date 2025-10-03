@@ -244,10 +244,17 @@ struct compact_big {
   struct compact_index dir[COMPACT_NF << 1];
 };
 
+#define OPACK_TREESIZE 1024
+
+struct opack_big {
+  um16 tree[OPACK_TREESIZE];
+};
+
 /* This contains the large arrays other than global_read_buffer and global_write_buffer. */
 extern union big_big {
   struct scolzh_big scolzh;
   struct compact_big compact;
+  struct opack_big opack;
 } big;
 
 /* This is always true, otherwise there is no way to communicate the write_idx. !! Add global_write_idx. */
@@ -256,5 +263,6 @@ extern union big_big {
 /* These functions decompress from stdin (fd STDIN_FILENO == 0) to stdout. */
 void decompress_scolzh_nohdr(void);
 void decompress_compact_nohdr(void);
+void decompress_opack_nohdr(void);
 
 #endif  /* Of #ifndef _LUUZCAT_H */

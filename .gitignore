@@ -13,6 +13,8 @@
 /kvikdos
 /*.try/
 /uncompact.c.orig
+/pcatd
+/pcatd.c
 
 # --- Test files.
 
@@ -22,7 +24,9 @@
 /XFileMgro*
 # SCO LZH compressed test files.
 *.sz
-# gzip compressed tsxt files.
+# gzip compressed test files.
 *.gz
 # Compact compressed test files.
 *.bin.C
+*.z
+# pack (old or new) compressed test files.

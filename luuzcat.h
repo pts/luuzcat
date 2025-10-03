@@ -73,6 +73,8 @@
 #  pragma intrinsic(strlen)  /* !! Add shorter `#pragma aux' or static. */
   void *memset(void *s, int c, unsigned int n);
 #  pragma intrinsic(memset)  /* !! Add shorter `#pragma aux' or static. */
+
+#  define LUUZCAT_NL "\r\n"  /* Line ending for error messages on stderr. */
 #endif
 
 #ifndef LIBC_PREINCLUDED
@@ -93,6 +95,7 @@
 #      include <stdio.h>  /* fprintf(stderr, ...); */
 #    endif
 #  endif
+#  define LUUZCAT_NL "\n"  /* On DOS etc. write(STDERR_FILENO) will append an "\r" because the lack of O_BINARY. */
 #endif
 
 #if (INT_MAX >> 15 >> 15 || __INT_MAX__ >> 15 >> 15 || __SIZEOF_INT__ >= 4 || __INTSIZE >= 4 || defined(__LP64__) || defined(_LP64) \

@@ -14,10 +14,10 @@ __noreturn void fatal_msg(const char *msg) {
   exit(EXIT_FAILURE);
 }
 
-__noreturn void fatal_read_error(void) { fatal_msg("read error\n"); }  /* !! "\r\n" for _DOSCOMSTART, also in the other files */
-__noreturn void fatal_write_error(void) { fatal_msg("write error\n"); }
-__noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF\n"); }
-__noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input\n"); }
+__noreturn void fatal_read_error(void) { fatal_msg("read error" LUUZCAT_NL); }
+__noreturn void fatal_write_error(void) { fatal_msg("write error" LUUZCAT_NL); }
+__noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF" LUUZCAT_NL); }
+__noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input" LUUZCAT_NL); }
 
 uc8 global_read_buffer[0x2000];  /* !! Overlap with deflate to save memory. */
 unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
@@ -90,7 +90,7 @@ main0() {
         goto bad_signature;
       }
     } else {
-      bad_signature: fatal_msg("compressed signature not recognized\n");
+      bad_signature: fatal_msg("compressed signature not recognized" LUUZCAT_NL);
     }
   }
   main0_exit0();  /* return EXIT_SUCCESS; */

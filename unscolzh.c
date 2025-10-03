@@ -283,8 +283,8 @@ void decompress_scolzh_nohdr(void) {
 
 #if 0  /* The caller has already done this. */
   i = try_byte();
-  if (i == BEOF) fatal_msg("empty compressed input file\n");  /* !! This is not an error for `gzip -cd'. */
-  if (i != 0x1f || try_byte() != 0xa0) fatal_msg("missing scolzh signature\n");
+  if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* !! This is not an error for `gzip -cd'. */
+  if (i != 0x1f || try_byte() != 0xa0) fatal_msg("missing scolzh signature" LUUZCAT_NL);
 #endif
   subbitbuf8 = subbitcount = 0;
   /* Prefill bitbuf16 with 16 bits. From then on, keep it fully prefilled. */

@@ -253,11 +253,22 @@ struct opack_big {
   um16 tree[OPACK_TREESIZE];
 };
 
+typedef um8 deflate_huffman_bit_count_t;
+
+#define DEFLATE_MAX_TREE_SIZE 1490
+#define DEFLATE_BIT_COUNT_ARY_SIZE 318
+
+struct deflate_big {
+  um16 huffman_trees_ary[DEFLATE_MAX_TREE_SIZE];
+  deflate_huffman_bit_count_t huffman_bit_count_ary[DEFLATE_BIT_COUNT_ARY_SIZE];
+};
+
 /* This contains the large arrays other than global_read_buffer and global_write_buffer. */
 extern union big_big {
   struct scolzh_big scolzh;
   struct compact_big compact;
   struct opack_big opack;
+  struct deflate_big deflate;
 } big;
 
 /* This is always true, otherwise there is no way to communicate the write_idx. !! Add global_write_idx. */
@@ -267,5 +278,13 @@ extern union big_big {
 void decompress_scolzh_nohdr(void);
 void decompress_compact_nohdr(void);
 void decompress_opack_nohdr(void);
+void decompress_deflate(void);
+#if 0
+  void decompress_quasijarus_nohdr(void)
+#else
+#  define decompress_quasijarus_nohdr() decompress_deflate()
+#endif
+void decompress_zlib_nohdr(void);
+void decompress_gzip_nohdr(void);
 
 #endif  /* Of #ifndef _LUUZCAT_H */

@@ -28,5 +28,9 @@
 *.gz
 # Compact compressed test files.
 *.bin.C
-*.z
 # pack (old or new) compressed test files.
+*.z
+# 4.3BSD-Quasijarus strong compression compressed test files.
+*.qz
+# zlib compressed test files.
+*.zlib

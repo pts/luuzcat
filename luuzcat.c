@@ -76,6 +76,10 @@ main0() {
     if (b == 0x1f) {
       if ((b = try_byte()) == 0xa0) {
         decompress_scolzh_nohdr();
+      } else if (b == 0x8b) {
+        decompress_gzip_nohdr();
+      } else if (b == 0xa1) {
+        decompress_quasijarus_nohdr();
       } else if (b == 0xff) {  /* This is the less common signature for Compact. */
         do_compact: decompress_compact_nohdr();
       } else if (b == 0x1f) {
@@ -89,6 +93,9 @@ main0() {
       } else {
         goto bad_signature;
       }
+    } else if ((b & 0xf) == 8 && (b >> 4) < 8) {  /* CM byte for zlib. Valid values are 0x08, 0x18, ..., 0x78. Check that CM == 8, check that CINFO <= 7, otherwise ignore CINFO (sliding window size). */
+      if (((b = get_byte()) & 0x20)) goto bad_signature;  /* FLG byte. Check that FDICT == 0. Ignore FLEVEL and FCHECK. */
+      decompress_zlib_nohdr();
     } else {
       bad_signature: fatal_msg("compressed signature not recognized" LUUZCAT_NL);
     }

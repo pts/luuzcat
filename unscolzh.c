@@ -283,7 +283,7 @@ void decompress_scolzh_nohdr(void) {
 
 #if 0  /* The caller has already done this. */
   i = try_byte();
-  if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* !! This is not an error for `gzip -cd'. */
+  if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* This is not an error for `gzip -cd'. */
   if (i != 0x1f || try_byte() != 0xa0) fatal_msg("missing scolzh signature" LUUZCAT_NL);
 #endif
   subbitbuf8 = subbitcount = 0;
@@ -340,5 +340,5 @@ void decompress_scolzh_nohdr(void) {
     }
   }
   /* Now: bitbuf16 is empty, and subbitbuf8 contains 0..7 bits of the last, partially processed byte. All subsequent bytes are in global_read_buffer. */
-  flush_write_buffer(write_idx);  /* !! Flush it even when fatal_msg(...). */
+  flush_write_buffer(write_idx);  /* !! Flush it even when fatal_msg(...). Do it everywhere. */
 }

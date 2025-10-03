@@ -82,8 +82,8 @@
 #    include <stdlib.h>  /* exit(...), abort(...). */
 #    include <string.h>
 #    include <limits.h>   /* INT_MAX. */
-    /* Turbo C++ 1.01 defines __MSDOS__. OpenWatcom C compiler defines __DOS__, __NT__ or __OS2__. */
-#    if defined(MSDOS) || defined(_MSDOS) || defined(_WIN32) || defined(_WIN64) || defined(__DOS__) || defined(__NT__) || defined(__MSDOS__) || defined(__OS2__)
+    /* Turbo C++ 1.01 defines __MSDOS__. OpenWatcom C compiler defines __DOS__, __COM__, __NT__ or __OS2__. */
+#    if defined(MSDOS) || defined(_MSDOS) || defined(_WIN32) || defined(_WIN64) || defined(__DOS__) || defined(__COM__) || defined(__NT__) || defined(__MSDOS__) || defined(__OS2__)
 #      include <fcntl.h>  /* O_BINARY. */
 #      include <io.h>  /* read(...), write(...), setmode(...). */
 #    else

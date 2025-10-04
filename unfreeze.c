@@ -4,7 +4,24 @@
  * The base source file are part of the archive downloaded from
  * https://ibiblio.org/pub/linux/utils/compress/freeze-2.5.0.tar.gz
  *
- * Both Freeze 1.x and 2.x use adaptive Huffman + LZ.
+ * Both Freeze 1.x and 2.x use adaptive Huffman + LZ. The LZ ring buffer
+ * window size is 4 KiB for Freeze 1.x and 8 KiB for Freeze 2.x.
+ *
+ * The compressed data format is similar in design to that of LHA's "lh" compression methods.
+ *
+ * Codes (i.e. literal bytes and LZ match length is the same alphabet) are
+ * compressed with adaptive Huffman coding. For the Freeze 2.x format, offsets
+ * are decoded with the help of a static Huffman tree stored near the beginning
+ * of the file. For the Freeze 1.x format, a predefined Huffman-like code is
+ * used. The adaptive Huffman format is derived from LZHUF.
+ *
+ * Freeze is written by Leonid A. Broukhis.
+ *
+ * Freeze 2.1 was released on 1991-03-25, see e.g. this Usenet post on
+ * comp.sources.misc:
+ * http://cd.textfiles.com/sourcecode/usenet/compsrcs/misc/volume17/freeze/part01
+ *
+ * Freeze 2.5 was released on 1999-05-20.
  */
 
 #include "luuzcat.h"
@@ -18,6 +35,9 @@
 #define WINSIZE (MAXDIST + LOOKAHEAD)  /* must be a power of 2 */
 #if WINSIZE > WRITE_BUFFER_SIZE
 # error Write buffer too small.
+#endif
+#if !WRITE_BUFFER_SIZE || (WRITE_BUFFER_SIZE) & (WRITE_BUFFER_SIZE - 1)
+#  error Size of write buffer is not a power of 2.  /* This is needed for `& (WRITE_BUFFER_SIZE - 1U)' below. */
 #endif
 #define WINMASK (WINSIZE - 1)
 
@@ -198,7 +218,7 @@ static void update(register unsigned int c) {
 }
 
 /* Decodes the literal or length info and returns its value. Returns ENDOF, if the file is corrupt. */
-static unsigned int DecodeChar(void) {
+static unsigned int decode_token(void) {
   register unsigned int c = huffman_r;
 
 #ifdef DO_FILL_BITS
@@ -228,7 +248,7 @@ static unsigned int DecodeChar(void) {
 }
 
 /* Decodes the position info and returns it */
-static unsigned int DecodePosition(void) {
+static unsigned int decode_distance(ub8 is_freeze1) {
   register unsigned int i, j;
 
   /* Upper 6 bits can be coded by a byte (8 bits) or less,
@@ -239,24 +259,13 @@ static unsigned int DecodePosition(void) {
 #endif
   /* decode upper 6 bits from the table */
   i = GetByte();
-  j = (big.freeze.code[i] << 7) | ((i << big.freeze.d_len[i]) & 0x7F);
+  if (is_freeze1) {
+    j = (big.freeze.code[i] << 6) | ((i << big.freeze.d_len[i]) & 0x3F);
+  } else {
+    j = (big.freeze.code[i] << 7) | ((i << big.freeze.d_len[i]) & 0x7F);
+  }
 
   /* get lower 7 bits literally */
-#ifdef DO_FILL_BITS
-  if (sizeof(bitbuf) < 4) FillBits();
-#endif
-  return j | GetNBits(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
-}
-
-/* Old version of a routine above for handling files made by the 1st version of Freeze. */
-static unsigned int DecodePosition1(void) {
-  register unsigned int i, j;
-
-#ifdef DO_FILL_BITS
-  FillBits();
-#endif
-  i = GetByte();
-  j = (big.freeze.code[i] << 6) | ((i << big.freeze.d_len[i]) & 0x3F);
 #ifdef DO_FILL_BITS
   if (sizeof(bitbuf) < 3) FillBits();
 #endif
@@ -302,40 +311,43 @@ static void init(const um8 *table) {
 #endif
 }
 
-void decompress_freeze1_nohdr(void) {  /* Decompress Freeze 1.x compressed data. */
-  register unsigned int i, j, write_idx, c;
-
-#if 0  /* The caller has already done this. */
-  i = try_byte();  /* First byte is ID1, must be 0x1f. */
-  if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* This is not an error for `gzip -cd'. */
-  if (i != 0x1f || try_byte() != 0x9e) fatal_msg("missing Freeze 1.x signature" LUUZCAT_NL);
-#endif
-  StartHuff(N_CHAR1);
-  init(table1);
-  InitIO();
-  for (i = N1 - F1; i < N1; i++) {  /* Why is this needed? Why not initialize the entire global_write_buffer? */
+static void decompress_freeze_common(unsigned int i, ub8 is_freeze1) {
+  register unsigned int j, write_idx, c;
+  for (; i < WRITE_BUFFER_SIZE; ++i) {  /* Why is this needed? Why not initialize the entire global_write_buffer? */
     global_write_buffer[i] = ' ';
   }
+  InitIO();
   write_idx = 0;
   for (;;) {
-    if ((c = DecodeChar()) == ENDOF) break;
+    if ((c = decode_token()) == ENDOF) break;
     if (c < 256) {
-      global_write_buffer[write_idx++] = c;
-      if ((write_idx &= (N1 - 1)) == 0) flush_write_buffer(N1);
+      global_write_buffer[write_idx] = c;
+      if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
     } else {
-      i = (write_idx - DecodePosition1() - 1) & (N1 - 1);
+      i = write_idx - decode_distance(is_freeze1) - 1;
       j = c - 256 + THRESHOLD;
       do {
-        global_write_buffer[write_idx++] = global_write_buffer[i++ & (N1 - 1)];
-        if ((write_idx &= (N1 - 1)) == 0) flush_write_buffer(N1);
+        global_write_buffer[write_idx] = global_write_buffer[i++ & (WRITE_BUFFER_SIZE - 1)];
+        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
       } while (--j != 0);
     }
   }
   flush_write_buffer(write_idx);
 }
 
+void decompress_freeze1_nohdr(void) {  /* Decompress Freeze 1.x compressed data. */
+#if 0  /* The caller has already done this. */
+  unsigned int i = try_byte();  /* First byte is ID1, must be 0x1f. */
+  if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* This is not an error for `gzip -cd'. */
+  if (i != 0x1f || try_byte() != 0x9e) fatal_msg("missing Freeze 1.x signature" LUUZCAT_NL);
+#endif
+  StartHuff(N_CHAR1);
+  init(table1);
+  decompress_freeze_common(WRITE_BUFFER_SIZE - F1, 1);
+}
+
 void decompress_freeze2_nohdr(void) {  /* Decompress Freeze 1.x compressed data. */
-  register unsigned int i, j, write_idx, c;
+  register unsigned int i, j;
 
 #if 0  /* The caller has already done this. */
   i = try_byte();  /* First byte is ID1, must be 0x1f. */
@@ -374,25 +386,5 @@ void decompress_freeze2_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
   big.freeze.table2[8] = i - j;
   StartHuff(N_CHAR2);
   init(big.freeze.table2);
-
-  InitIO();
-  for (i = WINSIZE - LOOKAHEAD; i < WINSIZE; i++) {  /* Why is this needed? Why not initialize the entire global_write_buffer? */
-    global_write_buffer[i] = ' ';
-  }
-  write_idx = 0;
-  for (;;) {
-    if ((c = DecodeChar()) == ENDOF) break;
-    if (c < 256) {
-      global_write_buffer[write_idx++] = c;
-      if ((write_idx &= WINMASK) == 0) flush_write_buffer(WINSIZE);
-    } else {
-      i = (write_idx - DecodePosition() - 1) & WINMASK;
-      j = c - 256 + THRESHOLD;
-      do {
-        global_write_buffer[write_idx++] = global_write_buffer[i++ & WINMASK];
-        if ((write_idx &= WINMASK) == 0) flush_write_buffer(WINSIZE);
-      } while (--j != 0);
-    }
-  }
-  flush_write_buffer(write_idx);
+  decompress_freeze_common(WRITE_BUFFER_SIZE - LOOKAHEAD, 0);
 }

@@ -1,5 +1,7 @@
 /* based on and derived from freeze-2.5.0/{bitio.h,freeze.h,huf.h,bitio.c,decode.c,huf.c}
- * porting by pts@fazekas.hu at Sat Oct  4 03:56:40 CEST 2025
+ * porting and extra error handling by pts@fazekas.hu at Sat Oct  4 03:56:40 CEST 2025
+ *
+ * pts has added some error handling, mostly with match_distance_limit.
  *
  * The base source file are part of the archive downloaded from
  * https://ibiblio.org/pub/linux/utils/compress/freeze-2.5.0.tar.gz
@@ -311,10 +313,15 @@ static void init(const um8 *table) {
 #endif
 }
 
-static void decompress_freeze_common(unsigned int i, ub8 is_freeze1) {
-  register unsigned int j, write_idx, c;
-  for (; i < WRITE_BUFFER_SIZE; ++i) {  /* Why is this needed? Why not initialize the entire global_write_buffer? */
-    global_write_buffer[i] = ' ';
+static void decompress_freeze_common(unsigned int match_distance_limit, ub8 is_freeze1) {
+  register unsigned int match_length, write_idx, c, match_distance;
+
+  /* Initialize the dictionary (ring buffer window) to match_distance_limit
+   * number of spaces (' '). This a quirk of the Freeze format. In other
+   * formats, match_distance limit is 0 here.
+   */
+  for (match_distance = WRITE_BUFFER_SIZE - match_distance_limit; match_distance < WRITE_BUFFER_SIZE; ++match_distance) {
+    global_write_buffer[match_distance] = ' ';
   }
   InitIO();
   write_idx = 0;
@@ -323,13 +330,17 @@ static void decompress_freeze_common(unsigned int i, ub8 is_freeze1) {
     if (c < 256) {
       global_write_buffer[write_idx] = c;
       if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+      if (match_distance_limit < 0x8000U) ++match_distance_limit;
     } else {
-      i = write_idx - decode_distance(is_freeze1) - 1;
-      j = c - 256 + THRESHOLD;
+      match_length = c - 256 + THRESHOLD;
+       /* Now match_length contains the LZ match length and (after the assignment in the next line match_distance contains the LZ match distance. */
+      if ((match_distance = decode_distance(is_freeze1)) >= match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */
+      if ((match_distance_limit += match_length) >= 0x8000U) match_distance_limit = 0x8000U;  /* This doesn't overflow an um16, because old match_distance_limit <= 0x8000U and match_length < 0x8000U. */
+      match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
       do {
-        global_write_buffer[write_idx] = global_write_buffer[i++ & (WRITE_BUFFER_SIZE - 1)];
+        global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
         if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
-      } while (--j != 0);
+      } while (--match_length != 0);
     }
   }
   flush_write_buffer(write_idx);
@@ -343,7 +354,7 @@ void decompress_freeze1_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
 #endif
   StartHuff(N_CHAR1);
   init(table1);
-  decompress_freeze_common(WRITE_BUFFER_SIZE - F1, 1);
+  decompress_freeze_common(F1, 1);
 }
 
 void decompress_freeze2_nohdr(void) {  /* Decompress Freeze 1.x compressed data. */
@@ -386,5 +397,5 @@ void decompress_freeze2_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
   big.freeze.table2[8] = i - j;
   StartHuff(N_CHAR2);
   init(big.freeze.table2);
-  decompress_freeze_common(WRITE_BUFFER_SIZE - LOOKAHEAD, 0);
+  decompress_freeze_common(LOOKAHEAD, 0);
 }

@@ -82,6 +82,8 @@ main0() {
         decompress_quasijarus_nohdr();
       } else if (b == 0xff) {  /* This is the less common signature for Compact. */
         do_compact: decompress_compact_nohdr();
+      } else if (b == 0x1e) {
+        decompress_pack_nohdr();
       } else if (b == 0x1f) {
         decompress_opack_nohdr();
       } else {

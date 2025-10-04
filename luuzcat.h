@@ -253,6 +253,15 @@ struct opack_big {
   um16 tree[OPACK_TREESIZE];
 };
 
+#define PACK_EOF_IDX 256
+
+struct pack_big {
+  um16 leaf_count[24];  /* leaf_count[i] is the number of leaves on level i. Can be 0..257. */
+  um8 intnode_count[24];  /* intnode_count[i] is the number of internal nodes on level i. Can be 0..254. */
+  um16 byte_indexes[24];  /* This is an index in .bytes (0..255), or 1 more to indicate EOF. Even a valid index can be EOF if there are less bytes. */
+  um8 bytes[256];
+};
+
 typedef um8 deflate_huffman_bit_count_t;
 
 #define DEFLATE_MAX_TREE_SIZE 1490
@@ -268,6 +277,7 @@ extern union big_big {
   struct scolzh_big scolzh;
   struct compact_big compact;
   struct opack_big opack;
+  struct pack_big pack;
   struct deflate_big deflate;
 } big;
 
@@ -278,6 +288,7 @@ extern union big_big {
 void decompress_scolzh_nohdr(void);
 void decompress_compact_nohdr(void);
 void decompress_opack_nohdr(void);
+void decompress_pack_nohdr(void);
 void decompress_deflate(void);
 #if 0
   void decompress_quasijarus_nohdr(void)

@@ -34,3 +34,5 @@
 *.qz
 # zlib compressed test files.
 *.zlib
+# Freeze compressed test files.
+*.F

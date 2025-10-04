@@ -86,6 +86,10 @@ main0() {
         decompress_pack_nohdr();
       } else if (b == 0x1f) {
         decompress_opack_nohdr();
+      } else if (b == 0x9e) {
+        decompress_freeze1_nohdr();
+      } else if (b == 0x9f) {
+        decompress_freeze2_nohdr();
       } else {
         goto bad_signature;
       }

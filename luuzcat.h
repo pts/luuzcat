@@ -272,6 +272,19 @@ struct deflate_big {
   deflate_huffman_bit_count_t huffman_bit_count_ary[DEFLATE_BIT_COUNT_ARY_SIZE];
 };
 
+#define FREEZE_N_CHAR2 511
+#define FREEZE_T2 2043
+
+struct freeze_big {
+  um16 freq[FREEZE_T2 + 1];  /* Frequency table. */
+  um16 child[FREEZE_T2];  /* Points to child node (child[i], child[i+1]). */
+  um16 parent[FREEZE_T2 + FREEZE_N_CHAR2];  /* Points to parent node. */
+  uc8 p_len[64];
+  uc8 d_len[256];
+  um8 code[256];
+  um8 table2[9];
+};
+
 /* This contains the large arrays other than global_read_buffer and global_write_buffer. */
 extern union big_big {
   struct scolzh_big scolzh;
@@ -279,6 +292,7 @@ extern union big_big {
   struct opack_big opack;
   struct pack_big pack;
   struct deflate_big deflate;
+  struct freeze_big freeze;
 } big;
 
 /* This is always true, otherwise there is no way to communicate the write_idx. !! Add global_write_idx. */
@@ -297,5 +311,7 @@ void decompress_deflate(void);
 #endif
 void decompress_zlib_nohdr(void);
 void decompress_gzip_nohdr(void);
+void decompress_freeze1_nohdr(void);
+void decompress_freeze2_nohdr(void);
 
 #endif  /* Of #ifndef _LUUZCAT_H */

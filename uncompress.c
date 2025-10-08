@@ -101,6 +101,9 @@
 #if READ_BUFFER_SIZE + READ_BUFFER_EXTRA > 0xffffU - READ_BUFFER_EXTRA - BITS  /* BITS is included here for posbyte_after_read calculations. */
 #  error Input buffer too large for 16-bit compress (LZW) calculations.
 #endif
+#if READ_BUFFER_SIZE < 15  /* Needed by `global_inptr += discard_byte_count'. */
+#  error Input buffer too small for compress (LZW) calculations.
+#endif
 
 #define BITMASK    0x1f /* Mask for 'number of compression bits' */
 /* Mask 0x20 is reserved to mean a fourth header byte, and 0x40 is free.
@@ -358,9 +361,9 @@ void decompress_compress_nohdr(void) {
   ub8 is_very_first_code;
   uc8 finchar;
   uint code_count;
+  uint code_count_remainder;  /* Only the low 3 bits matter, so it can overflow. */
   um8 posbiti;  /* 0 <= posbiti <= 7. */
-  uint posbyte_after_read;
-  uint discard_byte_count;
+  uint discard_byte_count;  /* 0 <= discard_byte_count <= 15. */
   uint write_idx;  /* 0 <= write_idx <= WRITE_BUFFER_SIZE. */
   uint bitmask;  /* 0 <= bitmask <= 0xffffU. */
   uint free_ent1;  /* 255 <= free_ent1 <= 0xffffU. */
@@ -407,7 +410,7 @@ void decompress_compress_nohdr(void) {
   free_ent1 = FIRST - 1;
   if (!block_mode) --free_ent1;
   discard_byte_count = 0;
-  posbyte_after_read = 0;
+  code_count_remainder = 0;
   for (;;) {
     if (global_insize - global_inptr < discard_byte_count) {
       discard_byte_count -= global_insize - global_inptr;
@@ -456,10 +459,10 @@ void decompress_compress_nohdr(void) {
 #ifdef USE_CHECK
     if (code_count == 0) abort();  /* Can't happen here. */
 #endif
+    code_count_remainder += code_count;
     if (is_very_first_code) {  /* Happens at the very beginning of the input only. */
       code = global_read_buffer[global_inptr++];
       if ((global_read_buffer[global_inptr] & 1) != 0) fatal_corrupted_input();  /* First code must be 0 <= code <= 255. */
-      ++posbyte_after_read;  /* = 1. */
       ++posbiti;  /* Advance 9 bits by increasing this from 0 to 1. */
 #ifdef USE_DEBUG
       if (code >= 256U) abort();  /* Implied by the assignment above. */
@@ -469,7 +472,6 @@ void decompress_compress_nohdr(void) {
       global_write_buffer[write_idx++] = (finchar = (uc8)(oldcode = code));
       if (--code_count == 0) continue;
     }
-    posbyte_after_read -= global_inptr;  /* An underflow is OK here, the (3 instances of) `+=' below will cancel it. */
    maybe_next_code:
 #ifdef USE_DEBUG
     if (0) fprintf(stderr, "READ code_count=%lu inptr=%lu %lu/%lu\n", (unsigned long)code_count, (unsigned long)global_inptr, (unsigned long)free_ent1, (unsigned long)(unsigned short)maxcode);
@@ -478,21 +480,37 @@ void decompress_compress_nohdr(void) {
 #ifdef USE_DEBUG
       fprintf(stderr, "INCBITS inptr=%lu\n", (unsigned long)global_inptr);
 #endif
-      if (posbiti != 0) { ++global_inptr; posbiti = 0; }
-      posbyte_after_read += global_inptr;  /* Undo possible underflow. */
-      if ((posbyte_after_read %= n_bits) != 0) posbyte_after_read = n_bits - posbyte_after_read;
       ++n_bits;
       bitmask <<= 1; ++bitmask;  /* Faster than bitmask = (1U << n_bits) - 1U; */
       maxcode <<= 1; ++maxcode;
       if (n_bits == maxbits) ++maxcode;  /* This may overflow from 0xffffU to 0U. That's OK. */
-     do_discard_posbyte_remainder:
-      /* Discarding of additional bytes here (if posbyte_after_read > 0) is
+      if (n_bits == 10 && !block_mode) {
+#ifdef USE_CHECK
+        if (posbiti != 1) abort();
+        if (((code_count_remainder - code_count) & 7) != 1) abort();
+#endif
+        posbiti = 0;
+        discard_byte_count = 8;
+      } else {
+        /* Except for the first increment of bits in non-block mode, all the
+         * remainders are 0 now, because the modulus is old_n_bits << 3
+         * bits, and actually old_n_bits << (old_nbits - 1) bits have been
+         * read since the last discard, and old_nbits - 1 >= 3. Thus we
+         * don't have to do anything here.
+         */
+#ifdef USE_CHECK
+        if (posbiti != 0) abort();
+        if (((code_count_remainder - code_count) & 7) != 0) abort();
+        if (discard_byte_count != 0) abort();
+#endif
+      }
+     do_discard_bytes:
+      code_count_remainder = 0;
+      /* Discarding of additional bytes here (if discard_byte_count > 0) is
        * a backward-compatible quirk of the compress format. The compressed
        * file would have been shorter if the compressor had omitted these
        * bytes in the first place.
        */
-      discard_byte_count = posbyte_after_read;
-      posbyte_after_read = 0;
       continue;
     }
     /* Now: 9 == INIT_BITS <= n_bits <= maxbits <= BITS == 16. */
@@ -526,13 +544,13 @@ void decompress_compress_nohdr(void) {
 #endif
       /* !! Report unnecessary code in gzip-1.14: clear_tab_prefixof(). The size 256 is also buggy. */
       if (posbiti != 0) { ++global_inptr; posbiti = 0; }
-      posbyte_after_read += global_inptr;  /* Undo possible underflow. */
-      if ((posbyte_after_read %= n_bits) != 0) posbyte_after_read = n_bits - posbyte_after_read;
+      discard_byte_count = (((code_count_remainder - code_count) & 7) * n_bits + 7) >> 3;
+      if ((discard_byte_count %= n_bits) != 0) discard_byte_count = n_bits - discard_byte_count;
       free_ent1 = FIRST - 1 - 1;
       n_bits = INIT_BITS;
       maxcode = (1U << INIT_BITS) - 1U;  /* Doesn't overflow 0xffffU. */
       bitmask = ((1U << (INIT_BITS - (sizeof(unsigned int) > 2 ? 0 : 8))) - 1U);
-      goto do_discard_posbyte_remainder;
+      goto do_discard_bytes;
     }
     incode = code;
     /* Good C compilers keep only one of the `if' branches below, eliminating the other one from the executable. */
@@ -640,8 +658,6 @@ void decompress_compress_nohdr(void) {
     }
     oldcode = incode;   /* Remember previous code. */
     if (code_count != 0) goto maybe_next_code;
-    posbyte_after_read += global_inptr;  /* Undo possible underflow. */
-    posbyte_after_read %= n_bits;  /* To avoid overflow. */
   }
   if (global_insize - global_inptr != (posbiti > 0)) fatal_corrupted_input();  /* Unexpected EOF. */
   flush_write_buffer(write_idx);

@@ -25,7 +25,7 @@
 
 static um16 get_16be(void) {  /* Big-endian word. */
   const um8 high = get_byte();
-  return high << 8 | get_byte();
+  return (high << 8) | get_byte();
 }
 
 void decompress_pack_nohdr(void) {

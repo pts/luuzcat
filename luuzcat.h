@@ -332,7 +332,7 @@ struct deflate_big {
 #define FREEZE_T2 2043
 
 struct compress_big {
-  uc8 dummy;  /* Unused. compress doesn't have any big data structures to contribute. */
+  uc8 dummy[1];  /* Used just as a placeholder. compress doesn't have any big data structures to contribute. */
 };
 
 struct freeze_big {

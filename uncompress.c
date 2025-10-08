@@ -18,6 +18,10 @@
  * * read optimization: reduced the amount of byte copies before reading
  *   to a buffer to 2 (previously it could be thousands of bytes)
  * * lots of small optimizations such a for bit reading and bit counting
+ * * speed optimization for long code strings (e.g. for input files with
+ *   long runs of the same byte): using memcpy(...)
+ *   when copying from lzw_stack to global_write_buffer has make it ~1.632
+ *   times faster
  *
  * pts has added a memory optimization for reading and writing. pts has
  * added 16-bit support (i.e. no operations on `long').
@@ -82,10 +86,6 @@
 
 #include "luuzcat.h"
 
-#if READ_BUFFER_SIZE + READ_BUFFER_EXTRA > 0xffffU - READ_BUFFER_EXTRA - BITS  /* BITS is included here for posbyte_after_read calculations. */
-#  error Input buffer too large for 16-bit compress (LZW) calculations.
-#endif
-
 /* Below p is a const uc8* (const unsigned char*). */
 #ifdef IS_UNALIGNED_LE
 #  define LOAD_UINT_16BP(p) (((const um16*)(p))[0])  /* This does READ_BUFFER_OVERSHOOT. */
@@ -97,6 +97,10 @@
 
 #define BITS 16
 #define INIT_BITS 9              /* Initial number of bits per code */
+
+#if READ_BUFFER_SIZE + READ_BUFFER_EXTRA > 0xffffU - READ_BUFFER_EXTRA - BITS  /* BITS is included here for posbyte_after_read calculations. */
+#  error Input buffer too large for 16-bit compress (LZW) calculations.
+#endif
 
 #define BITMASK    0x1f /* Mask for 'number of compression bits' */
 /* Mask 0x20 is reserved to mean a fourth header byte, and 0x40 is free.
@@ -164,23 +168,23 @@ typedef unsigned int uint;
   static um16 tab_prefix_ary[(1UL << BITS) - 256U];  /* ~128 KiB. Prefix for each code. */
 #  define tab_prefixof(code) (tab_prefix_ary - 256)[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffixof(code) (tab_suffix_ary - 256)[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_prefix_get(code) tab_prefixof(code)
-#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))
-#  define tab_suffix_get(code) tab_suffixof(code)
-#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))
+#  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init() do {} while (0)
 #endif
-#if IS_DOS_16 && defined(__WATCOMC__)
-  /* This is the optimized far pointer implementation of the larger arrays
+#if IS_DOS_16 && defined(__WATCOMC__) && !defined(__TURBOC__)
+  /* This is the optimized far pointer implementation of the large arrays
    * for the OpenWatcom C compiler targeting DOS 8086.
    */
-  static uc8 lzw_stack[1];  /* Dummy, unused. */
+#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
 #  if 0  /* This works. */
-    static um16 tab_prefix_get(um16 code) { return *((const um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))); }
-    static void tab_prefix_set(um16 code, um16 value) {  *((um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))) = value; }
-    static uc8  tab_suffix_get(um16 code) { return *((const uc8 __far*)((tab_suffix_seg :> code))); }
-    static void tab_suffix_set(um16 code, uc8 value) {  *((uc8 __far*)((tab_suffix_seg :> code))) = value; }
+    static um16 tab_prefix_get(um16 code) { return *((const um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))); }  /* Indexes 0 <= code < 256 are invalid and unused. */
+    static void tab_prefix_set(um16 code, um16 value) {  *((um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))) = value; }  /* Indexes 0 <= code < 256 are invalid and unused. */
+    static uc8  tab_suffix_get(um16 code) { return *((const uc8 __far*)((tab_suffix_seg :> code))); }  /* Indexes 0 <= code < 256 are invalid and unused. */
+    static void tab_suffix_set(um16 code, uc8 value) {  *((uc8 __far*)((tab_suffix_seg :> code))) = value; }  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  else  /* This is the optimized alternative in __WATCOMC__ 8086 assembly. */
     static um16 tab_prefix_get(um16 code);
     /* tab_prefix_get(...) works with __modify [__es] and __modify [__es __bx], but it doesn't work with __modify __exact [es __bx] */
@@ -216,40 +220,93 @@ typedef unsigned int uint;
     if (TAB_PARA_COUNT + DOS_COM_PROG_PARA_COUNT > get_prog_mem_end_seg() - get_psp_seg()) fatal_out_of_memory();
     segment = get_psp_seg() + (TAB_PARA_COUNT + DOS_COM_PROG_PARA_COUNT);
 #  else
-    a = halloc(((unsigned long)TAB_SEG_COUNT) << 4, 1);  /* Always returns offset = 0. */  /* !! Reuse this between different decompressors. */
+    a = halloc(((unsigned long)TAB_PARA_COUNT) << 4, 1);  /* Always returns offset = 0. */  /* !! Reuse this between different decompressors (hfree(...)?). */
     segment = (unsigned long)a >> 16;
-    if (!segment || (unsigned short)a) fatal_out_of_memory();
+    if (segment == 0U || (unsigned short)a != 0U) fatal_out_of_memory();
 #  endif
     tab_prefix0_seg = segment - (256U >> 4);  /* For each code, it contains the last byte. */
     tab_prefix1_seg = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4);  /* Prefix for even codes. */
     tab_suffix_seg  = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4) * 2;  /* Prefix for odd codes. */
   }
 #endif
-#if IS_DOS_16 && !defined(__WATCOMC__)
+#if IS_DOS_16 && 0 && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the basic (unoptimized but working) far pointer implementation
    * of the larger arrays with the DOS 8086 target. Currently it works with
    * the OpenWatcom C compiler, but with some work it could be made work for
-   * Turbo C++ as 1.x well.
+   * other compilers as well.
    *
    * Unfortunately, OpenWatcom, for each byte in the arrays below, adds a
-   * NUL byte to the .exe. There is no way to add global __far variables to
+   * NUL byte to the .exe. There is no way to add global far variables to
    * _BSS. The optimized implementation above avoids this problem by using
    * dynamic memory allocation with halloc(...) instead.
    */
-  /* !! Implement it for Turbo C++ 1.x. How large are the NUL bytes in the .exe? Is there halloc or _fmalloc? */
-  static uc8 lzw_stack[1];  /* Dummy, unused. */
-  static uc8  __far tab_suffix_ary[1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
-  /* !! __far codes for __WATCOMC__ -- what do we do for __TURBOC__? */
-  static um16 __far tab_prefix0[(1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
-  static um16 __far tab_prefix1[(1UL << BITS) - 256U) >> 1];  /* Prefix for odd  codes. */
-  um16 __far *tab_prefix[2];
-#  define tab_prefixof(code) tab_prefix[(code) & 1][((code) - 256U) >> 1]
-#  define tab_prefix_get(code) tab_prefixof(code)
-#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))
-#  define tab_suffixof(code) tab_suffix_ary[(code) - 256U]
-#  define tab_suffix_get(code) tab_suffixof(code)
-#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))
-#  define tab_init() do { tab_prefix[0] = tab_prefix0; tab_prefix[1] = tab_prefix1; } while (0)
+#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+  static uc8  __far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
+  static um16 __far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
+  static um16 __far tab_prefix1_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for odd  codes. */
+  um16 __far *tab_prefix_fptr_ary[2];
+#  define tab_prefixof(code) tab_prefix_fptr_ary[(code) & 1][((code) - 256U) >> 1]  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffixof(code) tab_suffix_ary[(code) - 256U]  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_init() do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
+#endif
+#if IS_DOS_16 && !defined(__WATCOMC__) && defined(__TURBOC__)
+  /* This is the memory-optimized (but not speed-optimized) far pointer
+   * implementation of the large arrays for the Turbo C++ 1.00 or 1.01
+   * compilers targeting DOS 8086. Don't specify the `-A' flag at compile
+   * time, it will hide the `far' keyword needed here.
+   *
+   * To avoid adding NUL bytes to the .exe, we use allocmem(...) to allocate
+   * these arrays. We don't need them initialized.
+   */
+#  include <dos.h>  /* For Turbo C++ allocmem(...), MK_FP(...) and FP_SEG(...). */
+#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+  static uc8 far *tab_suffix_fptr;  /* [(1UL << BITS) - 256U]. For each code, it contains the last byte. */
+  um16 far *tab_prefix_fptr_ary[2];  /* [((1UL << BITS) - 256U) >> 1]. [0] is prefix for even codes, [1] is prefix for odd codes. */
+#  define tab_prefixof(code) tab_prefix_fptr_ary[(code) & 1][(code) >> 1]  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffixof(code) tab_suffix_fptr[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+  static void tab_init(void) {
+#  define TAB_PARA_COUNT (unsigned short)((((1UL << BITS) - 256U) * 3 + 15) >> 4)  /* Number of 16-byte paragraphs needed by tables above. */
+    unsigned segment;
+    if (FP_SEG(tab_suffix_fptr) != 0) return;  /* Prevent subsequent initialization. */
+    segment = 0;  /* In case allocmem(...) doesn't set it on failure. */
+    (void)allocmem(TAB_PARA_COUNT, &segment);  /* !! Reuse this between different decompressors (hfree(...)?). */
+    if (segment == 0U) fatal_out_of_memory();
+    tab_prefix_fptr_ary[0] = MK_FP(segment - (256U >> 4), 0);  /* For each code, it contains the last byte. */
+    tab_prefix_fptr_ary[1] = MK_FP(segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4), 0);  /* Prefix for even codes. */
+    tab_suffix_fptr        = MK_FP(segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4) * 2, 0);  /* Prefix for odd codes. */
+  }
+#endif
+#if IS_DOS_16 && 0 && !defined(__WATCOMC__) && defined(__TURBOC__)
+  /* This is the basic (unoptimized but working) far pointer implementation
+   * of the large arrays for the Turbo C++ 1.00 or 1.01 compilers targeting
+   * DOS 8086. Don't specify the `-A' flag at compile time, it will hide
+   * the `far' keyword needed here.
+   *
+   * Unfortunately, Turbo C++, for each byte in the arrays below, adds a
+   * NUL byte to the .exe. There is no way to add global far variables to
+   * _BSS. The optimized implementation above avoids this problem by using
+   * dynamic memory allocation with allocmem(...) instead.
+   */
+#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+  static uc8  far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
+  static um16 far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
+  static um16 far tab_prefix1_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for odd  codes. */
+  um16 far *tab_prefix_fptr_ary[2];
+#  define tab_prefixof(code) tab_prefix_fptr_ary[(code) & 1][((code) - 256U) >> 1]  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffixof(code) tab_suffix_ary[(code) - 256U]  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_init() do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
 #endif
 
 /* A helper function for calculating code_count. */
@@ -275,8 +332,13 @@ typedef unsigned int uint;
       "xchg cx, ax"  "xchg ax, dx"  "xor dx, dx"  "div bx"  "add ax, cx" \
       __parm [__ax] [__bx] [__ch] __value [__ax] __modify [__cx __dx]
 #endif
-#if DIVMODCALC == 4  /* Optimized 8086 assembly implementation which uses only 1 div. */  /* !! cbw if diff is small, here and above */
+#if DIVMODCALC == 4  /* Optimized 8086 assembly implementation which uses only 1 div. */
   static unsigned divmodcalc(unsigned diff, unsigned n_bits, unsigned char posbiti);
+  /* Unfortunately we can't use the shorter `cbw' instead of `xor dx ,dx'
+   * here, because `cbw' works if AX (diff) < 0x7fffU, and it can be a bit
+   * larger: it's maximum value, READ_BUFFER_SIZE + READ_BUFFER_EXTRA is
+   * 0x8002U.
+   */
 #  pragma aux divmodcalc = "xor dx, dx"  "shl ax, 1"  "rcl dx, 1"  \
       "shl ax, 1"  "rcl dx, 1"  "shl ax, 1"  "rcl dx, 1"  "sub ax, cx" \
       "sbb dx, 0"  "div bx" \
@@ -446,7 +508,7 @@ void decompress_compress_nohdr(void) {
       if (sizeof(unsigned int) > 2) {  /* Works for 1 <= n_bits <= 17, but we only use it for 9 <= n_bits <= 16. */
         code = (LOAD_UINT_24BP(&global_read_buffer[global_inptr]) >> posbiti) & bitmask;
       } else {  /* Works for 9 <= n_bits <= 16. */
-        code = ((LOAD_UINT_16BP(&global_read_buffer[global_inptr]) >> posbiti) & 0xffU) | ((LOAD_UINT_16BP(&global_read_buffer[global_inptr + 1]) >> posbiti) & bitmask) << 8;
+        code = ((LOAD_UINT_16BP(&global_read_buffer[global_inptr]) >> posbiti) & 0xffU) | (((LOAD_UINT_16BP(&global_read_buffer[global_inptr + 1]) >> posbiti) & bitmask) << 8);
       }
       ++global_inptr;
       if ((posbiti += n_bits - 8) > 7) {

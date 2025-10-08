@@ -42,7 +42,7 @@
 static um16 get_w(void) {
   /* (PDP-11) little-endian word. */
   const um16 low = get_byte();
-  return low | get_byte() << 8;
+  return low | (get_byte() << 8);
 }
 
 void decompress_opack_nohdr(void) {

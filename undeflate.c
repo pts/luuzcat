@@ -299,28 +299,28 @@ void decompress_zlib_nohdr(void) {
 #endif
   decompress_deflate();
   for (i = 4; i-- != 0; ) {  /* Skip ADLER32. */  /* !! Add code to check ADLER32. */
-    get_byte();
+    (void)get_byte();
   }
 }
 
 void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.txt */
   unsigned int i;
-  uc8 b, flg;
+  uc8 flg;
 
 #if 0  /* The caller has already done this. */
   unsigned int i = try_byte();  /* First byte is ID1, must be 0x1f. */
   if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* This is not an error for `gzip -cd'. */
   if (i != 0x1f || try_byte() != 0x8b) fatal_msg("missing gzip signature" LUUZCAT_NL);
 #endif
-  if ((b = get_byte()) != 8) fatal_corrupted_input();  /* CM byte. Check that CM == 8. */
+  if (get_byte() != 8) fatal_corrupted_input();  /* CM byte. Check that CM == 8. */
   flg = get_byte();  /* FLG byte. */
   for (i = 6; i-- != 0; ) {
-    get_byte();  /* Ignore MTIME (4 bytes), XFL (1 byte) and OS (1 byte). */
+    (void)get_byte();  /* Ignore MTIME (4 bytes), XFL (1 byte) and OS (1 byte). */
   }
   if ((flg & 2) != 0) fatal_corrupted_input();  /* The FHCRC enables GCONT (2-byte continuation part number) here for gzip(1), and header CRC16 later for https://www.rfc-editor.org/rfc/rfc1950.txt . We just fail if it's set. */
   if ((flg & 4) != 0) {  /* FEXTRA. Ignore the extra data. */
     for (i = read_bits_max_16(16); i-- != 0; ) {  /* Little-endian. It's OK to overlap bit reads with byte reads here, because we remain on byte boundary. */
-      get_byte();
+      (void)get_byte();
     }
   }
   if ((flg & 8) != 0) {  /* FNAME. Ignore the filename. */
@@ -332,11 +332,11 @@ void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.tx
   /* Now we could ignore the 2-byte CRC16 if (flg & 2), but we've disallowed it above. */
   if ((flg & 32) != 0) {  /* Ignore gzip(1) the encryption header. */
     for (i = 12; i-- != 0; ) {
-      get_byte();
+      (void)get_byte();
     }
   }
   decompress_deflate();
   for (i = 4 + 4; i-- != 0; ) {  /* Skip CRC32 and ISIZE. */  /* !! Add code to check CRC32 and ISIZE. */
-    get_byte();
+    (void)get_byte();
   }
 }

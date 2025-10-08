@@ -5,6 +5,7 @@
 *.out
 *.com
 *.c.[0-9]*
+/un[0-9].c
 /luuzcat
 /luuzcat.mini
 /luuzcat.exe

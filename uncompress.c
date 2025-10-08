@@ -396,8 +396,14 @@ void decompress_compress_nohdr(void) {
 #ifdef USE_DEBUG
   fprintf(stderr, "maxmaxcode1=%lu\n", (unsigned long)maxmaxcode1);
 #endif
-  /* !! report gzip-1.14 bug: Check maxbits < INIT_BITS as well! */
-  if (maxbits < INIT_BITS || maxbits > BITS) fatal_corrupted_input();
+  /* (n)compress never generates maxbits < INIT_BITS == 9 here, and it
+   * doesn't make sense, because n_bits remains 9, and 9 bits of input are
+   * used for each 8 bits of output. (CLEAR codes can make it even more
+   * wasteful.) But we allow it here, because the (n)compress 4.2.4
+   * decompressor and gzip-1.14/unlzw.c both accept it, and it's possible to
+   * do it without memory corruption.
+   */
+  if (maxbits > BITS) fatal_corrupted_input();
   rsize = global_insize;
   n_bits = INIT_BITS;
   maxcode = (1U << INIT_BITS) - 1U;  /* Doesn't overflow 0xffffU. */
@@ -516,7 +522,7 @@ void decompress_compress_nohdr(void) {
     /* Now: 9 == INIT_BITS <= n_bits <= maxbits <= BITS == 16. */
     /* Now: bitmask == (1UL << n_bits) - 1UL. */
 #ifdef USE_DEBUG
-    if (n_bits > (maxbits == 9 ? 10 : maxbits) || n_bits < INIT_BITS) abort();
+    if (n_bits > (maxbits == 9 ? 10 : maxbits) && maxbits >= INIT_BITS) abort();
 #endif
     /* Read n_bits (9 <= n_bits <= 16) from global_read_buffer at posbits, advance posbits. */
     if (n_bits == 16)  {  /* Shortcut. Now posbiti == 0. */

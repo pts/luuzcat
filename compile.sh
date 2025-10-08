@@ -2,7 +2,7 @@
 set -ex
 test "$0" = "${0%/*}" || cd "${0%/*}"
 
-gcc -m64 -fsanitize=address -g -O2 -ansi -pedantic -W -Wall -Wextra -o luuzcat luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
+gcc -m64 -fsanitize=address -g -O2 -ansi -pedantic -W -Wall -Wextra -Wstrict-prototypes -Werror-implicit-function-declaration -o luuzcat luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
 ./luuzcat <XFileMgro.sz >XFileMgro
     cmp XFileMgro.good XFileMgro
 ./luuzcat <test_C1.bin.C >test_C1.bin
@@ -57,6 +57,7 @@ g++ -m32 -s -O2 -ansi -pedantic -W -Wall -Wextra -o luuzcat luuzcat.c unscolzh.c
 ./luuzcat <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
+# TODO(pts): Compile with --gcc=4.8 and extra warnings?
 minicc -ansi -pedantic -Wno-n201 -o luuzcat luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
 ./luuzcat <XFileMgro.sz >XFileMgro
   cmp XFileMgro.good XFileMgro

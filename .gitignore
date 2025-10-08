@@ -8,6 +8,7 @@
 /luuzcat
 /luuzcat.mini
 /luuzcat.exe
+/luuzcat[0-9a-z].exe
 /luuzcat.*.exe
 /luuzcatc.com
 /kvikdos

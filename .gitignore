@@ -36,3 +36,6 @@
 *.zlib
 # Freeze compressed test files.
 *.F
+# (n)compress compressed test files.
+*.Z
+

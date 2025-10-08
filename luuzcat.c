@@ -35,18 +35,28 @@ __noreturn void fatal_read_error(void) { fatal_msg("read error" LUUZCAT_NL); }
 __noreturn void fatal_write_error(void) { fatal_msg("write error" LUUZCAT_NL); }
 __noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF" LUUZCAT_NL); }
 __noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input" LUUZCAT_NL); }
+__noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
 
-uc8 global_read_buffer[0x2000];  /* !! Overlap with deflate to save memory. */
+uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT];
 unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
 unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
+ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
 
 /* --- Reading. */
+
+void read_force_eof(void) {
+  global_insize = global_inptr = 0;
+  global_read_had_eof = 1;
+}
 
 unsigned int read_byte(ub8 is_eof_ok) {
   int got;
   if (global_inptr < global_insize) return global_read_buffer[global_inptr++];
-  if ((got = read(STDIN_FILENO, (char*)global_read_buffer, (int)sizeof(global_read_buffer))) < 0) fatal_read_error();
+  if (global_read_had_eof) goto already_eof;
+  if ((got = read(STDIN_FILENO, (char*)global_read_buffer, (int)READ_BUFFER_SIZE)) < 0) fatal_read_error();
   if (got == 0) {
+    ++global_read_had_eof;  /* = 1. */
+   already_eof:
     if (is_eof_ok) return BEOF;
     fatal_unexpected_eof();
   }
@@ -103,6 +113,8 @@ main0() {
         decompress_pack_nohdr();
       } else if (b == 0x1f) {
         decompress_opack_nohdr();
+      } else if (b == 0x9d) {
+        decompress_compress_nohdr();
       } else if (b == 0x9e) {
         decompress_freeze1_nohdr();
       } else if (b == 0x9f) {

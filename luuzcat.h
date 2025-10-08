@@ -2,7 +2,35 @@
 
 #ifndef _LUUZCAT_H
 #define _LUUZCAT_H
- 
+
+#ifdef USE_DEBUG
+#  define USE_CHECK 1
+#endif
+
+#if defined(__i386) || defined(__i386__) || defined(__amd64__) || defined(__x86_64__) || defined(_M_X64) || defined(_M_AMD64) || defined(__386) || \
+    defined(__X86_64__) || defined(_M_I386) || defined(_M_I86) || defined(_M_X64) || defined(_M_AMD64) || defined(_M_IX86) || defined(__386__) || \
+    defined(__X86__) || defined(__I86__) || defined(_M_I86) || defined(_M_I8086) || defined(_M_I286) || \
+    defined(MSDOS) || defined(_MSDOS) || defined(_WIN32) || defined(_WIN64) || defined(__DOS__) || defined(__COM__) || defined(__NT__) || \
+    defined(__MSDOS__) || defined(__OS2__)
+#  define IS_X86 1
+#  define IS_UNALIGNED_LE 1  /* There is unaligned little-endian access of 32-bit integers. */
+#else
+#  if (defined(__ARMEL__) || defined(__THUMBEL__) || defined(__AARCH64EL__)) && defined(__ARM_FEATURE_UNALIGNED) || \
+       ((defined(__LITTLE_ENDIAN__) || (defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__) || \
+         defined(__LITTLE_ENDIAN) || defined(_LITTLE_ENDIAN)) && \
+         (defined(__arm__) || defined(__aarch64__) || defined(__powerpc__) || defined(_M_PPC) || defined(_ARCH_PPC) || defined(__PPC__) || \
+          defined(__PPC) || defined(PPC) || defined(__powerpc) || defined(powerpc)))
+#    define IS_UNALIGNED_LE 1
+#  endif
+#endif
+
+#if (!defined(__i386) && !defined(__i386__) && !defined(__amd64__) && !defined(__x86_64__) && !defined(_M_X64) && !defined(_M_AMD64) && !defined(__386) && \
+     !defined(__X86_64__) && !defined(_M_I386) && !defined(_M_X64) && !defined(_M_AMD64) && !defined(__386__)) && \
+    (defined(_M_I86) || defined(_M_IX86) || defined(__X86__) || defined(__I86__) || defined(_M_I8086) || defined(_M_I286) || defined(__TURBOC__)) && \
+    (defined(MSDOS) || defined(_MSDOS) || defined(__DOS__) || defined(__COM__) || defined(__MSDOS__))
+  #define IS_DOS_16 1
+#endif
+
 #if defined(_DOSCOMSTART) && !defined(LIBC_PREINCLUDED)
   /* Tiny libc for OpenWatcom C compiler creating a DOS 8086 .com program.
    * For compilation instructions, see _DOSCOMSTART above.
@@ -73,6 +101,12 @@
 #  pragma intrinsic(strlen)  /* !! Add shorter `#pragma aux' or static. */
   void *memset(void *s, int c, unsigned int n);
 #  pragma intrinsic(memset)  /* !! Add shorter `#pragma aux' or static. */
+  void *memcpy(void *dest, const void *src, unsigned n);
+#  pragma intrinsic(memcpy)  /* !! Add shorter `#pragma aux' or static. */
+
+#  define get_prog_mem_end_seg() (*(const unsigned*)2)  /* Fetch it from the DOS Program Segment Prefix (PSP): https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html */
+  unsigned get_psp_seg(void);
+#  pragma aux get_psp_seg = "mov ax, cs" __value [__ax] __modify []  /* This is correct for a DOS .com program, but not for an .exe. */
 
 #  define LUUZCAT_NL "\r\n"  /* Line ending for error messages on stderr. */
 #endif
@@ -175,15 +209,35 @@ __noreturn void fatal_read_error(void);
 __noreturn void fatal_write_error(void);
 __noreturn void fatal_unexpected_eof(void);
 __noreturn void fatal_corrupted_input(void);
+__noreturn void fatal_out_of_memory(void);
 
 /* --- Reading. */
 
-#define BEOF (-1U)
-
+/* This many bytes should be read to global_read_buffer at a time. It must
+ * be a power of 2 divisible by 0x1000 for disk block alignment.
+ */
+#define READ_BUFFER_SIZE 0x2000
+/* We allocate a few more bytes (READ_BUFFER_EXTRA bytes) of read buffer so
+ * that compress (LZW) decompression can always read READ_BUFFER_SIZE bytes
+ * at a time (even if it doesn't read to the start of the buffer), so it
+ * remains on disk block boundary.
+ */
+#define READ_BUFFER_EXTRA 2
+/* We allocate even more bytes (READ_BUFFER_OVERSHOOT bytes) of read buffer
+ * so that reading a few more bytes using `((int*)p)[0]' wouldn't be an
+ * out-of-bounds array access.
+ */
+#define READ_BUFFER_OVERSHOOT (sizeof(unsigned int) > 2 ? sizeof(unsigned int) - 2 : 1)
+/* uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT]; */
 extern uc8 global_read_buffer[];
+
+#define BEOF (-1U)  /* Returned by read_byte(1) and try_byte(). */
+
 extern unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
 extern unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
+extern ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
 unsigned int read_byte(ub8 is_eof_ok);
+void read_force_eof(void);
 
 /* These are fast wrappers around read_byte(...) for speed. */
 #define get_byte() (global_inptr < global_insize ? global_read_buffer[global_inptr++] : (uc8)read_byte(0))  /* Returns uc8. Fails with a fatal error on EOF. */
@@ -195,6 +249,8 @@ unsigned int read_byte(ub8 is_eof_ok);
 extern uc8 global_write_buffer[WRITE_BUFFER_SIZE];
 
 unsigned int flush_write_buffer(unsigned int size);
+
+#define flush_full_write_buffer_in_the_beginning() do {} while (0)  /* Usually this is a no-op, because the write buffer is not full in the beginning. */
 
 /* --- Decompression. */
 
@@ -275,6 +331,10 @@ struct deflate_big {
 #define FREEZE_N_CHAR2 511
 #define FREEZE_T2 2043
 
+struct compress_big {
+  uc8 dummy;  /* Unused. compress doesn't have any big data structures to contribute. */
+};
+
 struct freeze_big {
   um16 freq[FREEZE_T2 + 1];  /* Frequency table. */
   um16 child[FREEZE_T2];  /* Points to child node (child[i], child[i+1]). */
@@ -292,6 +352,7 @@ extern union big_big {
   struct opack_big opack;
   struct pack_big pack;
   struct deflate_big deflate;
+  struct compress_big compress;
   struct freeze_big freeze;
 } big;
 
@@ -311,6 +372,7 @@ void decompress_deflate(void);
 #endif
 void decompress_zlib_nohdr(void);
 void decompress_gzip_nohdr(void);
+void decompress_compress_nohdr(void);
 void decompress_freeze1_nohdr(void);
 void decompress_freeze2_nohdr(void);
 

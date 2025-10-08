@@ -123,4 +123,8 @@ owcc -bwin32 -Wl,runtime -Wl,console=3.10 -s -Os -fno-stack-check -march=i386 -W
 dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatw.exe <test_C1_new9.Z >test_C1.bin
 cmp test_C1.good test_C1.bin
 
+~/Downloads/windows_nt_qemu/hdachs/mmlibcc.sh -bwin32 -o luuzcatm.exe luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
+dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatm.exe <test_C1_new9.Z >test_C1.bin
+cmp test_C1.good test_C1.bin
+
 : "$0" OK.

@@ -267,6 +267,15 @@ static void build_huffman_tree(const deflate_huffman_bit_count_t *bit_count_ary_
   }
 }
 
+static unsigned int copy_uncompressed(um32 usize, unsigned int write_idx) {
+  write_idx = 0;
+  while (usize-- != 0) {
+    global_write_buffer[write_idx] = get_byte();  /* !! Faster, use memcpy(global_write_buffer + ..., global_read_buffer + ..., ...). Do it everywhere. */
+    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(write_idx);  /* !! Use write_idx everywhere, probably it's already in a register. */
+  }
+  return write_idx;
+}
+
 static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt */
   ub8 bfinal;
   unsigned int uncompressed_block_size;
@@ -293,10 +302,7 @@ static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rf
       uncompressed_block_size = read_bits_max_16(16);  /* LEN. */
       if (read_bits_max_16(16) != ((um16)~uncompressed_block_size & 0xffffU)) { corrupted_input: fatal_corrupted_input(); }  /* NLEN. */
       if (uncompressed_block_size >= 0x8000U || ((match_distance_limit += uncompressed_block_size) >= 0x8000U)) match_distance_limit = 0x8000U;
-      while (uncompressed_block_size-- != 0) {
-        global_write_buffer[write_idx] = get_byte();
-        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(WRITE_BUFFER_SIZE);
-      }
+      write_idx = copy_uncompressed(uncompressed_block_size, write_idx);
       break;
      case 1:  /* Block compressed with fixed Huffman codes. */
       literal_and_len_size = 288;
@@ -421,8 +427,16 @@ static um32 get_le32(void) {
   return i | ((um32)get_le16() << 16);
 }
 
+static void read_and_ignore(unsigned int byte_count) {
+  while (byte_count > global_insize - global_inptr) {
+    byte_count -= global_insize -= global_inptr;
+    (void)read_byte(0  /* is_eof_ok */);
+    --byte_count;
+  }
+  global_inptr += byte_count;
+}
+
 void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.txt */
-  unsigned int i;
   uc8 flg;
 
 #if 0  /* The caller has already done this. */
@@ -432,14 +446,10 @@ void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.tx
 #endif
   if (get_byte() != 8) fatal_corrupted_input();  /* CM byte. Check that CM == 8. */
   flg = get_byte();  /* FLG byte. */
-  for (i = 6; i-- != 0; ) {
-    (void)get_byte();  /* Ignore MTIME (4 bytes), XFL (1 byte) and OS (1 byte). */
-  }
+  read_and_ignore(6);  /* Ignore MTIME (4 bytes), XFL (1 byte) and OS (1 byte). */
   if ((flg & 2) != 0) fatal_corrupted_input();  /* The FHCRC enables GCONT (2-byte continuation part number) here for gzip(1), and header CRC16 later for https://www.rfc-editor.org/rfc/rfc1950.txt . We just fail if it's set. */
   if ((flg & 4) != 0) {  /* FEXTRA. Ignore the extra data. */
-    for (i = read_bits_max_16(16); i-- != 0; ) {  /* Little-endian. It's OK to overlap bit reads with byte reads here, because we remain on byte boundary. */
-      (void)get_byte();
-    }
+    read_and_ignore(get_le16());  /* Little-endian. */
   }
   if ((flg & 8) != 0) {  /* FNAME. Ignore the filename. */
     while (get_byte() != 0) {}
@@ -448,11 +458,7 @@ void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.tx
     while (get_byte() != 0) {}
   }
   /* Now we could ignore the 2-byte CRC16 if (flg & 2), but we've disallowed it above. */
-  if ((flg & 32) != 0) {  /* Ignore gzip(1) the encryption header. */
-    for (i = 12; i-- != 0; ) {
-      (void)get_byte();
-    }
-  }
+  if ((flg & 32) != 0) read_and_ignore(12);  /* Ignore gzip(1) the encryption header. */
   build_crc32_table_if_needed();
   global_flush_write_buffer_func = flush_write_buffer_and_crc32_usize;
   crc32_init();
@@ -460,4 +466,94 @@ void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.tx
   decompress_deflate_low();
   if (get_le32() != (global_checksum.crc32 ^ CRC32_INITIAL)) fatal_corrupted_input();  /* Bad CRC-32 in CRC32. */
   if (get_le32() != global_usize) fatal_corrupted_input();  /* Bad uncompressed size in ISIZE. */
+}
+
+#define ZIP_METHOD_STORED 0
+#define ZIP_METHOD_DEFLATED 8
+
+/* Reads and decompresses only a structure from the ZIP file. To get
+ * everything, the caller should call this in a loop until EOF.
+ *
+ * This ZIP decompressor has similar features as the one in gzip 1.2.4 and
+ * 1.14. A notable exception is that this one doesn't stop after
+ * decompressing the first member file, but it continue, and in the end it
+ * will concatenate all member files.
+ *
+ * Limitations:
+ *
+ * * Only DEFLATED and STORED compressed methods are supported.
+ * * Member files are concatenated to stdout, in the order they appear in
+ *   the ZIP archive. Member filenames are not preserved or listed.
+ * * ZIP64, Deflate64, encryption etc. are not supported.
+ * * Junk in the file before, after or between the ZIP data structures will
+ *   cause an error.
+ * * (Member) file header and end of central directory structure are
+ *   ignored.
+ * * Archives spanning multiple files are not supported.
+ * * !! Indicate that ZIP64 is a feature not supported.
+ */
+void decompress_zip_struct_nohdr(void) {  /* https://pkwaredownloads.blob.core.windows.net/pkware-general/Documentation/APPNOTE-2.0.txt */
+  unsigned int filename_size, extra_field_size, comment_size, flags, method;
+  um32 csize, usize, crc32;
+  uc8 b;
+
+#if 0  /* The caller has already done this. */
+  unsigned int i = try_byte();  /* First byte is ID1, must be 0x1f. */
+  if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* This is not an error for `gzip -cd'. */
+  if (i != 0x50 || try_byte() != 0x4b) fatal_msg("missing zip signature" LUUZCAT_NL);  /* "PK." */
+#endif
+  if ((b = get_byte()) == 3) {  /* "PK\3\4": ZIP local file header. Decompress member file to stdout. */
+    if (get_byte() != 4) { corrupted_input: fatal_corrupted_input(); }
+    (void)get_le16();  /* version needed to extract */
+    flags = get_le16();
+    if ((method = get_le16()) != ZIP_METHOD_DEFLATED && method != ZIP_METHOD_STORED) fatal_unsupported_feature();
+    read_and_ignore(2 + 2);  /*	last mod file time */  /* last mod file date */
+    /* Movingg these 3 reads to a separate function actually increases the code size. */
+    crc32 = get_le32();
+    csize = get_le32();  /* !! Check this after decompress_deflate_low(). */
+    usize = get_le32();
+    filename_size = get_le16();  /* !! Maybe move this and the next to a helper function. */
+    extra_field_size = get_le16();
+    read_and_ignore(filename_size);  /* !! Maybe move this and the next to a helper function. */
+    read_and_ignore(extra_field_size);  /* Don't merge this with the previous call, because addition might overflow a 16-bit unsigned int. */
+    build_crc32_table_if_needed();
+    crc32_init();
+    global_usize = 0;
+    if (method == ZIP_METHOD_STORED) {
+      if ((flags & 8) != 0) goto corrupted_input;  /* Data descriptor not supported with ZIP_METHOD_STORED. */
+      if (((usize - 1U) & (um32)-1UL) <= 1U) {  /* Use csize if usize was filled incorrectly. */
+        if (csize == (um32)-1UL) goto corrupted_input;
+        usize = csize;
+      } else {
+        if (usize != csize) goto corrupted_input;
+      }
+      /* !! Merge final calls to global_flush_write_buffer_func(...) so even a multi-stream output file can be written on disk block boundary. */
+      global_flush_write_buffer_func(copy_uncompressed(usize, 0));
+    } else {  /* method == ZIP_METHOD_DEFLATED. */
+      global_flush_write_buffer_func = flush_write_buffer_and_crc32_usize;
+      decompress_deflate_low();
+      if ((flags & 8) != 0) {  /* Get fields from the data descriptor. */
+        crc32 = get_le32();
+        csize = get_le32();
+        usize = get_le32();
+      }
+      if (usize != global_usize) fatal_corrupted_input();  /* Bad uncompressed size. */
+      /*if (csize != ...) fatal_corrupted_input();*/  /* Bad compressed size. */  /* !! Do calculations in decompress_deflate_low() so that we can check it. */
+    }
+    if (crc32 != (global_checksum.crc32 ^ CRC32_INITIAL)) fatal_corrupted_input();  /* Bad CRC-32. */
+  } else if (b == 1)  {  /* "PK\3\4": ZIP file header. Just ignore. */
+    if (get_byte() != 2) goto corrupted_input;
+    read_and_ignore(24);
+    filename_size = get_le16();
+    extra_field_size = get_le16();
+    comment_size = get_le16();
+    read_and_ignore(12);
+    read_and_ignore(filename_size);
+    read_and_ignore(extra_field_size);  /* Don't merge this with the previous call, because addition might overflow a 16-bit unsigned int. */
+    read_and_ignore(comment_size);
+  } else if (b == 5)  {  /* "PK\5\6": ZIP end of central drirectory record. Just ignore. */
+    if (get_byte() != 6) goto corrupted_input;
+    read_and_ignore(16);
+    read_and_ignore(get_le16());  /* ZIP archive comment. */
+  }
 }

@@ -31,11 +31,13 @@ __noreturn void fatal_msg(const char *msg) {
   exit(EXIT_FAILURE);
 }
 
+/* !! Add different exit codes. */
 __noreturn void fatal_read_error(void) { fatal_msg("read error" LUUZCAT_NL); }
 __noreturn void fatal_write_error(void) { fatal_msg("write error" LUUZCAT_NL); }
 __noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF" LUUZCAT_NL); }
 __noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input" LUUZCAT_NL); }
 __noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
+__noreturn void fatal_unsupported_feature(void) { fatal_msg("unsupported feature" LUUZCAT_NL); }
 
 uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT];
 unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
@@ -100,6 +102,8 @@ main0() {
 #endif
   /* !! Test reinitialization by decompressing the same file again, and also a different file. */
   while ((int)(b = try_byte()) >= 0) {  /* zcat in gzip also accepts empty stdin. */
+    /* !! Display different error message if subsequent bytes have a bad signature. */
+    /* !! Skip over NUL bytes. */
     if (b == 0x1f) {
       if ((b = try_byte()) == 0xa0) {
         decompress_scolzh_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
@@ -132,6 +136,12 @@ main0() {
     } else if ((b & 0xf) == 8 && (b >> 4) < 8) {  /* CM byte for zlib. Valid values are 0x08, 0x18, ..., 0x78. Check that CM == 8, check that CINFO <= 7, otherwise ignore CINFO (sliding window size). */
       if (((b = get_byte()) & 0x20)) goto bad_signature;  /* FLG byte. Check that FDICT == 0. Ignore FLEVEL and FCHECK. */
       decompress_zlib_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
+    } else if (b == 0x50) {  /* 'P'. */
+      if ((b = try_byte()) == 0x4b) {  /* 'K'. */
+        decompress_zip_struct_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
+      } else {
+        goto bad_signature;
+      }
     } else {
       bad_signature: fatal_msg("compressed signature not recognized" LUUZCAT_NL);
     }

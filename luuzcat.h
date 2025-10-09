@@ -211,6 +211,7 @@ __noreturn void fatal_write_error(void);
 __noreturn void fatal_unexpected_eof(void);
 __noreturn void fatal_corrupted_input(void);
 __noreturn void fatal_out_of_memory(void);
+__noreturn void fatal_unsupported_feature(void);
 
 /* --- Reading. */
 
@@ -393,6 +394,7 @@ void decompress_deflate(void);
 #endif
 void decompress_zlib_nohdr(void);
 void decompress_gzip_nohdr(void);
+void decompress_zip_struct_nohdr(void);
 void decompress_compress_nohdr(void);
 void decompress_freeze1_nohdr(void);
 void decompress_freeze2_nohdr(void);

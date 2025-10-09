@@ -40,4 +40,5 @@
 *.F
 # (n)compress compressed test files.
 *.Z
-
+# ZIP compressed test files.
+*.zip

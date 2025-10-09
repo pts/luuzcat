@@ -30,6 +30,7 @@ gcc -m64 -fsanitize=address -g -O2 -ansi -pedantic -W -Wall -Wextra -Wstrict-pro
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
+# !! Add test for concatenated streas.
 
 g++ -m32 -s -O2 -ansi -pedantic -W -Wall -Wextra -o luuzcat luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
 ./luuzcat <XFileMgro.sz >XFileMgro

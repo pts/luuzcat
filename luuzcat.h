@@ -28,7 +28,8 @@
      !defined(__X86_64__) && !defined(_M_I386) && !defined(_M_X64) && !defined(_M_AMD64) && !defined(__386__)) && \
     (defined(_M_I86) || defined(_M_IX86) || defined(__X86__) || defined(__I86__) || defined(_M_I8086) || defined(_M_I286) || defined(__TURBOC__)) && \
     (defined(MSDOS) || defined(_MSDOS) || defined(__DOS__) || defined(__COM__) || defined(__MSDOS__))
-  #define IS_DOS_16 1
+#  define IS_X86_16 1
+#  define IS_DOS_16 1
 #endif
 
 #if defined(_DOSCOMSTART) && !defined(LIBC_PREINCLUDED)
@@ -254,11 +255,23 @@ unsigned int flush_write_buffer(unsigned int size);
 
 /* --- Decompression. */
 
+/* Value is this because build_crc32_table_if_needed(...) checks crc32_table[1] != 0. */
+#define DOS_16_DUMMY_SIZE (sizeof(um32) << 1)
+
+#if IS_DOS_16
+#  define DOS_16_DUMMY char dos_16_dummy[DOS_16_DUMMY_SIZE];
+#  define DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE do { big.dos_16_dummy[sizeof(um32)] = 0; } while (0)  /* This makes `(um8)crc32_table[1] != 0' false in build_crc32_table_if_needed(...). */
+#else
+#  define DOS_16_DUMMY
+#  define DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE do {} while (0)
+#endif
+
 #define SCOLZH_NC (255 + 1 + 256 + 2 - 3)
 #define SCOLZH_NPT 19
 
 /* We specify this struct in the .h file so what we overlap it in memory with other big struct in `big' below. */
 struct scolzh_big {
+  DOS_16_DUMMY
   um16 left[ 2 * SCOLZH_NC - 1];
   um16 right[2 * SCOLZH_NC - 1];
 
@@ -298,6 +311,7 @@ struct compact_node {
 };
 
 struct compact_big {
+  DOS_16_DUMMY
   struct compact_node dict[COMPACT_NF];
   struct compact_fpoint in[COMPACT_NF];
   struct compact_index dir[COMPACT_NF << 1];
@@ -306,12 +320,14 @@ struct compact_big {
 #define OPACK_TREESIZE 1024
 
 struct opack_big {
+  DOS_16_DUMMY
   um16 tree[OPACK_TREESIZE];
 };
 
 #define PACK_EOF_IDX 256
 
 struct pack_big {
+  DOS_16_DUMMY
   um16 leaf_count[24];  /* leaf_count[i] is the number of leaves on level i. Can be 0..257. */
   um8 intnode_count[24];  /* intnode_count[i] is the number of internal nodes on level i. Can be 0..254. */
   um16 byte_indexes[24];  /* This is an index in .bytes (0..255), or 1 more to indicate EOF. Even a valid index can be EOF if there are less bytes. */
@@ -324,6 +340,9 @@ typedef um8 deflate_huffman_bit_count_t;
 #define DEFLATE_BIT_COUNT_ARY_SIZE 318
 
 struct deflate_big {
+#if IS_DOS_16
+  um32 crc32_table[256];  /* Replaces DOS_16_DUMMY. */
+#endif
   um16 huffman_trees_ary[DEFLATE_MAX_TREE_SIZE];
   deflate_huffman_bit_count_t huffman_bit_count_ary[DEFLATE_BIT_COUNT_ARY_SIZE];
 };
@@ -332,10 +351,11 @@ struct deflate_big {
 #define FREEZE_T2 2043
 
 struct compress_big {
-  uc8 dummy[1];  /* Used just as a placeholder. compress doesn't have any big data structures to contribute. */
+  uc8 dummy[DOS_16_DUMMY_SIZE];  /* Used just as a placeholder used for a sizeof(...) < ~64 KiB check. compress doesn't have any big data structures to contribute. */
 };
 
 struct freeze_big {
+  DOS_16_DUMMY
   um16 freq[FREEZE_T2 + 1];  /* Frequency table. */
   um16 child[FREEZE_T2];  /* Points to child node (child[i], child[i+1]). */
   um16 parent[FREEZE_T2 + FREEZE_N_CHAR2];  /* Points to parent node. */
@@ -347,6 +367,7 @@ struct freeze_big {
 
 /* This contains the large arrays other than global_read_buffer and global_write_buffer. */
 extern union big_big {
+  DOS_16_DUMMY
   struct scolzh_big scolzh;
   struct compact_big compact;
   struct opack_big opack;

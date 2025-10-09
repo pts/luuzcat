@@ -102,23 +102,24 @@ main0() {
   while ((int)(b = try_byte()) >= 0) {  /* zcat in gzip also accepts empty stdin. */
     if (b == 0x1f) {
       if ((b = try_byte()) == 0xa0) {
-        decompress_scolzh_nohdr();
+        decompress_scolzh_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
       } else if (b == 0x8b) {
-        decompress_gzip_nohdr();
+        decompress_gzip_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
       } else if (b == 0xa1) {
-        decompress_quasijarus_nohdr();
+        decompress_quasijarus_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
       } else if (b == 0xff) {  /* This is the less common signature for Compact. */
         do_compact: decompress_compact_nohdr();
+        do_invalidate: DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE;
       } else if (b == 0x1e) {
-        decompress_pack_nohdr();
+        decompress_pack_nohdr(); goto do_invalidate;
       } else if (b == 0x1f) {
-        decompress_opack_nohdr();
+        decompress_opack_nohdr(); goto do_invalidate;
       } else if (b == 0x9d) {
-        decompress_compress_nohdr();
+        decompress_compress_nohdr();  /* This doesn't use big, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
       } else if (b == 0x9e) {
-        decompress_freeze1_nohdr();
+        decompress_freeze1_nohdr(); goto do_invalidate;
       } else if (b == 0x9f) {
-        decompress_freeze2_nohdr();
+        decompress_freeze2_nohdr(); goto do_invalidate;
       } else {
         goto bad_signature;
       }
@@ -130,7 +131,7 @@ main0() {
       }
     } else if ((b & 0xf) == 8 && (b >> 4) < 8) {  /* CM byte for zlib. Valid values are 0x08, 0x18, ..., 0x78. Check that CM == 8, check that CINFO <= 7, otherwise ignore CINFO (sliding window size). */
       if (((b = get_byte()) & 0x20)) goto bad_signature;  /* FLG byte. Check that FDICT == 0. Ignore FLEVEL and FCHECK. */
-      decompress_zlib_nohdr();
+      decompress_zlib_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
     } else {
       bad_signature: fatal_msg("compressed signature not recognized" LUUZCAT_NL);
     }

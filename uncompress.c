@@ -183,7 +183,7 @@ typedef unsigned int uint;
    */
 #  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
-#  if 0  /* This works. */
+#  if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
     static um16 tab_prefix_get(um16 code) { return *((const um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))); }  /* Indexes 0 <= code < 256 are invalid and unused. */
     static void tab_prefix_set(um16 code, um16 value) {  *((um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))) = value; }  /* Indexes 0 <= code < 256 are invalid and unused. */
     static uc8  tab_suffix_get(um16 code) { return *((const uc8 __far*)((tab_suffix_seg :> code))); }  /* Indexes 0 <= code < 256 are invalid and unused. */

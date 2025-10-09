@@ -21,6 +21,105 @@
 
 #include "luuzcat.h"
 
+/* CRC-32 uses polynomial
+ * x^32+x^26+x^23+x^22+x^16+x^12+x^11+x^10+x^8+x^7+x^5+x^4+x^2+x+1 over
+ * GF(2). The corresponding 32-bit CRC32_GEN_VALUE is (taking the terms from
+ * right to left, ignoring x^32 is 0b11101101101110001000001100100000 ==
+ * 0xedb88320.
+ */
+#define CRC32_GEN_VALUE_LOW 0x8320U
+#define CRC32_GEN_VALUE_HIGH 0xedb8U
+
+#if IS_DOS_16  /* Otherwise data (DGROUP) too large, it doesn't fit 64 KiB anymore. */
+#  define crc32_table big.deflate.crc32_table  /* !!! reinit */
+#else
+  static um32 crc32_table[256];  /* By putting it outside `big', we can keep it across different decompressor calls. */
+#endif
+
+#if defined(__WATCOMC__) && defined(_M_I86) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation. */
+static void build_crc32_table_if_needed_inline(um32 __near *our_crc32_table);
+#  pragma aux build_crc32_table_if_needed_inline = \
+      "xor bx, bx"  "cmp byte ptr [di+4], bl" \
+      "jne done"  "next_byte: mov ax, bx"  "cwd"  "mov cx, 8" \
+      "next_bit: shr dx, 1"  "rcr ax, 1"  "jnc updated"  "xor ax, 8320h" \
+      "xor dx, 0edb8h"  "updated: loop next_bit"  "stosw"  "xchg ax, dx" \
+      "stosw"  "inc bl"  "jnz next_byte"  "done:" \
+      __parm [__di] __modify __exact [__ax __bx __cx __dx __di]
+  static void build_crc32_table_if_needed(void) { build_crc32_table_if_needed_inline(crc32_table); }
+#else
+  static void build_crc32_table_if_needed(void) {
+    unsigned int u, biti;
+    um32 value;
+
+    /* Return if already built. This is also correct for IS_DOS_16 (with
+     * big.deflate.crc32_table): the caller has set it to zero when it
+     * called a non-Deflate decompressor.
+     */
+    if ((um8)crc32_table[1] != 0) return;
+    u = 255;
+    do {
+      biti = 8; value = u;
+      do {
+        if ((value & 1) != 0) {
+          value >>= 1; value ^= CRC32_GEN_VALUE_LOW | ((um32)CRC32_GEN_VALUE_HIGH << 16);
+        } else {
+          value >>= 1;
+        }
+      } while (--biti != 0);
+      crc32_table[u] = value;
+    } while (u-- != 0);
+  }
+#endif
+
+static union single_checksum {
+  um32 crc32;
+  unsigned int adler32_s12[2];  /* [0] is s2, [1] is s1. */
+} global_checksum;
+static um32 global_usize;
+
+#define CRC32_INITIAL ((um32)0xffffffffUL)
+#define crc32_init() do { global_checksum.crc32 = CRC32_INITIAL; } while (0)
+
+static unsigned int flush_write_buffer_and_crc32_usize(unsigned int size) {
+  const uc8 *p = global_write_buffer;
+  um32 crc32_value = global_checksum.crc32;
+  global_usize += size;
+
+  while (size-- != 0) {
+    crc32_value = crc32_table[(uc8)crc32_value ^ *p++] ^ (crc32_value >> 8);
+  }
+  global_checksum.crc32 = crc32_value;
+  return flush_write_buffer(p - global_write_buffer);
+}
+
+#define ADLER32_INITIAL_S1 1U
+#define ADLER32_INITIAL_S2 0U
+#define adler32_init() do { global_checksum.adler32_s12[1] = ADLER32_INITIAL_S1; global_checksum.adler32_s12[0] = ADLER32_INITIAL_S2; } while (0)
+
+static unsigned int flush_write_buffer_and_adler32(unsigned int size) {  /* https://www.rfc-editor.org/rfc/rfc1950.txt */
+  const uc8 *p = global_write_buffer;
+  unsigned int s1 = global_checksum.adler32_s12[1], s2 = global_checksum.adler32_s12[0], byte_value;
+
+  if (sizeof(s1) > 2) {
+    byte_value = 0;  /* Avoid warning about possible use by (void)byte_value below. */
+    (void)byte_value;
+  }
+  while (size-- != 0) {
+    if (sizeof(s1) > 2) {
+      if ((s1 += *p++) >= 65521U) s1 -= 65521U;
+      if ((s2 += s1) >= 65521U) s2 -= 65521U;
+    } else {  /* Handle overflow manually, without using longer than 16-bit integers. */
+      byte_value = *p++;  /* Also zero-entends it to an unsigned int. */
+      if ((s1 += byte_value) >= 65521U || s1 < byte_value) s1 -= 65521U;
+      if ((s2 += s1) >= 65521U || s2 < s1) s2 -= 65521U;
+    }
+  }
+  global_checksum.adler32_s12[1] = s1; global_checksum.adler32_s12[0] = s2;
+  return flush_write_buffer(p - global_write_buffer);
+}
+
+unsigned int (*global_flush_write_buffer_func)(unsigned int size);
+
 #define MAX_TMP_SIZE 19
 #define MAX_INCOMPLETE_BRANCH_COUNT (7 + 15 + 15)  /* Because of DO_CHECK_HUFFMAN_TREE_100_PERCENT_COVERAGE == 1. */
 #define MAX_LITERAL_AND_LEN_SIZE (0x100 + 32)
@@ -168,7 +267,7 @@ static void build_huffman_tree(const deflate_huffman_bit_count_t *bit_count_ary_
   }
 }
 
-void decompress_deflate(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt */
+static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt */
   ub8 bfinal;
   unsigned int uncompressed_block_size;
   unsigned int literal_and_len_size;
@@ -196,7 +295,7 @@ void decompress_deflate(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt *
       if (uncompressed_block_size >= 0x8000U || ((match_distance_limit += uncompressed_block_size) >= 0x8000U)) match_distance_limit = 0x8000U;
       while (uncompressed_block_size-- != 0) {
         global_write_buffer[write_idx] = get_byte();
-        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(WRITE_BUFFER_SIZE);
       }
       break;
      case 1:  /* Block compressed with fixed Huffman codes. */
@@ -236,7 +335,7 @@ void decompress_deflate(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt *
         if (token < 0x100) { /* LZ literal token. */
           if (match_distance_limit < 0x8000U) ++match_distance_limit;
           global_write_buffer[write_idx] = token;
-          if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+          if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(write_idx);
           continue;
         }
         token -= 0x101;
@@ -264,7 +363,7 @@ void decompress_deflate(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt *
         match_distance = (write_idx - 1 - match_distance);  /* After this, match_distance doesn't contain the LZ match distance. */
         do {
           global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
-          if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+          if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(write_idx);
         } while (--match_length != 0);
       }
       break;
@@ -272,7 +371,12 @@ void decompress_deflate(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt *
       goto corrupted_input;
     }
   } while (!bfinal);
-  flush_write_buffer(write_idx);
+  global_flush_write_buffer_func(write_idx);
+}
+
+void decompress_deflate(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt */
+  global_flush_write_buffer_func = flush_write_buffer;
+  decompress_deflate_low();
 }
 
 #if 0  /* Not implementing it here, because it's the same as decompress_deflate(). */
@@ -289,18 +393,32 @@ void decompress_quasijarus_nohdr(void) {  /* http://fileformats.archiveteam.org/
 }
 #endif
 
-void decompress_zlib_nohdr(void) {
-  unsigned int i;
+static unsigned int get_be16(void) {
+  const unsigned int i = get_byte() << 8;
+  return i | get_byte();
+}
 
+void decompress_zlib_nohdr(void) {
 #if 0  /* The caller has already done this. */
   uc8 b;
   if (((b = get_byte()) & 0xf) != 8 || (b >> 4) > 7) fatal_corrupted_input();  /* CM byte. Check that CM == 8, check that CINFO <= 7, otherwise ignore CINFO (sliding window size). */
   if (((b = get_byte()) & 0x20)) fatal_corrupted_input();  /* FLG byte. Check that FDICT == 0. Ignore FLEVEL and FCHECK. */
 #endif
-  decompress_deflate();
-  for (i = 4; i-- != 0; ) {  /* Skip ADLER32. */  /* !! Add code to check ADLER32. */
-    (void)get_byte();
-  }
+  global_flush_write_buffer_func = flush_write_buffer_and_adler32;
+  adler32_init();
+  decompress_deflate_low();
+  if (get_be16() != global_checksum.adler32_s12[0] ||  /* Bad Adler-32 s2 in ADLER32. */
+      get_be16() != global_checksum.adler32_s12[1]) fatal_corrupted_input();  /* Bad Adler-32 s1 in ADLER32. */
+}
+
+static unsigned int get_le16(void) {
+  const unsigned int i = get_byte();
+  return i | (get_byte() << 8);
+}
+
+static um32 get_le32(void) {
+  const um32 i = get_le16();
+  return i | ((um32)get_le16() << 16);
 }
 
 void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.txt */
@@ -335,8 +453,11 @@ void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.tx
       (void)get_byte();
     }
   }
-  decompress_deflate();
-  for (i = 4 + 4; i-- != 0; ) {  /* Skip CRC32 and ISIZE. */  /* !! Add code to check CRC32 and ISIZE. */
-    (void)get_byte();
-  }
+  build_crc32_table_if_needed();
+  global_flush_write_buffer_func = flush_write_buffer_and_crc32_usize;
+  crc32_init();
+  global_usize = 0;
+  decompress_deflate_low();
+  if (get_le32() != (global_checksum.crc32 ^ CRC32_INITIAL)) fatal_corrupted_input();  /* Bad CRC-32 in CRC32. */
+  if (get_le32() != global_usize) fatal_corrupted_input();  /* Bad uncompressed size in ISIZE. */
 }

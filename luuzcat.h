@@ -268,6 +268,7 @@ extern unsigned int global_inptr;  /* Index of next byte to be processed in glob
 extern ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
 unsigned int read_byte(ub8 is_eof_ok);
 void read_force_eof(void);
+unsigned int get_le16(void);
 
 /* These are fast wrappers around read_byte(...) for speed. */
 #define get_byte() (global_inptr < global_insize ? global_read_buffer[global_inptr++] : (uc8)read_byte(0))  /* Returns uc8. Fails with a fatal error on EOF. */

@@ -427,11 +427,6 @@ void decompress_zlib_nohdr(void) {
       get_be16() != global_checksum.adler32_s12[1]) fatal_corrupted_input();  /* Bad Adler-32 s1 in ADLER32. */
 }
 
-static unsigned int get_le16(void) {
-  const unsigned int i = get_byte();
-  return i | (get_byte() << 8);
-}
-
 static um32 get_le32(void) {
   const um32 i = get_le16();
   return i | ((um32)get_le16() << 16);

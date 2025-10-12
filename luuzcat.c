@@ -69,6 +69,11 @@ unsigned int read_byte(ub8 is_eof_ok) {
   return global_read_buffer[0];
 }
 
+unsigned int get_le16(void) {
+  const unsigned int i = get_byte();
+  return i | (get_byte() << 8);
+}
+
 /* --- Writing. */
 
 uc8 global_write_buffer[WRITE_BUFFER_SIZE];

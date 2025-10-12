@@ -39,12 +39,6 @@
 
 #define MAX_EDGE_DEPTH (256U - 1U)  /* A 100%-covered Huffman tree with 256 leaves has a maximum edge-depth of 256 - 1. */
 
-static um16 get_w(void) {
-  /* (PDP-11) little-endian word. */
-  const um16 low = get_byte();
-  return low | (get_byte() << 8);
-}
-
 void decompress_opack_nohdr(void) {
   unsigned int tp, dp, bit_count, write_idx, keysize, word, bits_remaining;
   um16 *t;
@@ -57,10 +51,10 @@ void decompress_opack_nohdr(void) {
 #endif
 
   /* https://archive.org/download/bitsavers_decpdp11meoatingPointFormat_1047674/701110_The_PDP-11_Floating_Point_Format.pdf */
-  if ((word = get_w()) > 0x4000) fatal_corrupted_input();  /* Specifying size as PDP-11 32-bit float not supported. */
+  if ((word = get_le16()) > 0x4000) fatal_corrupted_input();  /* Specifying size as PDP-11 32-bit float not supported. */
   /* PDP-11 middle-endian dword: https://en.wikipedia.org/wiki/Endianness#Middle-endian */
-  usize = ((um32)word << 16) | get_w();
-  if ((keysize = get_w()) - 2U > OPACK_TREESIZE - 2U) fatal_corrupted_input();
+  usize = ((um32)word << 16) | get_le16();
+  if ((keysize = get_le16()) - 2U > OPACK_TREESIZE - 2U) fatal_corrupted_input();
 #ifdef USE_DEBUG
   fprintf(stderr, "usize=%lu keysize=%u\n", (unsigned long)usize, keysize);
 #endif
@@ -68,7 +62,7 @@ void decompress_opack_nohdr(void) {
   t = big.opack.tree;
   while (keysize-- != 0) {
     if ((tp = get_byte()) == 0xffU) {
-      if ((tp = get_w()) < 0xffU) fatal_corrupted_input();
+      if ((tp = get_le16()) < 0xffU) fatal_corrupted_input();
     }
     if (tp >= keysize - 1U && keysize > 0xffU) fatal_corrupted_input();
     *t++ = tp;
@@ -81,7 +75,7 @@ void decompress_opack_nohdr(void) {
 #endif
     for (tp = 0, bits_remaining = MAX_EDGE_DEPTH; ; ) {
       if (bit_count == 0) {
-        word = get_w();
+        word = get_le16();
         bit_count = 16;
       }
 #ifdef USE_DEBUG

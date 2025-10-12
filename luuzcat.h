@@ -115,6 +115,7 @@
 #ifndef LIBC_PREINCLUDED
 #  ifdef __MMLIBC386__
 #    include <mmlibc386.h>
+#    define LUUZCAT_NL "\r\n"  /* We want \r\n, and write(STDERR_FILENO, ..., ...) doesn't convert "\n" to "\r\n". */
 #  else
 #    include <stdlib.h>  /* exit(...), abort(...). */
 #    include <string.h>
@@ -129,8 +130,8 @@
 #    ifdef USE_DEBUG
 #      include <stdio.h>  /* fprintf(stderr, ...); */
 #    endif
+#    define LUUZCAT_NL "\n"  /* On DOS etc. write(STDERR_FILENO, ..., ...) will append an "\r" because the lack of O_BINARY. */
 #  endif
-#  define LUUZCAT_NL "\n"  /* On DOS etc. write(STDERR_FILENO) will append an "\r" because the lack of O_BINARY. */
 #endif
 
 #if (INT_MAX >> 15 >> 15 || __INT_MAX__ >> 15 >> 15 || __SIZEOF_INT__ >= 4 || __INTSIZE >= 4 || defined(__LP64__) || defined(_LP64) \

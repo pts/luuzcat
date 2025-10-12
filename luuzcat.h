@@ -392,7 +392,7 @@ struct freeze_big {
   uc8 p_len[64];
   uc8 d_len[256];
   um8 code[256];
-  um8 table2[9];
+  um8 table2[8];
 };
 
 /* This contains the large arrays other than global_read_buffer and global_write_buffer. */

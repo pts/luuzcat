@@ -253,14 +253,20 @@ static unsigned int decode_distance(um8 freeze12_code67) {
   return (big.freeze.code[i] << freeze12_code67) | ((i << big.freeze.d_len[i]) & (freeze12_code67 == 6 ? 0x3f : 0x7f)) | GetNBits(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
 }
 
-static const um8 table1[9] = { 0, 0, 0, 1, 3, 8, 12, 24, 16 };
+static const um8 table1[8] = { 0, 0, 1, 3, 8, 12, 24, 16 };
 
-/* Initializes static Huffman arrays */
+/* Initializes static Huffman arrays.
+ * With __WATCMC__, table index here is 1-based, just like in freeze-2.5.0/huf.c.
+ */
 static void init(const um8 *table, unsigned int d) {
   unsigned int i, j, k, num;
   num = 0;
+#ifndef __WATCOMC__
+  --table;
+#endif
+
 #if 0  /* It's shorter to pass this as an argument. */
-  d = (table == table1) ? 2 : 1;  /* 2 for Freeze 1.x, 1 for Freeze 2.x. */
+  d = (table + 1 == table1) ? 2 : 1;  /* 2 for Freeze 1.x, 1 for Freeze 2.x. */
 #endif
 
   /* There are `table[i]' `i'-bits Huffman codes */
@@ -332,7 +338,11 @@ void decompress_freeze1_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
   if (i != 0x1f || try_byte() != 0x9e) fatal_msg("missing Freeze 1.x signature" LUUZCAT_NL);
 #endif
   StartHuff(N_CHAR1);
+#ifdef __WATCOMC__
+  init(table1 - 1, 2);
+#else  /* Longer code to prvent GCC warning: array subscript is below array bounds [-Warray-bounds] */
   init(table1, 2);
+#endif
   decompress_freeze_common(F1, 6);
 }
 
@@ -347,34 +357,34 @@ void decompress_freeze2_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
   /* Reconstruct `big.freeze.table2' from the header of the frozen file and checks its correctness. */
   i = get_byte();
   i |= get_byte() << 8;
-  big.freeze.table2[0] = 0;  /* It looks like this is unused. */
-  big.freeze.table2[1] = i & 1; i >>= 1;
-  big.freeze.table2[2] = i & 3; i >>= 2;
-  big.freeze.table2[3] = i & 7; i >>= 3;
-  big.freeze.table2[4] = i & 0xF; i >>= 4;
-  big.freeze.table2[5] = i & 0x1F; i >>= 5;
+  /* big.freeze.table2[0] = 0; */  /* Unused. */
+  big.freeze.table2[0] = i & 1; i >>= 1;
+  big.freeze.table2[1] = i & 3; i >>= 2;
+  big.freeze.table2[2] = i & 7; i >>= 3;
+  big.freeze.table2[3] = i & 0xF; i >>= 4;
+  big.freeze.table2[4] = i & 0x1F; i >>= 5;
 
   if (i & 1 || (i = get_byte()) & 0xC0) fatal_corrupted_input();  /* Unknown header format. */
 
-  big.freeze.table2[6] = i & 0x3F;
+  big.freeze.table2[5] = i & 0x3F;
 
-  i = big.freeze.table2[1] + big.freeze.table2[2] + big.freeze.table2[3] + big.freeze.table2[4] +
-  big.freeze.table2[5] + big.freeze.table2[6];
+  i = big.freeze.table2[0] + big.freeze.table2[1] + big.freeze.table2[2] + big.freeze.table2[3] + big.freeze.table2[4] + big.freeze.table2[5];
+  i = 62 - i;  /* After this, i is the free variable length codes for 7 & 8 bits. */
 
-  i = 62 - i;     /* free variable length codes for 7 & 8 bits */
-
-  j = 128 * big.freeze.table2[1] + 64 * big.freeze.table2[2] + 32 * big.freeze.table2[3] +
-  16 * big.freeze.table2[4] + 8 * big.freeze.table2[5] + 4 * big.freeze.table2[6];
-
-  j = 256 - j;    /* free byte images for these codes */
+  j = (((((4U - big.freeze.table2[0] * 2 - big.freeze.table2[1]) * 2 - big.freeze.table2[2]) * 2 - big.freeze.table2[3]) * 2 - big.freeze.table2[4]) * 2 - big.freeze.table2[5]) * 4;
+  /* Now is free byte images for these codes. */
 
   /* Equations: big.freeze.table2[7] + big.freeze.table2[8] = i; 2 * big.freeze.table2[7] + big.freeze.table2[8] == j. */
   if (j < i) fatal_corrupted_input();
   j -= i;
   if (i < j) fatal_corrupted_input();
-  big.freeze.table2[7] = j;
-  big.freeze.table2[8] = i - j;
+  big.freeze.table2[6] = j;
+  big.freeze.table2[7] = i - j;
   StartHuff(N_CHAR2);
+#ifdef __WATCOMC__
+  init(big.freeze.table2 - 1, 1);
+#else  /* Longer code to prvent GCC warning: array subscript is below array bounds [-Warray-bounds] */
   init(big.freeze.table2, 1);
+#endif
   decompress_freeze_common(LOOKAHEAD, 7);
 }

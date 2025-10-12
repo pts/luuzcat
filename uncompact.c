@@ -244,6 +244,7 @@ typedef   signed int s_word_t;  /* Must be the signed counterpart of u_word_t. *
 typedef char assert_word_t[sizeof(u_word_t) == sizeof(s_word_t) && (u_word_t)-1 > 0 && (s_word_t)-1 < 0 ? 1 : -1];
 typedef char assert_word_t_2s_complement[(s_word_t)((u_word_t)1 << (sizeof(u_word_t) * 8 - 1)) < 0 && (s_word_t)((u_word_t)1 << (sizeof(u_word_t) * 8 - 2)) > 0 ? 1 : -1];
 
+/* !! Test this by calling it twice, for different input streams. */
 void decompress_compact_nohdr(void) {
   unsigned int write_idx;
   register dicti_t pdi;  /* For decompress. */
@@ -260,13 +261,19 @@ void decompress_compact_nohdr(void) {
   headri = 0;
   dirpri = 1;
   big.compact.dir[CHECK_RI(dirpri)].ipt = bottomdi = 0;
-  big.compact.dict[0].sons[LEFT].topri = big.compact.dict[0].sons[RIGHT].topri = dirpri;
-  dirqri = big.compact.dir[CHECK_RI(dirpri)].nextri;
+  big.compact.dict[0].sons[LEFT].topri = big.compact.dict[0].sons[RIGHT].topri = 1  /* dirpri */;
+#if 1  /* Shorter code. */
+  dirqri = 2;
+#else
+  dirqri = big.compact.dir[1  /* CHECK_RI(dirpri) */].nextri;
+#endif
   big.compact.in[EF].flags = FBIT | SEEN;
 
-  big.compact.dir[CHECK_RI(big.compact.dict[bottomdi].sons[RIGHT].topri)].nextri = RINULL;
-  big.compact.dict[bottomdi].sons[RIGHT].topri = dirpri;
-  flistri = dirqri;
+  big.compact.dir[CHECK_RI(big.compact.dict[0  /* bottomdi */].sons[RIGHT].topri)].nextri = RINULL;
+  big.compact.dict[0  /* bottomdi */].sons[RIGHT].topri = 1  /* dirpri */;
+#if 0  /* Not needed now, it will be overwritten later. */
+  flistri = 2  /* dirqri */;
+#endif
 
   /* Setup. */
   data_byte = get_byte();
@@ -278,22 +285,29 @@ void decompress_compact_nohdr(void) {
 
   /* !! This is per-file initialization basd on the first byte read from data_byte. !! What does this first byte mean? Do we need to special-case it? */
   big.compact.dict[0].sons[LEFT].spdii = bottomdi = 1;  /* Sets the dicti_t of spdii. */
-  big.compact.in[NC].fpdni = big.compact.in[EF].fpdni = CHECK_DI(bottomdi);
-  big.compact.dict[bottomdi].sons[LEFT].count = big.compact.dict[bottomdi].sons[RIGHT].count = big.compact.dict[0].sons[RIGHT].count = 1;
-  big.compact.dict[0].sons[RIGHT].topri = big.compact.dict[bottomdi].sons[LEFT].topri = big.compact.dict[bottomdi].sons[RIGHT].topri = big.compact.dir[CHECK_RI(dirpri)].nextri = flistri;
-  dirqri = flistri; flistri = big.compact.dir[CHECK_RI(flistri)].nextri;
-  big.compact.dir[CHECK_RI(dirqri)].nextri = RINULL;
+  big.compact.in[NC].fpdni = big.compact.in[EF].fpdni = CHECK_DI(1  /* bottomdi */);
+  big.compact.dict[1  /* bottomdi */].sons[LEFT].count = big.compact.dict[1  /* bottomdi */].sons[RIGHT].count = big.compact.dict[0].sons[RIGHT].count = 1;
+  big.compact.dict[0].sons[RIGHT].topri = big.compact.dict[1  /* bottomdi */].sons[LEFT].topri = big.compact.dict[1  /* bottomdi */].sons[RIGHT].topri = big.compact.dir[CHECK_RI(dirpri)].nextri = 2;  /* flistri */;
+#if 0  /* Not needed, it's already 2. */
+  dirqri = 2  /* flistri */;
+#endif
+#if 1  /* Shorter code. */
+  flistri = 3;
+#else
+  flistri = big.compact.dir[CHECK_RI(2  /* flistri */)].nextri;
+#endif
+  big.compact.dir[CHECK_RI(2  /* dirqri */)].nextri = RINULL;
   big.compact.dict[0].fath.fpdni = NFNULL;
-  big.compact.dict[bottomdi].fath.fpdni = big.compact.in[data_byte].fpdni = 0;
-  big.compact.dir[CHECK_RI(dirqri)].ipt = 0;
+  big.compact.dict[1  /* bottomdi */].fath.fpdni = big.compact.in[data_byte].fpdni = 0;
+  big.compact.dir[CHECK_RI(2  /* dirqri */)].ipt = 0;
   big.compact.in[data_byte].flags = FBIT | SEEN;
   big.compact.in[NC].flags = SEEN;
   big.compact.dict[0].fath.flags = RLEAF;
-  big.compact.dict[bottomdi].fath.flags = LLEAF | RLEAF;
+  big.compact.dict[1  /* bottomdi */].fath.flags = LLEAF | RLEAF;
   big.compact.dict[0].sons[LEFT].count = 2;
   big.compact.dict[0].sons[RIGHT].spdii = data_byte;  /* Sets the ini_t of spdii. */
-  big.compact.dict[bottomdi].sons[LEFT].spdii = NC;  /* Sets the ini_t of spdii. */
-  big.compact.dict[bottomdi].sons[RIGHT].spdii = EF;  /* Sets the ini_t of spdii. */
+  big.compact.dict[1  /* bottomdi */].sons[LEFT].spdii = NC;  /* Sets the ini_t of spdii. */
+  big.compact.dict[1  /* bottomdi */].sons[RIGHT].spdii = EF;  /* Sets the ini_t of spdii. */
 
   /* Decompress subsequent data bytes using adaptive Huffman code. */
   pdi = 0;

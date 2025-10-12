@@ -88,7 +88,7 @@ unsigned int flush_write_buffer(unsigned int size) {
 
 union big_big big;
 
-static const char usage_msg[] = "Usage: luuzcat <input.gz >output" LUUZCAT_NL "https://github.com/pts/luuzcat" LUUZCAT_NL;
+static const char usage_msg[] = "Usage: luuzcat [-r] <input.gz >output" LUUZCAT_NL "https://github.com/pts/luuzcat" LUUZCAT_NL;
 
 #ifndef main0
 #  define main0() int main(int argc, char **argv)
@@ -100,13 +100,21 @@ static const char usage_msg[] = "Usage: luuzcat <input.gz >output" LUUZCAT_NL "h
 main0() {
   unsigned int b;
   const char *argv1 = main0_argv1();
+  ub8 is_raw_deflate = 0;
 
   /* We display the usage message if the are command-line arguments (or the
    * first argument is empty), and stdin is a terminal (TTY).
    */
-  if ((argv1 == NULL || *argv1 == main0_argv_endchar()) && isatty(STDIN_FILENO)) {
+  if ((argv1 == NULL || *argv1 == main0_argv_endchar()) && isatty(STDIN_FILENO)) { do_usage:
     (void)!write(STDERR_FILENO, WRITE_PTR_ARG_CAST(usage_msg), sizeof(usage_msg) - 1);
     exit(EXIT_FAILURE);
+  }
+  if (argv1 != NULL) {
+    while ((b = *(const unsigned char*)argv1++) != main0_argv_endchar()) {
+      b |= 0x20;  /* Convert uppercase A-Z to lowercase a-z. */
+      if (b == 'r') is_raw_deflate = 1;
+      if (b == 'h') goto do_usage;  /* --help. */
+    }
   }
 
 #if O_BINARY  /* For DOS, Windows (Win32 and Win64) and OS/2. */
@@ -146,6 +154,9 @@ main0() {
       } else {
         goto bad_signature;
       }
+    } else if (is_raw_deflate) {  /* The file formats below this are ambigious with raw Deflate. The latter takes precedence iff the -r flag has been specified. */
+      --global_inptr;  /* Unread the first byte (b). */
+      decompress_deflate();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
     } else if ((b & 0xf) == 8 && (b >> 4) < 8) {  /* CM byte for zlib. Valid values are 0x08, 0x18, ..., 0x78. Check that CM == 8, check that CINFO <= 7, otherwise ignore CINFO (sliding window size). */
       if (((b = get_byte()) & 0x20)) goto bad_signature;  /* FLG byte. Check that FDICT == 0. Ignore FLEVEL and FCHECK. */
       decompress_zlib_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */

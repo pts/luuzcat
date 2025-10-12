@@ -14,9 +14,6 @@
  * Deflate is Huffman+LZ, with a 32 KiB ring buffer window, an ability to
  * restart the Huffman codes (i.e. send new codes), and space-efficient
  * framing for large uncompressed blocks.
- *
- * !! Add command-line flag -r for decompressing raw Deflate.
- * !! Add decompression of ZIP archives, with concatenation of members to stdout.
  */
 
 #include "luuzcat.h"
@@ -31,7 +28,7 @@
 #define CRC32_GEN_VALUE_HIGH 0xedb8U
 
 #if IS_DOS_16  /* Otherwise data (DGROUP) too large, it doesn't fit 64 KiB anymore. */
-#  define crc32_table big.deflate.crc32_table  /* !!! reinit */
+#  define crc32_table big.deflate.crc32_table
 #else
   static um32 crc32_table[256];  /* By putting it outside `big', we can keep it across different decompressor calls. */
 #endif
@@ -510,11 +507,11 @@ void decompress_zip_struct_nohdr(void) {  /* https://pkwaredownloads.blob.core.w
     read_and_ignore(2 + 2);  /*	last mod file time */  /* last mod file date */
     /* Movingg these 3 reads to a separate function actually increases the code size. */
     crc32 = get_le32();
-    csize = get_le32();  /* !! Check this after decompress_deflate_low(). */
+    csize = get_le32();
     usize = get_le32();
-    filename_size = get_le16();  /* !! Maybe move this and the next to a helper function. */
+    filename_size = get_le16();
     extra_field_size = get_le16();
-    read_and_ignore(filename_size);  /* !! Maybe move this and the next to a helper function. */
+    read_and_ignore(filename_size);
     read_and_ignore(extra_field_size);  /* Don't merge this with the previous call, because addition might overflow a 16-bit unsigned int. */
     build_crc32_table_if_needed();
     crc32_init();

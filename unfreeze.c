@@ -102,7 +102,7 @@ static unsigned int GetNBits(um8 bit_count) {
 
 #define GetByte() GetNBits(8)
 
-static unsigned int t, huffman_r, chars;
+static unsigned int huffman_t, huffman_r, chars;
 
 /* notes :
    big.freeze.parent[Tx .. Tx + N_CHARx - 1] used by
@@ -113,70 +113,54 @@ static unsigned int t, huffman_r, chars;
    Static array is initialized with `table', dynamic Huffman tree
    has `n_char' leaves.
 */
-static void StartHuff(unsigned int n_char) {
+static void StartHuff(unsigned int init_chars) {
   register unsigned int i, j;
-  t = n_char * 2 - 1;
-  huffman_r = t - 1;
-  chars = n_char;
 
-/* A priori frequences are 1 */
-
-  for (i = 0; i < n_char; i++) {
+  chars = init_chars;
+  huffman_t = init_chars * 2 - 1;
+  huffman_r = huffman_t - 1;
+  for (i = 0; i < init_chars; i++) {  /* A priori frequences are 1. */
     big.freeze.freq[i] = 1;
-    big.freeze.child[i] = i + t;
-    big.freeze.parent[i + t] = i;
+    big.freeze.child[i] = i + huffman_t;
+    big.freeze.parent[i + huffman_t] = i;
   }
-  i = 0; j = n_char;
-
-/* Building the balanced tree */
-
-  while (j <= huffman_r) {
-    big.freeze.freq[j] = big.freeze.freq[i] + big.freeze.freq[i + 1];
-    big.freeze.child[j] = i;
-    big.freeze.parent[i] = big.freeze.parent[i + 1] = j;
-    i += 2; j++;
+  for (j = 0; i <= huffman_r; j += 2, ++i) {  /* Build the balanced tree. */
+    big.freeze.freq[i] = big.freeze.freq[j] + big.freeze.freq[j + 1];
+    big.freeze.child[i] = j;
+    big.freeze.parent[j] = big.freeze.parent[j + 1] = i;
   }
-  big.freeze.freq[t] = 0xffff;
+  big.freeze.freq[huffman_t] = 0xffffU;
   big.freeze.parent[huffman_r] = 0;
 }
 
-/* Reconstructs tree with `chars' leaves */
+/* Reconstructs tree with `chars' leaves. */
 static void reconst(void) {
   register unsigned int i, j, k, f;
+  register um16 *p, *e;
 
-/* correct leaf node into of first half,
-   and set these freqency to (freq+1)/2
-*/
-  j = 0;
-  for (i = 0; i < t; i++) {
-    if (big.freeze.child[i] >= t) {
+  for (i = j = 0; i < huffman_t; i++) {  /* Correct leaf node into of first half,  and set these freqency to (freq+1)/2. */
+    if (big.freeze.child[i] >= huffman_t) {
       big.freeze.freq[j] = (big.freeze.freq[i] + 1) / 2;
       big.freeze.child[j] = big.freeze.child[i];
       j++;
     }
   }
-/* Build tree.  Link big.freeze.child[...] first */
-
-  for (i = 0, j = chars; j < t; i += 2, j++) {
+  for (i = 0, j = chars; j < huffman_t; i += 2, j++) {  /* Build tree.  Link big.freeze.child[...] first. */
     k = i + 1;
     f = big.freeze.freq[j] = big.freeze.freq[i] + big.freeze.freq[k];
     for (k = j - 1; f < big.freeze.freq[k]; k--);
     k++;
-    {       register um16 *p, *e;
-      for (p = &big.freeze.freq[j], e = &big.freeze.freq[k]; p > e; p--)
-        p[0] = p[-1];
-      big.freeze.freq[k] = f;
+    for (p = &big.freeze.freq[j], e = &big.freeze.freq[k]; p > e; p--) {
+      p[0] = p[-1];
     }
-    {       register um16 *p, *e;
-      for (p = &big.freeze.child[j], e = &big.freeze.child[k]; p > e; p--)
-        p[0] = p[-1];
-      big.freeze.child[k] = i;
+    big.freeze.freq[k] = f;
+    for (p = &big.freeze.child[j], e = &big.freeze.child[k]; p > e; p--) {
+      p[0] = p[-1];
     }
+    big.freeze.child[k] = i;
   }
-
-/* Link parents */
-  for (i = 0; i < t; i++) {
-    if ((k = big.freeze.child[i]) >= t) {
+  for (i = 0; i < huffman_t; i++) {  /* Link parents. */
+    if ((k = big.freeze.child[i]) >= huffman_t) {
       big.freeze.parent[k] = i;
     } else {
       big.freeze.parent[k] = big.freeze.parent[k + 1] = i;
@@ -192,7 +176,7 @@ static void update(register unsigned int c) {
   if (big.freeze.freq[huffman_r] == MAX_FREQ) {
     reconst();
   }
-  c = big.freeze.parent[c + t];
+  c = big.freeze.parent[c + huffman_t];
   do {
     k = ++big.freeze.freq[c];
 
@@ -205,13 +189,13 @@ static void update(register unsigned int c) {
 
       i = big.freeze.child[c];
       big.freeze.parent[i] = l;
-      if (i < t) big.freeze.parent[i + 1] = l;
+      if (i < huffman_t) big.freeze.parent[i + 1] = l;
 
       j = big.freeze.child[l];
       big.freeze.child[l] = i;
 
       big.freeze.parent[j] = c;
-      if (j < t) big.freeze.parent[j + 1] = c;
+      if (j < huffman_t) big.freeze.parent[j + 1] = c;
       big.freeze.child[c] = j;
 
       c = l;
@@ -233,7 +217,7 @@ static unsigned int decode_token(void) {
 #endif
   /* trace from root to leaf,
      got bit is 0 to small(big.freeze.child[]), 1 to large (big.freeze.child[]+1) child node */
-  while ((c = big.freeze.child[c]) < t) {
+  while ((c = big.freeze.child[c]) < huffman_t) {
     /* c += GetBit(); */
     if (bitlen-- == 0) {
       bitbuf = get_byte();
@@ -245,13 +229,13 @@ static unsigned int decode_token(void) {
     if (sizeof(bitbuf) < 3 && bitlen == 0) FillBits();
 #endif
   }
-  update(c -= t);
+  update(c -= huffman_t);
   return c;
 }
 
 /* Decodes the position info and returns it */
-static unsigned int decode_distance(ub8 is_freeze1) {
-  register unsigned int i, j;
+static unsigned int decode_distance(um8 freeze12_code67) {
+  register unsigned int i;
 
   /* Upper 6 bits can be coded by a byte (8 bits) or less,
    * plus 7 bits literally ...
@@ -261,26 +245,23 @@ static unsigned int decode_distance(ub8 is_freeze1) {
 #endif
   /* decode upper 6 bits from the table */
   i = GetByte();
-  if (is_freeze1) {
-    j = (big.freeze.code[i] << 6) | ((i << big.freeze.d_len[i]) & 0x3F);
-  } else {
-    j = (big.freeze.code[i] << 7) | ((i << big.freeze.d_len[i]) & 0x7F);
-  }
 
   /* get lower 7 bits literally */
 #ifdef DO_FILL_BITS
   if (sizeof(bitbuf) < 3) FillBits();
 #endif
-  return j | GetNBits(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
+  return (big.freeze.code[i] << freeze12_code67) | ((i << big.freeze.d_len[i]) & (freeze12_code67 == 6 ? 0x3f : 0x7f)) | GetNBits(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
 }
 
 static const um8 table1[9] = { 0, 0, 0, 1, 3, 8, 12, 24, 16 };
 
 /* Initializes static Huffman arrays */
-static void init(const um8 *table) {
-  unsigned int i, j, k, num, d;
+static void init(const um8 *table, unsigned int d) {
+  unsigned int i, j, k, num;
   num = 0;
+#if 0  /* It's shorter to pass this as an argument. */
   d = (table == table1) ? 2 : 1;  /* 2 for Freeze 1.x, 1 for Freeze 2.x. */
+#endif
 
   /* There are `table[i]' `i'-bits Huffman codes */
   for (i = 1, j = 0; i <= 8; i++) {
@@ -313,16 +294,14 @@ static void init(const um8 *table) {
 #endif
 }
 
-static void decompress_freeze_common(unsigned int match_distance_limit, ub8 is_freeze1) {
+static void decompress_freeze_common(unsigned int match_distance_limit, um8 freeze12_code67) {
   register unsigned int match_length, write_idx, c, match_distance;
 
   /* Initialize the dictionary (ring buffer window) to match_distance_limit
    * number of spaces (' '). This a quirk of the Freeze format. In other
    * formats, match_distance limit is 0 here.
    */
-  for (match_distance = WRITE_BUFFER_SIZE - match_distance_limit; match_distance < WRITE_BUFFER_SIZE; ++match_distance) {
-    global_write_buffer[match_distance] = ' ';
-  }
+  memset(global_write_buffer + WRITE_BUFFER_SIZE - match_distance_limit, ' ', match_distance_limit);
   InitIO();
   write_idx = 0;
   for (;;) {
@@ -334,7 +313,7 @@ static void decompress_freeze_common(unsigned int match_distance_limit, ub8 is_f
     } else {
       match_length = c - 256 + THRESHOLD;
        /* Now match_length contains the LZ match length and (after the assignment in the next line match_distance contains the LZ match distance. */
-      if ((match_distance = decode_distance(is_freeze1)) >= match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */
+      if ((match_distance = decode_distance(freeze12_code67)) >= match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */
       if ((match_distance_limit += match_length) >= 0x8000U) match_distance_limit = 0x8000U;  /* This doesn't overflow an um16, because old match_distance_limit <= 0x8000U and match_length < 0x8000U. */
       match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
       do {
@@ -353,8 +332,8 @@ void decompress_freeze1_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
   if (i != 0x1f || try_byte() != 0x9e) fatal_msg("missing Freeze 1.x signature" LUUZCAT_NL);
 #endif
   StartHuff(N_CHAR1);
-  init(table1);
-  decompress_freeze_common(F1, 1);
+  init(table1, 2);
+  decompress_freeze_common(F1, 6);
 }
 
 void decompress_freeze2_nohdr(void) {  /* Decompress Freeze 1.x compressed data. */
@@ -396,6 +375,6 @@ void decompress_freeze2_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
   big.freeze.table2[7] = j;
   big.freeze.table2[8] = i - j;
   StartHuff(N_CHAR2);
-  init(big.freeze.table2);
-  decompress_freeze_common(LOOKAHEAD, 0);
+  init(big.freeze.table2, 1);
+  decompress_freeze_common(LOOKAHEAD, 7);
 }

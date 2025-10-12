@@ -152,7 +152,8 @@ cmp test_C1.good test_C1.bin
 
 # Compile with OpenWatcom to a Win32 .exe program using the mmlibc386 libc.
 ~/Downloads/windows_nt_qemu/hdachs/mmlibcc.sh -bwin32 -o luuzcatm.exe luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
-dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatm.exe <test_C1_new9.Z >test_C1.bin
+# We need non-empty command-line because dosbox.nox.static incorrectly reports that stdin is a TTY.
+dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatm.exe -cd <test_C1_new9.Z >test_C1.bin
 cmp test_C1.good test_C1.bin
 
 # Compile with OpenWatcom to a Win32 .exe program using the OpenWatcom libc.
@@ -162,7 +163,8 @@ cmp test_C1.good test_C1.bin
 # against mmlibc386 above is smaller, so that should be used in production
 # instead.
 owcc -bwin32 -Wl,runtime -Wl,console=3.10 -s -Os -fno-stack-check -march=i386 -W -Wall -Wextra -Werror -Wno-n201 -std=c89 -o luuzcatw.exe luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
-dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatw.exe <test_C1_new9.Z >test_C1.bin
+# We need non-empty command-line because dosbox.nox.static incorrectly reports that stdin is a TTY.
+dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatw.exe -cd <test_C1_new9.Z >test_C1.bin
 cmp test_C1.good test_C1.bin
 
 # Compile with Borland Turbo C++ 1.x to a DOS 8086 .exe program.

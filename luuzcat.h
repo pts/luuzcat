@@ -71,6 +71,8 @@
 #    define main0_exit(exit_code) _exit(exit_code)
 #  endif
 
+#  define NULL ((void*)0)
+
 #  define LIBC_HAVE_WRITE_NONZERO_VOID 1
   /* Like write(...), but count must be nonzero, and it returns void. */
   static void write_nonzero_void(int fd, const void *buf, unsigned int count);
@@ -93,9 +95,28 @@
 #  pragma aux read = "mov ah, 3fh"  "int 21h"  "jnc ok"  "mov ax, -1"  "ok:" \
       __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
 
+  /* Just returns whether fd is a character device. (On Unix, there are
+   * non-TTY character devices, but this implementation pretends that they
+   * don't exist.) It works correctly on
+   * [kvikdos](https://github.com/pts/kvikdos), emu2 and (windowed) DOSBox.
+   * OpenWatcom lib does the same (
+   * https://github.com/open-watcom/open-watcom-v2/blob/2d1ea451c2dbde4f1efd26e14c6dea3b15a1b42b/bld/clib/environ/c/isatt.c#L58C10-L59
+   * ).
+   */
+  int isatty(int fd);
+#  pragma aux isatty = "mov ax, 4400h"  "int 21h"  "mov ax, 0"  "jc done"  \
+      "test dl, dl"  "jns done"  "inc ax"  "done:" \
+      __value [__ax] __parm [__bx] __modify __exact [__ax __bx __dx]
+
   __declspec(noreturn) void exit(unsigned char exit_code);
 #  pragma aux exit = "mov ah, 4ch"  "int 21h" \
       __parm [__al] __modify __exact []
+
+  char *main0_argv1(void);
+#  pragma aux main0_argv1 = "mov si, 81h"  "next:"  "lodsb"  "cmp al, 32" \
+      "je next"  "cmp al, 9"  "je next"  "dec si" \
+      __value [__si] __modify __exact [__si __al]  /* This is correct for a DOS .com program, but not for an .exe. */
+#  define main0_argv_endchar() '\r'
 
   unsigned int strlen(const char *s);
   /* To prevent wlink: Error! E2028: strlen_ is an undefined reference */
@@ -123,9 +144,9 @@
     /* Turbo C++ 1.01 defines __MSDOS__. OpenWatcom C compiler defines __DOS__, __COM__, __NT__ or __OS2__. */
 #    if defined(MSDOS) || defined(_MSDOS) || defined(_WIN32) || defined(_WIN64) || defined(__DOS__) || defined(__COM__) || defined(__NT__) || defined(__MSDOS__) || defined(__OS2__)
 #      include <fcntl.h>  /* O_BINARY. */
-#      include <io.h>  /* read(...), write(...), setmode(...). */
+#      include <io.h>  /* read(...), write(...), setmode(...), isatty(0). */
 #    else
-#      include <unistd.h>  /* read(...), write(...). */
+#      include <unistd.h>  /* read(...), write(...), isatty(...). */
 #    endif
 #    ifdef USE_DEBUG
 #      include <stdio.h>  /* fprintf(stderr, ...); */

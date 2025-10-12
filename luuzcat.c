@@ -88,13 +88,26 @@ unsigned int flush_write_buffer(unsigned int size) {
 
 union big_big big;
 
+static const char usage_msg[] = "Usage: luuzcat <input.gz >output" LUUZCAT_NL "https://github.com/pts/luuzcat" LUUZCAT_NL;
+
 #ifndef main0
-#  define main0() int main(void)
+#  define main0() int main(int argc, char **argv)
 #  define main0_exit0() return EXIT_SUCCESS
+#  define main0_argv1() ((void)argc, argv[0] ? argv[1] : NULL)
+#  define main0_argv_endchar() '\0'
 #endif
 
 main0() {
   unsigned int b;
+  const char *argv1 = main0_argv1();
+
+  /* We display the usage message if the are command-line arguments (or the
+   * first argument is empty), and stdin is a terminal (TTY).
+   */
+  if ((argv1 == NULL || *argv1 == main0_argv_endchar()) && isatty(STDIN_FILENO)) {
+    (void)!write(STDERR_FILENO, WRITE_PTR_ARG_CAST(usage_msg), sizeof(usage_msg) - 1);
+    exit(EXIT_FAILURE);
+  }
 
 #if O_BINARY  /* For DOS, Windows (Win32 and Win64) and OS/2. */
   setmode(STDIN_FILENO, O_BINARY);

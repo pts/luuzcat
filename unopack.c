@@ -70,12 +70,11 @@ void decompress_opack_nohdr(void) {
     if ((tp = get_byte()) == 0xffU) {
       if ((tp = get_w()) < 0xffU) fatal_corrupted_input();
     }
-    if (tp >= keysize -1U && keysize > 0xffU) fatal_corrupted_input();
+    if (tp >= keysize - 1U && keysize > 0xffU) fatal_corrupted_input();
     *t++ = tp;
   }
   bit_count = 0;
   write_idx = 0;
-  /* !! Output for test_C1_pack_old.z is something weird. */
   while (usize-- != 0) {
 #ifdef USE_DEBUG
     fprintf(stderr, "/%lu\n", (unsigned long)usize);

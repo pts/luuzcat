@@ -313,7 +313,7 @@ void decompress_scolzh_nohdr(void) {
       discard_bits(big.scolzh.c_len[c]);  /* This may discard fewer bits than 12, actually all 3..12 happened. */
       if (c <= 255) {  /* Append LZ literal byte. */
         global_write_buffer[write_idx] = c;
-        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
         if (match_distance_limit < 0x8000U) ++match_distance_limit;
       } else {
         match_length = c - 256 + THRESHOLD;
@@ -334,7 +334,7 @@ void decompress_scolzh_nohdr(void) {
         match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
         do {
           global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
-          if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+          if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
         } while (--match_length != 0);
       }
     }

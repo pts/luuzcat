@@ -307,7 +307,7 @@ void decompress_compact_nohdr(void) {
         }
         uptree(decompress_word);
         global_write_buffer[write_idx] = (uc8)decompress_word;
-        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
         pdi = 0;
       } else {
         pdi = CHECK_DI(big.compact.dict[pdi].sons[b].spdii);  /* b is 0 or 1. Uses the dicti_t of spdii. */

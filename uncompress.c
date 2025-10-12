@@ -580,14 +580,14 @@ void decompress_compress_nohdr(void) {
 #if 0  /* This works, but it is slow. */
       while (stack_top != lzw_stack + sizeof(lzw_stack)) {
         global_write_buffer[write_idx++] = *stack_top++;
-        if (write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+        if (write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
       }
 #else
       w_size = lzw_stack + sizeof(lzw_stack) - stack_top;
       if (w_size <= 4) {  /* Write a few bytes quickly, without memcpy(...) etc. */
         while (stack_top != lzw_stack + sizeof(lzw_stack)) {
           global_write_buffer[write_idx++] = *stack_top++;
-          if (write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+          if (write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
         }
       } else {
         while (w_size >= (w_skip = WRITE_BUFFER_SIZE - write_idx)) {
@@ -658,7 +658,7 @@ void decompress_compress_nohdr(void) {
         if (w_skip != 0) break;  /* This was the last iteration, the entire string has been printed. */
         write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
       }
-      if ((write_idx += w_size) == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+      if ((write_idx += w_size) == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
     }
     if (free_ent1 < maxmaxcode1) {  /* Generate the new entry. */
       ++free_ent1;  /* Never overflows 0xffffU. */

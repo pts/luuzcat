@@ -329,7 +329,7 @@ static void decompress_freeze_common(unsigned int match_distance_limit, ub8 is_f
     if ((c = decode_token()) == ENDOF) break;
     if (c < 256) {
       global_write_buffer[write_idx] = c;
-      if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+      if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
       if (match_distance_limit < 0x8000U) ++match_distance_limit;
     } else {
       match_length = c - 256 + THRESHOLD;
@@ -339,7 +339,7 @@ static void decompress_freeze_common(unsigned int match_distance_limit, ub8 is_f
       match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
       do {
         global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
-        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
       } while (--match_length != 0);
     }
   }

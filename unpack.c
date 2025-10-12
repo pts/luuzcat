@@ -89,7 +89,7 @@ void decompress_pack_nohdr(void) {
     if ((i += big.pack.byte_indexes[level]) == eof_idx) break;  /* End-of-stream marker found. */
     if (usize-- == 0) goto corrupted_input;  /* Too many outbut bytes before end-of-stream marker. gzip-1.2.4/unpack.c and pcat.c doen't have this error check, but they do it only later. */
     global_write_buffer[write_idx] = big.pack.bytes[i];
-    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
   }
   if (usize != 0) goto corrupted_input;
   flush_write_buffer(write_idx);

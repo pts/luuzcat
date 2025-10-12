@@ -103,7 +103,7 @@ void decompress_opack_nohdr(void) {
     }
     if ((dp = big.opack.tree[tp + 1]) > 0xffU) fatal_corrupted_input();
     global_write_buffer[write_idx] = dp;
-    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
 #ifdef USE_DEBUG
     flush_write_buffer(write_idx); write_idx = 0;
 #endif

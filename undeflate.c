@@ -77,17 +77,30 @@ static um32 global_usize;
 #define CRC32_INITIAL ((um32)0xffffffffUL)
 #define crc32_init() do { global_checksum.crc32 = CRC32_INITIAL; } while (0)
 
-static unsigned int flush_write_buffer_and_crc32_usize(unsigned int size) {
-  const uc8 *p = global_write_buffer;
-  um32 crc32_value = global_checksum.crc32;
-  global_usize += size;
-
-  while (size-- != 0) {
-    crc32_value = crc32_table[(uc8)crc32_value ^ *p++] ^ (crc32_value >> 8);
+#if defined(__WATCOMC__) && defined(_M_I86) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation. */
+  static um32 append_crc32(const uc8 *p, unsigned int size, long old_crc32, const um32 *crc32_table_arg);   /* size must be nonzero. */
+#  pragma aux append_crc32 = \
+      "next: lodsb"  "mov ah, 0"  "xor al, bl"  "add ax, ax"  "add ax, ax"  "xchg ax, bx"  "mov al, ah"  "mov ah, dl"  "mov dl, dh"  "mov dh, 0"  "xor dx, [di+bx+2]"  "xor ax, [di+bx]"  "xchg bx, ax"  "loop next" \
+      __parm [__si] [__cx] [__dx __bx] [__di]  /* __dx is the high word, no matter which order they are specified. */ [__di] __value [__dx __bx] __modify [__ax __si __cx]
+  static unsigned int flush_write_buffer_and_crc32_usize(unsigned int size) {
+    if (size == 0) return 0;  /* append_crc32(...) doesn't support size == 0, so we avoid it. */
+    global_usize += size;
+    global_checksum.crc32 = append_crc32(global_write_buffer, size, global_checksum.crc32, crc32_table);
+    return flush_write_buffer(size);
   }
-  global_checksum.crc32 = crc32_value;
-  return flush_write_buffer(p - global_write_buffer);
-}
+#else
+  static unsigned int flush_write_buffer_and_crc32_usize(unsigned int size) {
+    const uc8 *p = global_write_buffer;
+    um32 crc32_value = global_checksum.crc32;
+    global_usize += size;
+
+    while (size-- != 0) {
+      crc32_value = crc32_table[(uc8)crc32_value ^ *p++] ^ (crc32_value >> 8);
+    }
+    global_checksum.crc32 = crc32_value;
+    return flush_write_buffer(p - global_write_buffer);
+  }
+#endif
 
 #define ADLER32_INITIAL_S1 1U
 #define ADLER32_INITIAL_S2 0U
@@ -268,7 +281,7 @@ static unsigned int copy_uncompressed(um32 usize, unsigned int write_idx) {
   write_idx = 0;
   while (usize-- != 0) {
     global_write_buffer[write_idx] = get_byte();  /* !! Faster, use memcpy(global_write_buffer + ..., global_read_buffer + ..., ...). Do it everywhere. */
-    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(write_idx);  /* !! Use write_idx everywhere, probably it's already in a register. */
+    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(write_idx);
   }
   return write_idx;
 }
@@ -487,7 +500,6 @@ void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.tx
  * * (Member) file header and end of central directory structure are
  *   ignored.
  * * Archives spanning multiple files are not supported.
- * * !! Indicate that ZIP64 is a feature not supported.
  */
 void decompress_zip_struct_nohdr(void) {  /* https://pkwaredownloads.blob.core.windows.net/pkware-general/Documentation/APPNOTE-2.0.txt */
   unsigned int filename_size, extra_field_size, comment_size, flags, method;

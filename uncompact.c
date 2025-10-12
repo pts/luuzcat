@@ -20,13 +20,13 @@
 
 #include "luuzcat.h"
 
-#define LLEAF   010
-#define RLEAF   04
-#define SEEN    02
-#define FBIT    01
+#define LLEAF   8  /* Any power of 2 is OK which is larger than FBIT and SEEN and is the double of RLEAF. */
+#define RLEAF   4  /* Any power of 2 is OK which is larger than FBIT and SEEN and is the half of LLEAF. */
+#define SEEN    2
+#define FBIT    1
 
-#define EF      0400  /* End of stream. */
-#define NC      0401  /* New code found. */
+#define EF      256  /* End of stream. */
+#define NC      257  /* New code found. */
 
 #define NF      (NC+1)  /* 0402 */
 #if NF != COMPACT_NF
@@ -76,15 +76,15 @@ static dicti_t bottomdi;
 #  define CHECK_II(ii) (ii)
 #endif
 
-/* !! Replace all instances of short with unsigned um16! */
-static void insert(short ch) {
+/* 0 <= ch <= 255. */
+static void insert(unsigned int ch) {
   dicti_t ppdi;
   register struct compact_son *pson, *bson;
   register diri_t wtri;
-  short insert_word;
+  unsigned int insert_word;  /* An um16 is enough. */
 
 #ifdef USE_DEBUG
-  if (ch < 0 || ch > NF) abort();
+  if (ch > 255U) abort();
 #endif
 
   wtri = flistri; flistri = big.compact.dir[CHECK_RI(flistri)].nextri;
@@ -93,12 +93,12 @@ static void insert(short ch) {
   pson = &big.compact.dict[ppdi].sons[RIGHT];
   bson = &big.compact.dict[bottomdi].sons[LEFT];
   big.compact.dict[bottomdi].fath.fpdni = CHECK_DI(ppdi);
-  big.compact.in[ch].flags = (SEEN | FBIT);
+  big.compact.in[ch].flags = SEEN | FBIT;
   insert_word = bson->spdii = pson->spdii;  /* Sets the ini_t of spdii. */
   big.compact.in[ch].fpdni = big.compact.in[insert_word].fpdni = CHECK_DI(bottomdi);
   big.compact.dir[CHECK_RI(wtri)].ipt = CHECK_DI(bottomdi);
   pson->spdii = CHECK_DI(bottomdi);  /* Sets the dicti_t of spdii. */
-  big.compact.dict[bottomdi].fath.flags = (LLEAF | RLEAF | FBIT);
+  big.compact.dict[bottomdi].fath.flags = LLEAF | RLEAF | FBIT;
   big.compact.dict[ppdi].fath.flags &= ~RLEAF;
   big.compact.in[insert_word].flags = SEEN;
 
@@ -121,63 +121,67 @@ static void exch(dicti_t vdi, int vs, dictini_t dii, dicti_t wdi, int ws) {
     fpp = &big.compact.dict[CHECK_DI(dii)].fath;
   }
   fpp->fpdni = CHECK_DI(wdi);
-  fpp->flags &= ~1;
-  if (ws) fpp->flags |= ws;
+  fpp->flags &= ~FBIT;
+  fpp->flags |= ws;
 }
 
-static void uptree(short ch) {
+/* 0 <= ch <= 255 || ch == NC (== 257). */
+static void uptree(unsigned int ch) {
   int rs, ts, rflags, tflags;
   um32 rc, qc, sc;
   dicti_t rdi, tdi;
   register struct compact_son *rson, *tson;
   register diri_t rtri, qtri, stri;
   dictini_t q, s;
+  struct compact_node *rdip;
 
 #ifdef USE_DEBUG
-  if (ch < 0 || ch > NF) abort();
+  if (ch > 255 && ch != NC) abort();
 #endif
 
   rdi = CHECK_DI(big.compact.in[ch].fpdni);
   rs = big.compact.in[ch].flags & FBIT;
 
   for (;;) {
-    rson = &big.compact.dict[rdi].sons[rs];
+    rdip = &big.compact.dict[rdi];  /* We cache the &big.compact.dict[rdi] value to avoid the multiplication by 20 upon each use. */
+    rson = &rdip[0].sons[rs];
     if (((rc = ++rson->count) & 0xffffffffUL) == 0U) { counter_overflow: fatal_corrupted_input(); }  /* A 32-bit counter has overflowed. */
     rtri = rson->topri;
     for (;;) {
+      rdip = &big.compact.dict[rdi];
       if (rs) {
         s = CHECK_DI(rdi + 1);
         if (rdi == CHECK_DI(bottomdi)) {
           sc = rc - 2;
           stri = RINULL;
         } else {
-          sc = big.compact.dict[rdi + 1].sons[LEFT].count;
-          stri = big.compact.dict[rdi + 1].sons[LEFT].topri;
+          sc = rdip[1].sons[LEFT].count;
+          stri = rdip[1].sons[LEFT].topri;
         }
-        qc = big.compact.dict[rdi].sons[LEFT].count;
-        qtri = big.compact.dict[rdi].sons[LEFT].topri;
+        qc = rdip[0].sons[LEFT].count;
+        qtri = rdip[0].sons[LEFT].topri;
       } else {
         s = CHECK_DI(rdi);
-        sc = big.compact.dict[rdi].sons[RIGHT].count;
-        stri = big.compact.dict[rdi].sons[RIGHT].topri;
+        sc = rdip[0].sons[RIGHT].count;
+        stri = rdip[0].sons[RIGHT].topri;
         if (rdi == 0) {
           qc = rc + 1;
           qtri = headri;
           break;
         } else {
-          qc = big.compact.dict[rdi - 1].sons[RIGHT].count;
-          qtri = big.compact.dict[rdi - 1].sons[RIGHT].topri;
+          qc = rdip[-1].sons[RIGHT].count;
+          qtri = rdip[-1].sons[RIGHT].topri;
         }
       }
       if (rc <= qc)
         break;
 
       tdi = big.compact.dir[CHECK_RI(qtri)].ipt;
-      ts = LEFT;
       tson = &big.compact.dict[tdi].sons[LEFT];
+      ts = 0;
       if (rc <= tson->count) {
-        tson++;
-        ts++;
+        ++tson;
+        ++ts;  /* This requires that FBIT == 1. */
       }
 
       /* exchange pointers of (t, ts) and (r, rs) */
@@ -190,8 +194,9 @@ static void uptree(short ch) {
 
       rflags = (rs ? RLEAF : LLEAF);
       tflags = (ts ? RLEAF : LLEAF);
-      if (((big.compact.dict[rdi].fath.flags & rflags) << rs) ^ ((big.compact.dict[tdi].fath.flags & tflags) << ts)) {
-        big.compact.dict[rdi].fath.flags ^= rflags;
+      /* This requires that LLEAF == (RLEAF << 1) and that FBIT == 1. */
+      if (((rdip[0].fath.flags & rflags) << rs) ^ ((big.compact.dict[tdi].fath.flags & tflags) << ts)) {
+        rdip[+ 0].fath.flags ^= rflags;
         big.compact.dict[tdi].fath.flags ^= tflags;
       }
 
@@ -222,21 +227,29 @@ static void uptree(short ch) {
       if (stri != RINULL) big.compact.dir[CHECK_RI(stri)].ipt = CHECK_DI(s);
       rson->topri = rtri;
     }
-    rs = big.compact.dict[rdi].fath.flags & FBIT;
-    if ((rdi = big.compact.dict[rdi].fath.fpdni) == NFNULL) break;
+    rdip = &big.compact.dict[rdi];
+    rs = rdip->fath.flags & FBIT;
+    if ((rdi = rdip->fath.fpdni) == NFNULL) break;
     rdi = CHECK_DI(rdi);  /* Check fails on NFNULL. */
   }
   dirpri = big.compact.dir[CHECK_RI(headri)].nextri;
   dirqri = big.compact.dir[CHECK_RI(dirpri)].nextri;
 }
 
+/* typedef char assert_son_size[sizeof(big.compact.dict[0].sons[0]) == 8 ? 1 : -1]; */  /* True, but not important. */
+/* typedef char assert_dict0_size[sizeof(big.compact.dict[0]) == 20 ? 1 : -1]; */  /* True, but not important. */
+
+typedef unsigned int u_word_t;  /* At least 16 bits. */
+typedef   signed int s_word_t;  /* Must be the signed counterpart of u_word_t. */
+typedef char assert_word_t[sizeof(u_word_t) == sizeof(s_word_t) && (u_word_t)-1 > 0 && (s_word_t)-1 < 0 ? 1 : -1];
+typedef char assert_word_t_2s_complement[(s_word_t)((u_word_t)1 << (sizeof(u_word_t) * 8 - 1)) < 0 && (s_word_t)((u_word_t)1 << (sizeof(u_word_t) * 8 - 2)) > 0 ? 1 : -1];
+
 void decompress_compact_nohdr(void) {
   unsigned int write_idx;
   register dicti_t pdi;  /* For decompress. */
-  register unsigned j;  /* For decompress and main. */
   register int m;  /* For decompress. */
-  ub8 b;  /* 0 or 1. For decompress. */
-  short decompress_word;
+  um8 b;  /* 0 or 1 -- or RLEAF or LLEAF. For decompress. */
+  u_word_t decompress_word;
   um8 data_byte;  /* 0..255. */
 
   /* !! Do we need this initialization? How is it different from per-file initialization below? */
@@ -273,10 +286,10 @@ void decompress_compact_nohdr(void) {
   big.compact.dict[0].fath.fpdni = NFNULL;
   big.compact.dict[bottomdi].fath.fpdni = big.compact.in[data_byte].fpdni = 0;
   big.compact.dir[CHECK_RI(dirqri)].ipt = 0;
-  big.compact.in[data_byte].flags = (FBIT | SEEN);
+  big.compact.in[data_byte].flags = FBIT | SEEN;
   big.compact.in[NC].flags = SEEN;
   big.compact.dict[0].fath.flags = RLEAF;
-  big.compact.dict[bottomdi].fath.flags = (LLEAF | RLEAF);
+  big.compact.dict[bottomdi].fath.flags = LLEAF | RLEAF;
   big.compact.dict[0].sons[LEFT].count = 2;
   big.compact.dict[0].sons[RIGHT].spdii = data_byte;  /* Sets the ini_t of spdii. */
   big.compact.dict[bottomdi].sons[LEFT].spdii = NC;  /* Sets the ini_t of spdii. */
@@ -284,21 +297,21 @@ void decompress_compact_nohdr(void) {
 
   /* Decompress subsequent data bytes using adaptive Huffman code. */
   pdi = 0;
-  for (;;) {  /* !! Reorganize these reads based on how the tree is descended. */
+  for (;;) {
     data_byte = get_byte();
-    for (m = 0200; m; ) {
+    for (m = 0x80; m; ) {
       b = (m & data_byte ? 1 : 0);
       m >>= 1;
-      if (big.compact.dict[pdi].fath.flags & (b ? RLEAF : LLEAF)) {
-        decompress_word = big.compact.dict[pdi].sons[b].spdii;  /* b is 0 or 1. Uses the ini_t of spdii. */
+      decompress_word = CHECK_DI(big.compact.dict[pdi].sons[b].spdii);  /* b is 0 or 1. Uses the ini_t of spdii. */
+      if (big.compact.dict[pdi].fath.flags & (b ? RLEAF : LLEAF))  {
         if (decompress_word == EF) goto end_of_stream;
         if (decompress_word == NC) {
           uptree(NC);
-          decompress_word = 0;
-          for (j = 8; j--; m >>= 1) {  /* Read 8 bits to decompress_word. */
+          decompress_word = 0xffU << ((sizeof(decompress_word) * 8 - 8));
+          for (; (s_word_t)decompress_word < 0 ; m >>= 1) {  /* Read 8 bits to decompress_word. */  /* This assumes that s_word_t and u_word_t are 2s complement. */
             if (m == 0) {
               data_byte = get_byte();
-              m = 0200;
+              m = 0x80;
             }
             decompress_word <<= 1;
             if (m & data_byte) decompress_word++;
@@ -310,7 +323,7 @@ void decompress_compact_nohdr(void) {
         if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
         pdi = 0;
       } else {
-        pdi = CHECK_DI(big.compact.dict[pdi].sons[b].spdii);  /* b is 0 or 1. Uses the dicti_t of spdii. */
+        pdi = decompress_word;
       }
     }
   }

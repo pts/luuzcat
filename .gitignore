@@ -12,6 +12,7 @@
 /luuzcat[0-9a-z].exe
 /luuzcat.*.exe
 /luuzcatc.com
+/luuzcatc.com.[0-9]*
 /kvikdos
 /*.try/
 /uncompact.c.orig
@@ -42,3 +43,6 @@
 *.Z
 # ZIP compressed test files.
 *.zip
+# Raw Deflate compressed test files.
+*.deflate
+

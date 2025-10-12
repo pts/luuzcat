@@ -91,6 +91,10 @@ unsigned int flush_write_buffer(unsigned int size) {
 union big_big big;
 
 static const char usage_msg[] = "Usage: luuzcat [-r] <input.gz >output" LUUZCAT_NL "https://github.com/pts/luuzcat" LUUZCAT_NL;
+static const char more_msg[] = "more compressed input expected" LUUZCAT_NL;
+
+#define MAIN_FLAG_RAW_DEFLATE 8
+#define MAIN_FLAG_SUBSEQUENT 5  /* This is strlen("more "), of the prefix of more_msg. */
 
 #ifndef main0
 #  define main0() int main(int argc, char **argv)
@@ -102,7 +106,7 @@ static const char usage_msg[] = "Usage: luuzcat [-r] <input.gz >output" LUUZCAT_
 main0() {
   unsigned int b;
   const char *argv1 = main0_argv1();
-  ub8 is_raw_deflate = 0;
+  ub8 flags = 0;
 
   /* We display the usage message if the are command-line arguments (or the
    * first argument is empty), and stdin is a terminal (TTY).
@@ -114,7 +118,7 @@ main0() {
   if (argv1 != NULL) {
     while ((b = *(const unsigned char*)argv1++) != main0_argv_endchar()) {
       b |= 0x20;  /* Convert uppercase A-Z to lowercase a-z. */
-      if (b == 'r') is_raw_deflate = 1;
+      if (b == 'r') flags |= MAIN_FLAG_RAW_DEFLATE;
       if (b == 'h') goto do_usage;  /* --help. */
     }
   }
@@ -156,7 +160,7 @@ main0() {
       } else {
         goto bad_signature;
       }
-    } else if (is_raw_deflate) {  /* The file formats below this are ambigious with raw Deflate. The latter takes precedence iff the -r flag has been specified. */
+    } else if ((flags & MAIN_FLAG_RAW_DEFLATE) != 0) {  /* The file formats below this are ambigious with raw Deflate. The latter takes precedence iff the -r flag has been specified. */
       --global_inptr;  /* Unread the first byte (b). */
       decompress_deflate();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
     } else if ((b & 0xf) == 8 && (b >> 4) < 8) {  /* CM byte for zlib. Valid values are 0x08, 0x18, ..., 0x78. Check that CM == 8, check that CINFO <= 7, otherwise ignore CINFO (sliding window size). */
@@ -168,9 +172,11 @@ main0() {
       } else {
         goto bad_signature;
       }
-    } else {
-      bad_signature: fatal_msg("compressed signature not recognized" LUUZCAT_NL);
+    } else if (b == 0) {  /* Allow NUL bytes. */
+    } else { bad_signature:
+      fatal_msg(more_msg + 5 - (flags & MAIN_FLAG_SUBSEQUENT));
     }
+    flags |= MAIN_FLAG_SUBSEQUENT;
   }
   main0_exit0();  /* return EXIT_SUCCESS; */
 }

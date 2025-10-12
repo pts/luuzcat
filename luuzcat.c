@@ -36,7 +36,9 @@ __noreturn void fatal_read_error(void) { fatal_msg("read error" LUUZCAT_NL); }
 __noreturn void fatal_write_error(void) { fatal_msg("write error" LUUZCAT_NL); }
 __noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF" LUUZCAT_NL); }
 __noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input" LUUZCAT_NL); }
-__noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
+#ifdef LUUZCAT_MALLOC_OK
+  __noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
+#endif
 __noreturn void fatal_unsupported_feature(void) { fatal_msg("unsupported feature" LUUZCAT_NL); }
 
 uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT];

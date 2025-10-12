@@ -216,6 +216,10 @@ typedef unsigned long um32;  /* At least 32 bits. */
 #  define write_nonzero(fd, buf, count) write(fd, buf, count)
 #endif
 
+#if IS_DOS_16 && (defined(__WATCOMC__) || defined(__TURBOC__))
+#  define LUUZCAT_MALLOC_OK 1  /* For uncompress.c. */
+#endif
+
 /* --- Typedefs etc. */
 
 typedef unsigned char uc8;  /* Always a single byte. For interfacing with read(2) and write(2). */
@@ -232,7 +236,9 @@ __noreturn void fatal_read_error(void);
 __noreturn void fatal_write_error(void);
 __noreturn void fatal_unexpected_eof(void);
 __noreturn void fatal_corrupted_input(void);
-__noreturn void fatal_out_of_memory(void);
+#ifdef LUUZCAT_MALLOC_OK
+  __noreturn void fatal_out_of_memory(void);
+#endif
 __noreturn void fatal_unsupported_feature(void);
 
 /* --- Reading. */
@@ -402,7 +408,6 @@ extern union big_big {
 
 /* This is always true, otherwise there is no way to communicate the write_idx. !! Add global_write_idx. */
 #define LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS 1
-
 /* These functions decompress from stdin (fd STDIN_FILENO == 0) to stdout. */
 void decompress_scolzh_nohdr(void);
 void decompress_compact_nohdr(void);

@@ -203,6 +203,9 @@ typedef unsigned int uint;
 #  ifndef _DOSCOMSTART
 #    include <malloc.h>  /* For OpenWatcom __DOS__ halloc(...). */
 #  endif
+#  ifndef LUUZCAT_MALLOC_OK
+#    error Change luuzcat.h to allow malloc.
+#  endif
   static void tab_init(void) {
     /* We use OpenWatcom-specific halloc(...), because all our attempts to
      * create __far arrays (such as uc8 `__far tab_suffix_ary[(1UL << BITS)
@@ -275,6 +278,9 @@ typedef unsigned int uint;
 #  define tab_suffixof(code) tab_suffix_fptr[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  ifndef LUUZCAT_MALLOC_OK
+#    error Change luuzcat.h to allow malloc.
+#  endif
   static void tab_init(void) {
 #  define TAB_PARA_COUNT (unsigned short)((((1UL << BITS) - 256U) * 3 + 15) >> 4)  /* Number of 16-byte paragraphs needed by tables above. */
     unsigned segment;

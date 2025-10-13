@@ -44,6 +44,7 @@ __noreturn void fatal_unsupported_feature(void) { fatal_msg("unsupported feature
 uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT];
 unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
 unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
+um32 global_total_read_size;  /* read_byte(...) increses it after each read from the filehandle to global_read_buffer. */
 ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
 
 /* --- Reading. */
@@ -64,7 +65,7 @@ unsigned int read_byte(ub8 is_eof_ok) {
     if (is_eof_ok) return BEOF;
     fatal_unexpected_eof();
   }
-  global_insize = got;
+  global_total_read_size += global_insize = got;
   global_inptr = 1;
   return global_read_buffer[0];
 }

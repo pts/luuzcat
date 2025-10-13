@@ -506,8 +506,10 @@ void decompress_zip_struct_nohdr(void) {  /* https://pkwaredownloads.blob.core.w
   if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* This is not an error for `gzip -cd'. */
   if (i != 0x50 || try_byte() != 0x4b) fatal_msg("missing zip signature" LUUZCAT_NL);  /* "PK." */
 #endif
-  if ((b = get_byte()) == 3) {  /* "PK\3\4": ZIP local file header. Decompress member file to stdout. */
-    if (get_byte() != 4) { corrupted_input: fatal_corrupted_input(); }
+  b = get_byte();
+  /* The second byte of the structure header must be 1 more than the first, e.g. in "PK\3\4", 4 == 3 + 1. */
+  if (get_byte() != (uc8)(b + 1)) { corrupted_input: fatal_corrupted_input(); }
+  if (b == 3) {  /* "PK\3\4": ZIP local file header. Decompress member file to stdout. */
     (void)get_le16();  /* version needed to extract */
     flags = get_le16();
     if ((method = get_le16()) != ZIP_METHOD_DEFLATED && method != ZIP_METHOD_STORED) fatal_unsupported_feature();
@@ -535,18 +537,20 @@ void decompress_zip_struct_nohdr(void) {  /* https://pkwaredownloads.blob.core.w
       global_flush_write_buffer_func(copy_uncompressed(usize, 0));
     } else {  /* method == ZIP_METHOD_DEFLATED. */
       global_flush_write_buffer_func = flush_write_buffer_and_crc32_usize;
+      global_total_read_size = 0;
+      csize -= global_insize - global_inptr;
       decompress_deflate_low();
       if ((flags & 8) != 0) {  /* Get fields from the data descriptor. */
         crc32 = get_le32();
         csize = get_le32();
         usize = get_le32();
       }
-      if (usize != global_usize) fatal_corrupted_input();  /* Bad uncompressed size. */
-      /*if (csize != ...) fatal_corrupted_input();*/  /* Bad compressed size. */  /* !! Do calculations in decompress_deflate_low() so that we can check it. */
+      if (usize != global_usize) goto corrupted_input;  /* Bad uncompressed size. */
+      csize += global_insize - global_inptr;
+      if (csize != global_total_read_size) goto corrupted_input;  /* Bad compressed size. */
     }
     if (crc32 != (global_checksum.crc32 ^ CRC32_INITIAL)) fatal_corrupted_input();  /* Bad CRC-32. */
   } else if (b == 1)  {  /* "PK\3\4": ZIP file header. Just ignore. */
-    if (get_byte() != 2) goto corrupted_input;
     read_and_ignore(24);
     filename_size = get_le16();
     extra_field_size = get_le16();
@@ -556,8 +560,9 @@ void decompress_zip_struct_nohdr(void) {  /* https://pkwaredownloads.blob.core.w
     read_and_ignore(extra_field_size);  /* Don't merge this with the previous call, because addition might overflow a 16-bit unsigned int. */
     read_and_ignore(comment_size);
   } else if (b == 5)  {  /* "PK\5\6": ZIP end of central drirectory record. Just ignore. */
-    if (get_byte() != 6) goto corrupted_input;
     read_and_ignore(16);
     read_and_ignore(get_le16());  /* ZIP archive comment. */
+  } else {
+    goto corrupted_input;
   }
 }

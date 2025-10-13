@@ -265,6 +265,7 @@ extern uc8 global_read_buffer[];
 
 extern unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
 extern unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
+extern um32 global_total_read_size;  /* read_byte(...) increses it after each read from the filehandle to global_read_buffer. */
 extern ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
 unsigned int read_byte(ub8 is_eof_ok);
 void read_force_eof(void);

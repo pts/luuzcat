@@ -36,7 +36,7 @@
 #if defined(__WATCOMC__) && defined(_M_I86) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation. */
 static void build_crc32_table_if_needed_inline(um32 __near *our_crc32_table);
 #  pragma aux build_crc32_table_if_needed_inline = \
-      "xor bx, bx"  "cmp byte ptr [di+4], bl" \
+      "push ds"  "pop es"  "xor bx, bx"  "cmp byte ptr [di+4], bl" \
       "jne done"  "next_byte: mov ax, bx"  "cwd"  "mov cx, 8" \
       "next_bit: shr dx, 1"  "rcr ax, 1"  "jnc updated"  "xor ax, 8320h" \
       "xor dx, 0edb8h"  "updated: loop next_bit"  "stosw"  "xchg ax, dx" \
@@ -70,18 +70,18 @@ static void build_crc32_table_if_needed_inline(um32 __near *our_crc32_table);
 
 static union single_checksum {
   um32 crc32;
-  unsigned int adler32_s12[2];  /* [0] is s2, [1] is s1. */
+  unsigned int adler32_s12[2];  /* [0] is s2 (BX), [1] is s1 (DX). */
 } global_checksum;
 static um32 global_usize;
 
 #define CRC32_INITIAL ((um32)0xffffffffUL)
 #define crc32_init() do { global_checksum.crc32 = CRC32_INITIAL; } while (0)
 
-#if defined(__WATCOMC__) && defined(_M_I86) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation. */
+#if defined(__WATCOMC__) && defined(_M_I86) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation of CRC-32. */
   static um32 append_crc32(const uc8 *p, unsigned int size, long old_crc32, const um32 *crc32_table_arg);   /* size must be nonzero. */
 #  pragma aux append_crc32 = \
       "next: lodsb"  "mov ah, 0"  "xor al, bl"  "add ax, ax"  "add ax, ax"  "xchg ax, bx"  "mov al, ah"  "mov ah, dl"  "mov dl, dh"  "mov dh, 0"  "xor dx, [di+bx+2]"  "xor ax, [di+bx]"  "xchg bx, ax"  "loop next" \
-      __parm [__si] [__cx] [__dx __bx] [__di]  /* __dx is the high word, no matter which order they are specified. */ [__di] __value [__dx __bx] __modify [__ax __si __cx]
+      __parm [__si] [__cx] [__dx __bx] [__di]  /* DX is the high word, no matter which order they are specified. */ [__di] __value [__dx __bx] __modify [__ax __si __cx]
   static unsigned int flush_write_buffer_and_crc32_usize(unsigned int size) {
     if (size == 0) return 0;  /* append_crc32(...) doesn't support size == 0, so we avoid it. */
     global_usize += size;
@@ -106,29 +106,42 @@ static um32 global_usize;
 #define ADLER32_INITIAL_S2 0U
 #define adler32_init() do { global_checksum.adler32_s12[1] = ADLER32_INITIAL_S1; global_checksum.adler32_s12[0] = ADLER32_INITIAL_S2; } while (0)
 
-static unsigned int flush_write_buffer_and_adler32(unsigned int size) {  /* https://www.rfc-editor.org/rfc/rfc1950.txt */
-  const uc8 *p = global_write_buffer;
-  unsigned int s1 = global_checksum.adler32_s12[1], s2 = global_checksum.adler32_s12[0], byte_value;
-
-  if (sizeof(s1) > 2) {
-    byte_value = 0;  /* Avoid warning about possible use by (void)byte_value below. */
-    (void)byte_value;
+#if defined(__WATCOMC__) && defined(_M_I86) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation of Adler-32. */
+  static um32 append_adler32(const uc8 *p, unsigned int size, long old_adler32);   /* size must be nonzero. */
+#  pragma aux append_adler32 = \
+      "mov di, 65521"  "mov ah, 0"  "next: lodsb"  "add dx, ax"  "jc sub1"  "cmp dx, di"  "jc asub1"  "sub1: sub dx, di"  "asub1: add bx, dx"  "jc sub2"  "cmp bx, di"  "jc asub2"  "sub2: sub bx, di"  "asub2: loop next" \
+      __parm [__si] [__cx] [__dx __bx]  /* DX is the high word, no matter which order they are specified. */ __value [__dx __bx] __modify [__ax __si __cx __di]
+  static unsigned int flush_write_buffer_and_adler32(unsigned int size) {
+    if (size == 0) return 0;  /* append_adler3232(...) doesn't support size == 0, so we avoid it. */
+    /* By updating global_checksum.crc32 (as written below), we actually update global_checksum.adler32_s12[:], because global_checksum is a union. */
+    global_checksum.crc32 = append_adler32(global_write_buffer, size, global_checksum.crc32);
+    return flush_write_buffer(size);
   }
-  while (size-- != 0) {
+#else
+  static unsigned int flush_write_buffer_and_adler32(unsigned int size) {  /* https://www.rfc-editor.org/rfc/rfc1950.txt */
+    const uc8 *p = global_write_buffer;
+    unsigned int s1 = global_checksum.adler32_s12[1], s2 = global_checksum.adler32_s12[0], byte_value;
+
     if (sizeof(s1) > 2) {
-      if ((s1 += *p++) >= 65521U) s1 -= 65521U;
-      if ((s2 += s1) >= 65521U) s2 -= 65521U;
-    } else {  /* Handle overflow manually, without using longer than 16-bit integers. */
-      byte_value = *p++;  /* Also zero-entends it to an unsigned int. */
-      if ((s1 += byte_value) >= 65521U || s1 < byte_value) s1 -= 65521U;
-      if ((s2 += s1) >= 65521U || s2 < s1) s2 -= 65521U;
+      byte_value = 0;  /* Avoid warning about possible use by (void)byte_value below. */
+      (void)byte_value;
     }
+    while (size-- != 0) {
+      if (sizeof(s1) > 2) {
+        if ((s1 += *p++) >= 65521U) s1 -= 65521U;
+        if ((s2 += s1) >= 65521U) s2 -= 65521U;
+      } else {  /* Handle overflow manually, without using longer than 16-bit integers. */
+        byte_value = *p++;  /* Also zero-entends it to an unsigned int. */
+        if ((s1 += byte_value) >= 65521U || s1 < byte_value) s1 -= 65521U;
+        if ((s2 += s1) >= 65521U || s2 < s1) s2 -= 65521U;
+      }
+    }
+    global_checksum.adler32_s12[1] = s1; global_checksum.adler32_s12[0] = s2;
+    return flush_write_buffer(p - global_write_buffer);
   }
-  global_checksum.adler32_s12[1] = s1; global_checksum.adler32_s12[0] = s2;
-  return flush_write_buffer(p - global_write_buffer);
-}
+#endif
 
-unsigned int (*global_flush_write_buffer_func)(unsigned int size);
+static unsigned int (*global_flush_write_buffer_func)(unsigned int size);
 
 #define MAX_TMP_SIZE 19
 #define MAX_INCOMPLETE_BRANCH_COUNT (7 + 15 + 15)  /* Because of DO_CHECK_HUFFMAN_TREE_100_PERCENT_COVERAGE == 1. */

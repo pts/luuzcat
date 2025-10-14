@@ -744,10 +744,14 @@ simple_syscall3_eax:
 		jmp short .error
   .sysv:
 		call 7:dword 0  ; SysV i386 syscall.
-		jnc short .ret
-		jmp short .error
+		dw 0xb966  ; `mov cx, ...' to skip over the `int 0x80' below.
   .freebsd:
 		int 0x80  ; FreeBSD i386 syscall.
+  %if $-.freebsd!=2
+    %error ERROR_SKIP_FREEBSD_MUST_BE_2_BYTES  ; For the `dw 0xb966' above.
+    times -1 nop
+  %endif
+  .after_syscall:
 		jnc short .ret
 %endif
 .error:

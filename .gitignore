@@ -26,6 +26,8 @@
 *.qcow2
 /freebsd.iso
 /hello.img
+/floppy.img
+/transfer.img
 
 # --- Test files.
 

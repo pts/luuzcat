@@ -4,11 +4,16 @@
 ;
 ; Executable binary compatibility:
 ;
-; * prog.elf: Linux >=1.0.4 (1994-05-22) i386 and possibly earlier,
-;   FreeBSD >=3.5 (1995-05-28) i386 and possibly earlier,
-;   AT&T Unix System V Release 4 (SVR4) i386 and drivatives (such as
-;   INTERACTIVE UNIX SYSTEM V RELEASE 4.0, Dell Unix, Olivetti Unix,
-;   Intel Unix),
+; * prog.elf: Linux >=1.0.4 (1994-05-22) i386 and possibly earlier
+;   (tested on Linux 1.0.4 (1994-03-22), 5.4.0 (2019-11-24)),
+;   FreeBSD >=3.5 (1995-05-28) i386 and possibly earlier
+;   (tested on FreeBSD 9.3 (2014-07-11)),
+;   NetBSD >=1.5.2 i386 and possibly earlier
+;   (tested on NetBSD 1.5.2 (2001-09-10), 10.1 (2024-11-17)),
+;   AT&T Unix System V/386 Release 4 (SVR4) i386
+;   (tested on version 2.1) and drivatives (such as
+;   INTERACTIVE UNIX SYSTEM V RELEASE 4.0, Dell Unix, Olivetti Unix, Intel
+;   Unix),
 ;   [ibcs-us](https://ibcs-us.sourceforge.io/) running on Linux i386
 ;   (tested with ibcs-us 4.1.6),
 ;   qemu-i386 running on Linux (any architecture) (tested with
@@ -23,6 +28,8 @@
 ;
 ; !! Which version of Xenix/386 can run these iBCS2 COFF programs?
 ; !! Add binary release for older Xenix/386.
+; !! Test on FreeBSD 3.5 (1995-05-28).
+; !! For FreeBSD, try alternative of ELF_OSABI.FreeBSD (i.e. at EI_ABIVERSION == EI_BRAND == 8). NetBSD 10.1 also allows it.
 ;
 
 bits 32
@@ -91,7 +98,7 @@ cpu 386
     .f_nscns:	dw (coff_scnhdr_end-coff_scnhdr_text)/40  ; number of sections == 4.
     .f_timdat:	dd coff_timestamp  ; time & date stamp.
     .f_symptr:	dd 0  ; file pointer to symtab.
-    .f_nsyms:	dd 0  ; number of symtab entries
+    .f_nsyms:	dd ERROR_MISSING_F_END  ; 0. number of symtab entries.
     .f_opthdr:	dw coff_aouthdr.end-coff_aouthdr  ; sizeof(optional hdr) == 0x1c.
     .f_flags:	dw F.RELFLG|F.EXEC|F.LNNO|F.LSYMS|F.AR32WR  ; flags.
 
@@ -172,21 +179,39 @@ cpu 386
     _bss_start:
     section .text
 
-    OSABI:  ; ELF EI_OSABI constants.
-    .SysV: equ 0
-    .Linux: equ 3
-    .FreeBSD: equ 9
+    ELF_OSABI:  ; ELF EI_OSABI constants.
+    .SysV equ 0
+    .Linux equ 3
+    .FreeBSD equ 9
 
-    ; We use OSABI.FreeBSD, because newer FreeBSD checks it. Linux and SysV don't check it.
+    ELF_PT:  ; ELF PHDR type constants.
+    .LOAD equ 1
+    .NOTE equ 4
+
+    ; We use ELF_OSABI.FreeBSD, because newer FreeBSD checks it. Linux, NetBSD and SysV SVR4 don't check it.
     Elf32_Ehdr:
-		db 0x7F, 'ELF', 1, 1, 1, OSABI.FreeBSD, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, 0
+		db 0x7F, 'ELF', 1, 1, 1, ELF_OSABI.FreeBSD, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, ERROR_MISSING_F_END
 		dd 1, _start, Elf32_Phdr0-Elf32_Ehdr, 0, 0
-		dw Elf32_Phdr0-Elf32_Ehdr, 0x20, 2, 0x28, 0, 0
+		dw Elf32_Phdr0-Elf32_Ehdr, Elf32_Phdr1-Elf32_Phdr0, (Elf32_Phdr.end-Elf32_Phdr0)>>5, 0x28, 0, 0
     Elf32_Phdr0:
-		dd 1, Elf32_Phdr.end-Elf32_Ehdr, Elf32_Phdr.end, 0, _text_size+_rodatastr_size+_rodata_size-(Elf32_Phdr.end-Elf32_Ehdr), _text_size+_rodatastr_size+_rodata_size-(Elf32_Phdr.end-Elf32_Ehdr), 5, 0x1000
+		dd ELF_PT.LOAD, Elf32_header.end-Elf32_Ehdr, Elf32_header.end, 0, _text_size+_rodatastr_size+_rodata_size-(Elf32_header.end-Elf32_Ehdr), _text_size+_rodatastr_size+_rodata_size-(Elf32_header.end-Elf32_Ehdr), 5, 1<<12
     Elf32_Phdr1:
-		dd 1, _datauna_fofs, _datauna_start, 0, _datauna_size+_data_size, _datauna_size+_data_size+_bss_size, 6, 0x1000
+		dd ELF_PT.LOAD, _datauna_fofs, _datauna_start, 0, _datauna_size+_data_size, _datauna_size+_data_size+_bss_size, 6, 1<<12
+    Elf32_Phdr2:
+		dd ELF_PT.NOTE, Elf32_note-Elf32_Ehdr, Elf32_note, 0, Elf32_note.end-Elf32_note, Elf32_note.end-Elf32_note, 4, 1<<2
     Elf32_Phdr.end:
+    Elf32_note:  ; NetBSD checks it. Actual value is same as in /bin/echo in NetBSD 1.5.2 (2001-08-18). It also works with NetBSD 10.1 (2024-11-17).
+		dd 7, 4, 1  ; Size of the name, size of the value, node type.
+		db 'NetBSD', 0  ; 7-byte name.
+		db 0  ; Alignment padding to 4.
+		dd 199905  ; Some version number in decimal.
+		dd 7, 7, 2  ; Size of the name, size of the value, node type.
+		db 'NetBSD', 0  ; 7-byte name.
+		db 0  ; Alignment padding to 4.
+		db 'netbsd', 0
+		db 0  ; Alignment padding to 4.
+    Elf32_note.end:
+    Elf32_header.end:
   %endif
 
   %macro f_section__TEXT 0
@@ -216,6 +241,8 @@ cpu 386
     resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
   %macro f_end 0
+    ERROR_MISSING_F_END equ 0  ; If you are getting ERROR_MISSING_F_END errors, then add `f_end' to the end of your .nasm source file.
+
     section .text
     _text_endu:
     section .rodata.str
@@ -490,6 +517,9 @@ IOCTL_FreeBSD:  ; FreeBSD 3.5 i386.
 .TIOCGWINSZ     equ 0x40087468  ; _IOR('t', 104, struct winsize). Get window size. sizeof(struct winsize) == 8.
 .OTIOCGETD      equ 0x40047400  ; _IOR('t', 0, int). Old get line discipline. sizeof(int) == 4.
 
+IOCTL_NetBSD:  ; NetBSD 1.5.2 i386.
+.TIOCGETA       equ 0x402c7413  ; _IOR('t', 19, struct termios). Get termios struct. sizeof(struct termios) == 44 == 0x2c. isatty(3) uses TIOCGETA.
+
 IOCTL_386BSD:  ; 386BSD 1.0.
 ; usr/src/kernel/include/sys/ioctl.h
 .TIOCFLUSH equ 0x802c7415  ; _IOW('t', 16, int). flush buffers
@@ -559,7 +589,7 @@ PROT:  ; Symbolic constants for Linux and FreeBSD mmap(2).
 OSCOMPAT:  ; Our platform flags. global_oscompat is a bitmask of these.
 .LINUX equ 0  ; (All ELF.) Linux i386 native; Linux i386 running on Linux amd64; Linux (any architecture) qemu-i386; Linux i386 ibcs-us ELF.
 .SYSV equ 1  ; AT&T Unix System V/386 (SysV) Release 3 (SVR3) COFF; AT&T Unix System V/386 (SysV) Release 4 (SVR4) ELF; Coherent 4.x COFF; iBCS2 COFF; Linux i386 ibcs-us COFF.
-.FREEBSD equ 2  ; (All ELF.) FreeBSD i386. !! Will it work on NetBSD, OpenBSD or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
+.FREENETBSD equ 2  ; (All ELF.) FreeBSD or NetBSD i386. !! Will it work on OpenBSD (probably not, needs extra sections to describe syscall addresse) or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
 
 f_section__TEXT
 
@@ -602,20 +632,31 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		; Now: EDI is auxv.
 		cmp edi, ecx
 		; Jump iff there is no auxv (but argv[0] starts right after
-		; the NULL of environ). This happens on SysV SVR4, rather
-		; than Linux >=1.0.4, ibcs-us (which inherits to auxv from
-		; the host Linux or FreeBSD >=3.5). Real SysV SVR4 i386 has
-		; an empty auxv for statically linked ELF-32 executable
-		; programs.
-		je short .sysv
+		; the NULL of environ). This happens on SysV SVR4 for
+		; statically linked ELF-32 i386 programs, but not on Linux
+		; >=1.0.4, ibcs-us (which inherits to auxv from the host
+		; Linux or FreeBSD >=3.5), FreeBSD 3.5, NetBSD 1.5.2.
+		je short .sysv  ; OSCOMPAT.SYSV.
+  %if 0  ; This is a useless check.
 		scasd
 		; Jump iff the first element of auxv is AT_NULL (== 0). This
-		; doesn't seem to happen in practice, but if it happens, we
-		; assume that we are running on SysV SVR4, rather than Linux
+		; happens on NetBSD 1.5.2, but not on Linux
 		; >=1.0.4, ibcs-us (which inherits to auxv from the host
-		; Linux or FreeBSD >=3.5). Real SysV SVR4 i386 has an empty
-		; auxv for statically linked ELF-32 executable programs.
-		je short .sysv
+		; Linux or FreeBSD >=3.5), FreeBSD 3.5. We don't reach this
+		; on SysV SVR4, because above we've checked that the auxv is
+		; empty.
+		je short .auxv_starts_with_at_null
+  %endif
+		; Now we are running on Linux (OSCOMPAT.LINUX) or some kind
+		; of BSD (supported: FreeBSD and NetBSD)
+		; (OSCOMPAT.FREENETBSD). Let's distinguish these two cases
+		; by attempting a write(-1, NULL, 0), and checking how they
+		; return the errno.
+		;
+		; Please note that some early versions of Linux set CF
+		; (carry flag) to 0 after a successful `int 0x80', so that
+		; method (with getpid()) wouldn't be a reliable way to
+		; detect Linux, because BSDs also set CF to 0.
 		push byte SYS.write  ; SYS_write for both Linux i386 and FreeBSD.
 		pop eax
 		xor edx, edx  ; Argument count of Linux i386 SYS_write.
@@ -628,7 +669,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		int 0x80  ; Linux i386 and FreeBSD i386 syscall. It fails because of the negative fd.
 		add esp, byte 4*4  ; Clean up syscall arguments above.
 		test eax, eax
-		jns short .freebsd  ; Jump iff FreeBSD (EAX == EBADF, positive). Linux has EAX == -EBADF, negative here.
+		jns short .freenetbsd  ; Jump iff FreeBSD (EAX == EBADF, positive). Linux has EAX == -EBADF, negative here.
 		; Now we are running on Linux or Linux ibcs-us.
 		; Map .bss again using mmap(2). This is a workaround for ibcs-us 4.1.6 running on Linux i386, which maps pages of .data but not .bss.
 		push edx  ;  Argument offset == 0. We've set EDX to 0 above (for argument count of Linux i386 SYS_write).
@@ -636,7 +677,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push strict byte MAP_Linux.PRIVATE|MAP_Linux.ANONYMOUS|MAP_Linux.FIXED  ; Argument flags.
 		push strict byte PROT.READ|PROT.WRITE  ; Argument prot.
   %ifidn __OUTPUT_FORMAT__, bin  ; The subtractions below work only in a single section.
-		push strict dword (_bss_end-_bss_end_of_first_page+0xfff)&~0xfff  ; Argument length. mmap(2) doesn't need rounding to page boundary, but we do it for extra compatibility.
+		push strict dword (ERROR_MISSING_F_END+_bss_end-_bss_end_of_first_page+0xfff)&~0xfff  ; Argument length. mmap(2) doesn't need rounding to page boundary, but we do it for extra compatibility.
 		push strict dword _bss_end_of_first_page  ; Argument addr. mmap(2) needs rounding to page boundary, and we use a rounded value to avoid overwriting the last page of .data.
   %else
 		mov eax, _bss_start  ; Symbol provided by the linker.
@@ -657,8 +698,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		add esp, byte 6*4  ; Clean up arguments of SYS.mmap above from the stack.
 		push byte OSCOMPAT.LINUX  ; We're running on Linux: either natively or in ibcs-us.
 		jmp short .detected
-  .freebsd:
-		push byte OSCOMPAT.FREEBSD
+  .freenetbsd:
+		push byte OSCOMPAT.FREENETBSD
 		jmp short .detected
   .sysv:
 		push byte OSCOMPAT.SYSV
@@ -671,7 +712,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		xor eax, eax
 		mov edi, _bss_start  ; Must be a multiple of 4.
   %ifidn __OUTPUT_FORMAT__, bin
-		mov ecx, (_bss_end_of_first_page-_bss_start)>>2  ; Both of them are aligned to a multiple of 4.
+		mov ecx, (ERROR_MISSING_F_END+_bss_end_of_first_page-_bss_start)>>2  ; Both of them are aligned to a multiple of 4.
   %else
 		mov ecx, edi
 		neg ecx
@@ -733,8 +774,8 @@ simple_syscall3_eax:
 		mov cl, [global_oscompat]
 		cmp cl, OSCOMPAT.SYSV
 		je short .sysv
-		test cl, cl  ; OSCOMPAT.LINUX
-		jnz short .freebsd
+		test cl, cl  ; OSCOMPAT.LINUX.
+		jnz short .freenetbsd  ; OSCOMPAT.FREENETBSD.
   .linux:
 		push ebx  ; Save.
 		mov ebx, [esp+2*4]  ; Syscall argument 1.
@@ -748,9 +789,9 @@ simple_syscall3_eax:
   .sysv:
 		call 7:dword 0  ; SysV i386 syscall.
 		dw 0xb966  ; `mov cx, ...' to skip over the `int 0x80' below.
-  .freebsd:
+  .freenetbsd:
 		int 0x80  ; FreeBSD i386 syscall.
-  %if $-.freebsd!=2
+  %if $-.freenetbsd!=2
     %error ERROR_SKIP_FREEBSD_MUST_BE_2_BYTES  ; For the `dw 0xb966' above.
     times -1 nop
   %endif
@@ -805,16 +846,16 @@ _isatty:  ; int __cdecl isatty(int fd);
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
   %else
-    ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREEBSD.
+    ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
-		cmp byte [global_oscompat], OSCOMPAT.FREEBSD
-		je short .freebsd
+		cmp byte [global_oscompat], OSCOMPAT.FREENETBSD
+		je short .freenetbsd
     .linux_or_sysv:
 		push strict dword IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
 		jmp .ioctl_number_pushed
-    .freebsd:
-		push strict dword IOCTL_FreeBSD.TIOCGETA
+    .freenetbsd:
+		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
   .ioctl_number_pushed:
 		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
@@ -822,10 +863,15 @@ _isatty:  ; int __cdecl isatty(int fd);
 		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of _ioctl_wrapper above from the stack, and also clean up the arg struct.
 		; Now convert result EAX: -1 to 0, everything else to 1.
 		inc eax
+  %if 0  ; Faster (because it avoids the jump) but 1 byte longer.
+		setnz al
+		movzx eax, al
+  %else
 		jz short .have_retval
 		xor eax, eax
 		inc eax  ; EAX := 1.
     .have_retval:
+  %endif
 		ret
 %endif
 
@@ -840,16 +886,16 @@ isatty_:  ; int __watcall isatty(int fd);
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
   %else
-    ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREEBSD.
+    ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
-		cmp byte [global_oscompat], OSCOMPAT.FREEBSD
-		je short .freebsd
+		cmp byte [global_oscompat], OSCOMPAT.FREENETBSD
+		je short .freenetbsd
     .linux_or_sysv:
 		push strict dword IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
 		jmp .ioctl_number_pushed
-    .freebsd:
-		push strict dword IOCTL_FreeBSD.TIOCGETA
+    .freenetbsd:
+		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
   .ioctl_number_pushed:
 		push eax  ; Argument fd of this isatty(...).
@@ -857,10 +903,15 @@ isatty_:  ; int __watcall isatty(int fd);
 		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of _ioctl_wrapper above from the stack, and also clean up the arg struct.
 		; Now convert result EAX: -1 to 0, everything else to 1.
 		inc eax
+  %if 0  ; Faster (because it avoids the jump) but 1 byte longer.
+		setnz al
+		movzx eax, al
+  %else
 		jz short .have_retval
 		xor eax, eax
 		inc eax  ; EAX := 1.
     .have_retval:
+  %endif
 		pop edx  ; Restore.
 		pop ecx  ; Restore.
 		ret

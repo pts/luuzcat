@@ -23,6 +23,9 @@
 /pcatd.c
 /*_16.[nw]asm
 /*_32.[nw]asm
+*.qcow2
+/freebsd.iso
+/hello.img
 
 # --- Test files.
 

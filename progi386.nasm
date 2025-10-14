@@ -38,22 +38,26 @@
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
 ;
 
-%assign __SYSTEM_COUNT 0
 %ifdef COFF
-  %assign __SYSTEM_COUNT __SYSTEM_COUNT+1
+  %define COFF 1
+%else
+  %define COFF 0
 %endif
 %ifdef ELF
-  %assign __SYSTEM_COUNT __SYSTEM_COUNT+1
+  %define ELF 1
+%else
+  %define ELF 0
 %endif
 %ifdef S386BSD
-  %assign __SYSTEM_COUNT __SYSTEM_COUNT+1
+  %define S386BSD 1
+%else
+  %define S386BSD 0
 %endif
-%if __SYSTEM_COUNT==0
-  %define ELF  ; Default.
-  %assign __SYSTEM_COUNT __SYSTEM_COUNT+1
+%if COFF+ELF+S386BSD==0
+  %define ELF 1  ; Default.
 %endif
-%if __SYSTEM_COUNT>1
-  %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED __SYSTEM_COUNT
+%if COFF+ELF+S386BSD>1
+  %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED
   times -1 nop
 %endif
 
@@ -67,7 +71,7 @@ cpu 386
 ; executable may be a few dozen bytes longer than absolutely necessary, so
 ; that it loads correctly in many operating systems.
 %ifidn __OUTPUT_FORMAT__, bin
-  %ifdef COFF  ; SysV SVR3 i386 COFF executable program.
+  %if COFF  ; SysV SVR3 i386 COFF executable program.
     _data_base_org equ 0x400000  ; Standard SysV SVR3 value.
     section .text align=1 valign=1 start=0 vstart=0
     _text_start:
@@ -189,7 +193,7 @@ cpu 386
     coff_scnhdr_end:
     coff_filehdr_end:
   %endif
-  %ifdef ELF
+  %if ELF
     _base_org equ 0x8048000  ; Standard Linux i386, FreeBSD i386 and SysV SVR4 i386 value.
     section .text align=1 valign=1 start=0 vstart=_base_org
     _text_start:
@@ -239,7 +243,7 @@ cpu 386
     Elf32_note.end:
     Elf32_header.end:
   %endif
-  %ifdef S386BSD
+  %if S386BSD
     ; The minimum size for a 386BSD a.out executable (tried, it works) is
     ; 0x2001 bytes: 0x1000 bytes for the header, 0x1000 bytes for total text
     ; and 1 byte for total data. (Actual 386BSD 1.0 executables have their
@@ -283,7 +287,7 @@ cpu 386
     times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
   %macro f_section__DATA_UNA 0  ; Like _DATA, but unaligned.
-    %ifdef ELF
+    %if ELF
       section .data.una
     %else
       section .data
@@ -304,22 +308,22 @@ cpu 386
     _rodatastr_endu:
     section .rodata
     _rodata_endu:
-    %ifdef ELF
+    %if ELF
       section .data.una
       _datauna_endu:
     %endif
     section .data
-    %ifdef COFF
+    %if COFF
       %if $-$$==0
         dd 0  ; Workaround to avoid an empty .data, which would cause ibcs-us 4.1.6 to segfault.
       %endif
     %endif
-    %ifdef S386BSD
+    %if S386BSD
       %if $-$$==0
         db 0  ; Workaround to avoid an empty .data, which would prevent 386BSd 1.0 from loading the program.
       %endif
     %endif
-    %ifdef ELF
+    %if ELF
       %if (_datauna_endu-_datauna_start)+($-$$)==0
         dd 0  ; Workaround to avoid an empty .data, which would cause ibcs-us 4.1.6 to segfault.
       %endif
@@ -327,7 +331,7 @@ cpu 386
     _data_endu:
     section .text
 
-    %ifndef ELF  ; COFF and S386BSD.
+    %if ELF==0  ; COFF and S386BSD.
       _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
       _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
     %elif _rodata_endu-_rodata_start  ; .rodata is not empty.
@@ -352,7 +356,7 @@ cpu 386
     times _rodata_endalign db 0
     _rodata_end:
     _rodata_size equ $-$$  ; _rodata_size is a multiple of 4.
-    %ifdef ELF
+    %if ELF
       section .data.una
       times _datauna_endalign db 0
       _datauna_end:
@@ -361,7 +365,7 @@ cpu 386
       _datauna_size equ 0
     %endif
     section .data
-    %ifdef S386BSD
+    %if S386BSD
       _data_endalign_extra equ _data_endalign
     %else
       _data_endalign_extra equ 0
@@ -370,7 +374,7 @@ cpu 386
     _data_end:
     _data_size equ $-$$  ; _data_size is a multiple of 4.
     section .bss
-    %ifdef COFF
+    %if COFF
       %if _text_size+_rodatastr_size+_rodata_size+_data_size+($-$$)<0x1000
         resb 0x1000-(_text_size+_rodatastr_size+_rodata_size+_data_size+($-$$))  ; Workaround to avoid the `<3>mm->brk does not lie within mmap' warning in ibcs-us 4.1.6.
       %endif
@@ -399,7 +403,7 @@ cpu 386
     %else
       _bss_end_of_first_page equ _bss_start+_bss_size
     %endif
-    %ifdef COFF
+    %if COFF
       _comment_fofs equ _data_fofs+_data_size
       section .comment
       %ifndef COFF_PROGRAM_NAME
@@ -411,12 +415,12 @@ cpu 386
       _comment_size equ $-$$  ; _comment_size is a multiple of 4.
       _data_vstart equ _data_base_org+_data_fofs
     %endif
-    %ifdef ELF
+    %if ELF
       _data_vstart equ _base_org+(_datauna_fofs-_text_fofs)+((_text_fofs-_datauna_fofs)&0xfff)+((_datauna_fofs-_text_fofs)&0xfff)  ; Can be ...+...+0+0, but typically 0x1000.
     %endif
   %endm
 %elifidn __OUTPUT_FORMAT__, obj  ; Output of NASM will be sent to a linker: OpenWatcom wlink(1) or GNU ld(1).
-  %ifndef ELF
+  %if ELF==0
     %error ERROR_OUTPUT_FORMAT_OBJ_NEEDS_ELF_EXECUTABLE
     times -1 nop
   %endif
@@ -456,7 +460,7 @@ cpu 386
   %macro f_end 0
   %endm
 %elifidn __OUTPUT_FORMAT__, elf  ; Untested. Output of NASM will be sent to a linker: OpenWatcom wlink(1) or GNU ld(1).
-  %ifndef ELF
+  %if ELF==0
     %error ERROR_OUTPUT_FORMAT_ELF_NEEDS_ELF_EXECUTABLE
     times -1 nop
   %endif
@@ -510,7 +514,7 @@ cpu 386
   %endif
   f_section__TEXT
 %endm
-%ifdef ELF
+%if ELF
   ;global __oscompat
   f_zero_data_byte __oscompat  ; Default (OSCAMPAT) is OSCOMPAT.LINUX == 0.
 %endif
@@ -650,7 +654,7 @@ IOCTL_iBCS2:
 
 ; !! Add IOCTL_* numbers for Minix 3.2.x, xv6, v7x86 and Xenix/386.
 
-%ifdef ELF
+%if ELF
   SYS_Linux:  ; Linux i386 syscalls. Syscall input: EAX: syscall number; EBX: arg1; ECX: arg2; EDX: arg3.
   .mmap equ 90
 
@@ -689,7 +693,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		;   NULL that ends envp[]
 		;   ELF Auxiliary Table (auxv): key-value pairs ending with (AT_NULL (== 0), NULL).
 		;   argv strings, environment strings, program name etc.
-%ifdef ELF
+%if ELF
 		; Linux >=1.0 and FreeBSD >=3.5 both set up a non-empty
 		; auxv, even for statically linked executable. SVR4 2.1
 		; doesn't even add an auxv: the argv[0] string directly
@@ -784,8 +788,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   .detected:
 		pop eax
 		mov [__oscompat], al
-%endif  ; Of %ifdef ELF
-%ifndef COFF  ; !!! Explcitly whitelist ELF and S386BSD.
+%endif  ; Of %if ELF
+%if ELF+S386BSD
 		; Now we clear the .bss part of the last page of .data.
 		; 386BSD 1.0 and some early Linux kernels put junk there if
 		; there is junk at the end of the ELF-32 executable program
@@ -842,16 +846,24 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 		push byte SYS.exit
 		; Fall through to simple_syscall3_pop
 
-; Input stack: dword [esp]: syscall number (SYS....); dword [esp+4]: return address; dword [esp+8] syscall argument
+; Calls a single systcall of 0, 1, 2 or 3. arguments.
+;
+; Input stack: dword [esp]: syscall number (SYS....); dword [esp+4]: return
+; address; dword [esp+2*4] syscall argument 1; dword [esp+3*4] syscall
+; argument 2; dword [esp+4*4] syscall argument 3.
+;
+; Output: EAX is -1 on error, otherwise EAX contains the result. The syscall
+; number and the return address have been popped from the stack, the caller
+; is responsible for cleaning up the rest.
 simple_syscall3_pop:
 		pop eax
 		; Fall through to simple_syscall3_eax.
 
 simple_syscall3_eax:
-%ifndef ELF  ; COFF and S386BSD.
+%if COFF+S386BSD
 		call 7:dword 0  ; SysV syscall.
 		jnc short .ret
-%else
+%elif ELF
 		mov cl, [__oscompat]
 		cmp cl, OSCOMPAT.SYSV
 		je short .sysv
@@ -878,6 +890,9 @@ simple_syscall3_eax:
   %endif
   .after_syscall:
 		jnc short .ret
+%else
+  %error ERROR_MISSING_SYSCALL_WRAPPER
+  times -1 nop
 %endif
 .error:
 		;neg eax  ; Negation needed only for Linux.
@@ -921,17 +936,17 @@ _ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void
 %ifdef __NEED__isatty
 global _isatty
 _isatty:  ; int __cdecl isatty(int fd);
-  %ifdef COFF
+  %if COFF
     ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2 (we round it up to 20, to dword bounadry).
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
-  %elifdef S386BSD
+  %elif S386BSD
     ISATTY_TERMIOS_SIZE equ 44  ; sizeof(struct termios) == 44 on 386BSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_386BSD.TIOCGETA
-  %else
+  %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
@@ -966,17 +981,17 @@ global isatty_
 isatty_:  ; int __watcall isatty(int fd);
 		push ecx  ; Save.
 		push edx  ; Save.
-  %ifdef COFF
+  %if COFF
     ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2 (we round it up to 20, to dword bounadry).
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
-  %elifdef S386BSD
+  %elif S386BSD
     ISATTY_TERMIOS_SIZE equ 44  ; sizeof(struct termios) == 44 on 386BSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_386BSD.TIOCGETA
-  %else
+  %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.

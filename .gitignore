@@ -4,7 +4,10 @@
 *.err
 *.out
 *.com
+*.elf
+*.coff
 *.c.[0-9]*
+*.nasm.[0-9]*
 /un[0-9].c
 /luuzcat
 /luuzcat.mini
@@ -18,6 +21,8 @@
 /uncompact.c.orig
 /pcatd
 /pcatd.c
+/*_16.[nw]asm
+/*_32.[nw]asm
 
 # --- Test files.
 

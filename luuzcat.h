@@ -32,10 +32,42 @@
 #  define IS_DOS_16 1
 #endif
 
+#if defined(_NOSYS32) && !defined(LIBC_PREINCLUDED)
+  /* Expecting an external tiny libc for OpenWatcom C compiler creating
+   * system-independent i386 code.
+   */
+#  ifndef __WATCOMC__
+#    error OpenWatcom C compiler needed by _NOSYS32.
+#  endif
+#  ifndef __386__
+#    error 386 CPU is needed by _NOSYS32.
+#  endif
+#  define LIBC_PREINCLUDED 1
+  int __cdecl write(int fd, const void *buf, unsigned count);
+  int __cdecl read(int fd, void *buf, unsigned int count);
+  int __cdecl isatty(int fd);
+  __declspec(noreturn) void __cdecl exit(unsigned char exit_code);
+  unsigned int __cdecl strlen(const char *s);
+  /* To prevent wlink: Error! E2028: strlen_ is an undefined reference */
+/*#  pragma intrinsic(strlen)*/  /* !! Add shorter `#pragma aux' or static. */
+  void * __cdecl memset(void *s, int c, unsigned int n);
+/*#  pragma intrinsic(memset)*/  /* !! Add shorter `#pragma aux' or static. */
+  void * __cdecl memcpy(void *dest, const void *src, unsigned n);
+/*#  pragma intrinsic(memcpy)*/  /* !! Add shorter `#pragma aux' or static. */
+
+#  define LUUZCAT_NL "\n"  /* Line ending for error messages on stderr. !! Assuming Unix since we don't know any better. */
+#endif
+
 #if defined(_DOSCOMSTART) && !defined(LIBC_PREINCLUDED)
   /* Tiny libc for OpenWatcom C compiler creating a DOS 8086 .com program.
    * For compilation instructions, see _DOSCOMSTART above.
    */
+#  ifndef __WATCOMC__
+#    error OpenWatcom C compiler needed by _DOSCOMSTART.
+#  endif
+#  ifndef IS_X86_16
+#    error 8086 CPU is needed by _NOSYS32.
+#  endif
 #  define LIBC_PREINCLUDED 1
   /* This must be put to a separate function than _comstart, otherwise wlink
    * wouldn't remove these 0x100 bytes from the beginning of the DOS .com
@@ -71,7 +103,6 @@
 #    define main0_exit(exit_code) _exit(exit_code)
 #  endif
 
-#  define NULL ((void*)0)
 
 #  define LIBC_HAVE_WRITE_NONZERO_VOID 1
   /* Like write(...), but count must be nonzero, and it returns void. */
@@ -167,6 +198,10 @@
 typedef unsigned int um32;  /* Avoid using 8 bytes for um32. */
 #else
 typedef unsigned long um32;  /* At least 32 bits. */
+#endif
+
+#ifndef NULL
+#  define NULL ((void*)0)
 #endif
 
 #ifndef   STDIN_FILENO

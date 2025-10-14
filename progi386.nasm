@@ -1,0 +1,875 @@
+;
+; progi386.nasm: glue code for building i386 programs for various systems in NASM
+; by pts@fazekas.hu at Mon Oct 13 03:35:21 CEST 2025
+;
+; Executable binary compatibility:
+;
+; * prog.elf: Linux >=1.0.4 (1994-05-22) i386 and possibly earlier,
+;   FreeBSD >=3.5 (1995-05-28) i386 and possibly earlier,
+;   AT&T Unix System V Release 4 (SVR4) i386 and drivatives (such as
+;   INTERACTIVE UNIX SYSTEM V RELEASE 4.0, Dell Unix, Olivetti Unix,
+;   Intel Unix),
+;   [ibcs-us](https://ibcs-us.sourceforge.io/) running on Linux i386
+;   (tested with ibcs-us 4.1.6),
+;   qemu-i386 running on Linux (any architecture) (tested with
+;   qemu-i386 2.11.1).
+; * prog.coff: AT&T Unix System V/386 Release 3.x (SVR3, 1987--) i386,
+;   386/ix >=1.0.6, INTERACTIVE UNIX >=2.2 (all versions), Microport Unix
+;   (all versions) i386, Coherent >=4.x,
+;   [ibcs-us](https://ibcs-us.sourceforge.io/) running on Linux i386.
+;
+; These programs don't run on Xenix, SunOS 4.0.x, macOS (except in Docker),
+; DOS or Win32 (except in Docker or WSL) or 386BSD.
+;
+; !! Which version of Xenix/386 can run these iBCS2 COFF programs?
+; !! Add binary release for older Xenix/386.
+;
+
+bits 32
+cpu 386
+
+; Executable program file header generation.
+
+; This header generation aims for maximum compatibility with existing
+; operating systems, and it sacrifices file sizes, i.e. the generated
+; executable may be a few dozen bytes longer than absolutely necessary, so
+; that it loads correctly in many operating systems.
+%ifidn __OUTPUT_FORMAT__, bin
+  %ifdef COFF  ; SysV SVR3 i386 COFF executable program.
+    _data_base_org equ 0x400000  ; Standard SysV SVR3 value.
+    section .text align=1 valign=1 start=0 vstart=0
+    _text_start:
+    section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Adds virtual address alignment of 4 without valign=1.
+    _rodatastr_start:
+    section .rodata align=4 valign=4 follows=.rodata.str vfollows=.rodata.str
+    _rodata_start:
+    section .data align=4 valign=4 follows=.rodata vstart=_data_vstart
+    _data_start:
+    section .bss align=4 follows=.data nobits
+    _bss_start:
+    section .comment align=4 valign=4 follows=.data vfollows=.data
+    _comment_start:
+    section .text
+
+    coff_timestamp equ 0x239cea6b  ; Reproducible value: 1988-12-07 08:23:07 GMT.
+
+    I386MAGIC: equ 0514q  ; 0x14c. coff_filehdr.f_magic constant.
+
+    ZMAGIC: equ 0413q  ; 0x10b. Demand-load format. coff_aouthdr.ZMAGIC constant.
+
+    F:  ; coff_filehdr.f_flags constants .
+    .RELFLG:  equ 00001q  ; relocation info stripped from file.
+    .EXEC:    equ 00002q  ; file is executable  (i.e. no unresolved externel references).
+    .LNNO:    equ 00004q  ; line nunbers stripped from file.
+    .LSYMS:   equ 00010q  ; local symbols stripped from file.
+    .MINMAL:  equ 00020q  ; this is a minimal object file (".m") output of fextract.
+    .UPDATE:  equ 00040q  ; this is a fully bound update file, output of ogen.
+    .SWABD:   equ 00100q  ; this file has had its bytes swabbed (in names).
+    .AR16WR:  equ 00200q  ; this file has the byte ordering of an AR16WR (e.g. 11/70) machine (it was created there, or was produced by conv).
+    .AR32WR:  equ 00400q  ; this file has the byte ordering of an AR32WR machine(e.g. vax).
+    .AR32W:   equ 01000q  ; this file has the byte ordering of an AR32W machine (e.g. 3b,maxi).
+    .PATCH:   equ 02000q  ; file contains "patch" list in optional header.
+    .NODFL:   equ 02000q  ; (minimal file only) no decision functions for replaced functions.
+
+    STYP:  ; coff_scnhdr.s_flags constants.
+    .REG:     equ 0x00  ; "regular" section: allocated, relocated, loaded.
+    .DSECT:   equ 0x01  ; "dummy" section: not allocated, relocated, not loaded.
+    .NOLOAD:  equ 0x02  ; "noload" section: allocated, relocated, not loaded.
+    .GROUP:   equ 0x04  ; "grouped" section: formed of input sections.
+    .PAD:     equ 0x08  ; "padding" section: not allocated, not relocated, loaded.
+    .COPY:    equ 0x10  ; "copy" section: for decision function used by field update; not allocated, not relocated, loaded; reloc & lineno entries processed normally.
+    .TEXT:    equ 0x20  ; section contains text only.
+    .DATA:    equ 0x40  ; section contains data only.
+    .BSS:     equ 0x80  ; section contains bss only.
+    .INFO:    equ 0x200  ; comment section : not allocated not relocated, not loaded.
+    .OVER:    equ 0x400  ; overlay section : relocated not allocated or loaded.
+    .LIB:     equ 0x800  ; for .lib section : same as INFO.
+
+    ; COFF headers compatible with Unix System V Release 3.2.
+    coff_filehdr:  ; COFF file header.
+    .f_magic:	dw I386MAGIC  ; magic number.
+    .f_nscns:	dw (coff_scnhdr_end-coff_scnhdr_text)/40  ; number of sections == 4.
+    .f_timdat:	dd coff_timestamp  ; time & date stamp.
+    .f_symptr:	dd 0  ; file pointer to symtab.
+    .f_nsyms:	dd 0  ; number of symtab entries
+    .f_opthdr:	dw coff_aouthdr.end-coff_aouthdr  ; sizeof(optional hdr) == 0x1c.
+    .f_flags:	dw F.RELFLG|F.EXEC|F.LNNO|F.LSYMS|F.AR32WR  ; flags.
+
+    coff_aouthdr:  ; COFF optional header.
+    .magic:		dw ZMAGIC  ; magic number.
+    .vstamp:		dw 0  ; version stamp.
+    .tsize:		dd _text_size+_rodatastr_size+_rodata_size-(coff_filehdr_end-coff_filehdr)  ; text size in bytes, aligned to 4.
+    .dsize:		dd _data_size  ; initialized data in bytes, aligned to 4.
+    .bsize:		dd _bss_size  ; uninitialized data in bytes, aligned to 4.
+    .entry:		dd _start  ; entry point.
+    .text_start:	dd _text_start+(coff_filehdr_end-coff_filehdr)  ; base of text used for this file == 0xd0.
+    .data_start:	dd _data_start  ; base of data used for this file.
+    .end:
+
+    coff_scnhdr_text:  ; Section header.
+    .s_name:	db '.text', 0, 0, 0  ; section name.
+    .s_paddr:	dd _text_start+(coff_filehdr_end-coff_filehdr)  ; physical address, aliased s_nlib.
+    .s_vaddr:	dd _text_start+(coff_filehdr_end-coff_filehdr)  ; virtual address.
+    .s_size:	dd _text_size+_rodatastr_size+_rodata_size-(coff_filehdr_end-coff_filehdr)  ; section size.
+    .s_scnptr:	dd _text_fofs+(coff_filehdr_end-coff_filehdr)  ; file ptr to raw data for section.
+    .s_relptr:	dd 0  ; file ptr to relocation.
+    .s_lnnoptr:	dd 0  ; file ptr to line numbers.
+    .s_nreloc:	dw 0  ; number of relocation entries.
+    .s_nlnno:	dw 0  ; number of line number entries.
+    .s_flags:	dd STYP.TEXT  ; flags.
+
+    coff_scnhdr_data:  ; Section header.
+    .s_name:	db '.data', 0, 0, 0  ; section name.
+    .s_paddr:	dd _data_start  ; physical address, aliased s_nlib.
+    .s_vaddr:	dd _data_start  ; virtual address.
+    .s_size:	dd _data_size  ; section size.
+    .s_scnptr:	dd _data_fofs  ; file ptr to raw data for section.
+    .s_relptr:	dd 0  ; file ptr to relocation.
+    .s_lnnoptr:	dd 0  ; file ptr to line numbers.
+    .s_nreloc:	dw 0  ; number of relocation entries.
+    .s_nlnno:	dw 0  ; number of line number entries.
+    .s_flags:	dd STYP.DATA  ; flags.
+
+    coff_scnhdr_bss:  ; Section header.
+    .s_name:	db '.bss', 0, 0, 0, 0  ; section name.
+    .s_paddr:	dd _bss_start  ; physical address, aliased s_nlib.
+    .s_vaddr:	dd _bss_start  ; virtual address.
+    .s_size:	dd _bss_size  ; section size.
+    .s_scnptr:	dd 0  ; file ptr to raw data for section.
+    .s_relptr:	dd 0  ; file ptr to relocation.
+    .s_lnnoptr:	dd 0  ; file ptr to line numbers.
+    .s_nreloc:	dw 0  ; number of relocation entries.
+    .s_nlnno:	dw 0  ; number of line number entries.
+    .s_flags:	dd STYP.BSS  ; flags.
+
+    coff_scnhdr_comment:  ; Section header.
+    .s_name:	db '.comment'  ; section name.
+    .s_paddr:	dd 0  ; physical address, aliased s_nlib.
+    .s_vaddr:	dd 0  ; virtual address.
+    .s_size:	dd _comment_size  ; section size.
+    .s_scnptr:	dd _comment_fofs  ; file ptr to raw data for section.
+    .s_relptr:	dd 0  ; file ptr to relocation.
+    .s_lnnoptr:	dd 0  ; file ptr to line numbers.
+    .s_nreloc:	dw 0  ; number of relocation entries.
+    .s_nlnno:	dw 0  ; number of line number entries.
+    .s_flags:	dd STYP.INFO  ; flags.
+
+    coff_scnhdr_end:
+    coff_filehdr_end:
+  %else
+    _base_org equ 0x8048000  ; Standard Linux i386, FreeBSD i386 and SysV SVR4 i386 value.
+    section .text align=1 valign=1 start=0 vstart=_base_org
+    _text_start:
+    section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Same PT_LOAD as .text.
+    _rodatastr_start:
+    section .rodata align=1 valign=1 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text. The actual alinment is 4, but we specify align=1 so that .data.una can be unaligned if .rodata is empty.
+    _rodata_start:
+    section .data.una align=1 valign=1 follows=.rodata vstart=_data_vstart
+    _datauna_start:
+    section .data align=4 valign=4 follows=.data.una vfollows=.data.una
+    _data_start:
+    section .bss align=4 follows=.data nobits  ; align=4 is also important for the clearing with `rep stosd'.
+    _bss_start:
+    section .text
+
+    OSABI:  ; ELF EI_OSABI constants.
+    .SysV: equ 0
+    .Linux: equ 3
+    .FreeBSD: equ 9
+
+    ; We use OSABI.FreeBSD, because newer FreeBSD checks it. Linux and SysV don't check it.
+    Elf32_Ehdr:
+		db 0x7F, 'ELF', 1, 1, 1, OSABI.FreeBSD, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, 0
+		dd 1, _start, Elf32_Phdr0-Elf32_Ehdr, 0, 0
+		dw Elf32_Phdr0-Elf32_Ehdr, 0x20, 2, 0x28, 0, 0
+    Elf32_Phdr0:
+		dd 1, Elf32_Phdr.end-Elf32_Ehdr, Elf32_Phdr.end, 0, _text_size+_rodatastr_size+_rodata_size-(Elf32_Phdr.end-Elf32_Ehdr), _text_size+_rodatastr_size+_rodata_size-(Elf32_Phdr.end-Elf32_Ehdr), 5, 0x1000
+    Elf32_Phdr1:
+		dd 1, _datauna_fofs, _datauna_start, 0, _datauna_size+_data_size, _datauna_size+_data_size+_bss_size, 6, 0x1000
+    Elf32_Phdr.end:
+  %endif
+
+  %macro f_section__TEXT 0
+    section .text
+  %endm
+  %macro f_section_CONST 0
+    section .rodata.str
+  %endm
+  %macro f_section_CONST2 0
+    section .rodata
+    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+  %endm
+  %macro f_section__DATA 0
+    section .data
+    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+  %endm
+  %macro f_section__DATA_UNA 0  ; Like _DATA, but unaligned.
+    %ifdef COFF
+      section .data
+      times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+    %else
+      section .data.una
+    %endif
+  %endm
+  %macro f_section__BSS 0
+    section .bss
+    resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+  %endm
+  %macro f_end 0
+    section .text
+    _text_endu:
+    section .rodata.str
+    _rodatastr_endu:
+    section .rodata
+    _rodata_endu:
+    %ifdef COFF
+      section .data
+      %if $-$$==0
+        dd 0  ; Workaround to avoid an empty .data, which would cause ibcs-us 4.1.6 to segfault.
+      %endif
+    %else
+      section .data.una
+      _datauna_endu:
+      section .data
+      %if (_datauna_endu-_datauna_start)+($-$$)==0
+        dd 0  ; Workaround to avoid an empty .data, which would cause ibcs-us 4.1.6 to segfault.
+      %endif
+    %endif
+    _data_endu:
+    section .text
+
+    %ifdef COFF
+      _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
+      _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
+    %elif _rodata_endu-_rodata_start  ; .rodata is not empty.
+      _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
+      _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
+      _datauna_endalign equ (-(_datauna_endu-_datauna_start))&3
+    %else
+      _rodatastr_endalign equ 0
+      _rodata_endalign equ 0
+      _datauna_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start)-(_datauna_endu-_datauna_start))&3
+    %endif
+    _data_endalign equ (-(_data_endu-_data_start))&3
+
+    section .text
+    _text_end:
+    _text_size equ $-$$
+    section .rodata.str
+    times _rodatastr_endalign db 0
+    _rodatastr_end:
+    _rodatastr_size equ $-$$
+    section .rodata
+    times _rodata_endalign db 0
+    _rodata_end:
+    _rodata_size equ $-$$  ; _rodata_size is a multiple of 4.
+    %ifndef COFF
+      section .data.una
+      times _datauna_endalign db 0
+      _datauna_end:
+      _datauna_size equ $-$$
+    %else
+      _datauna_size equ 0
+    %endif
+    section .data
+    times _data_endalign db 0
+    _data_end:
+    _data_size equ $-$$  ; _data_size is a multiple of 4.
+    section .bss
+    %ifdef COFF
+      %if _text_size+_rodatastr_size+_rodata_size+_data_size+($-$$)<0x1000
+        resb 0x1000-(_text_size+_rodatastr_size+_rodata_size+_data_size+($-$$))  ; Workaround to avoid the `<3>mm->brk does not lie within mmap' warning in ibcs-us 4.1.6.
+      %endif
+    %endif
+    resb ($$-$)&3  ; Align end of section to a multiple of 4.
+    _bss_end:
+    _bss_size equ $-$$  ; _bss_size is a multiple of 4.
+    section .text
+
+    _text_fofs equ 0
+    _rodatastr_fofs equ _text_fofs+_text_size
+    _rodata_fofs equ _rodatastr_fofs+_rodatastr_size
+    _datauna_fofs equ _rodata_fofs+_rodata_size
+    _data_fofs equ _datauna_fofs+_datauna_size
+    %if _data_fofs&3
+      %error ERROR_DATA_NOT_DWORD_ALIGNED
+      times -1 nop
+    %endif
+    _data_end_fofs equ _data_fofs+_data_size
+    %if _data_end_fofs&3
+      %error ERROR_BSS_NOT_DWORD_ALIGNED
+      times -1 nop
+    %endif
+    %if _bss_size+_data_end_fofs>(_data_end_fofs+0xfff)&~0xfff
+      _bss_end_of_first_page equ _bss_start+(-_data_end_fofs&0xfff)  ; This can be _bss.
+    %else
+      _bss_end_of_first_page equ _bss_start+_bss_size
+    %endif
+    %ifdef COFF
+      _comment_fofs equ _data_fofs+_data_size
+      section .comment
+      %ifndef COFF_PROGRAM_NAME
+        %define COFF_PROGRAM_NAME 'prog'  ; Just a default.
+      %endif
+      db '@.@(#) ', COFF_PROGRAM_NAME, 0  ; Fake version comment.
+      times ($$-$)&3 db 0  ; Align end of section to a multiple of 4.
+      _comment_end:
+      _comment_size equ $-$$  ; _comment_size is a multiple of 4.
+      _data_vstart equ _data_base_org+_data_fofs
+    %else
+      _data_vstart equ _base_org+(_datauna_fofs-_text_fofs)+((_text_fofs-_datauna_fofs)&0xfff)+((_datauna_fofs-_text_fofs)&0xfff)  ; Can be ...+...+0+0, but typically 0x1000.
+    %endif
+  %endm
+%elifidn __OUTPUT_FORMAT__, obj  ; We assume that the output executable format of the linker is ELF-32.
+  section _TEXT  USE32 class=CODE align=1
+  section CONST  USE32 class=DATA align=1
+  section CONST2 USE32 class=DATA align=4
+  section _DATA  USE32 class=DATA align=4
+  section _BSS   USE32 class=BSS  align=4 NOBITS
+  group DGROUP CONST CONST2 _DATA _BSS
+  section .text
+  extern _edata
+  %define _bss_start _edata  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _edata.
+  extern _end
+  %define _bss_end _end  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _end.
+
+  %macro f_section__TEXT 0
+    section _TEXT
+  %endm
+  %macro f_section_CONST 0
+    section _CONST
+  %endm
+  %macro f_section_CONST2 0
+    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+    section _CONST2
+  %endm
+  %macro f_section__DATA 0
+    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+    section _DATA
+  %endm
+  %macro f_section__DATA_UNA 0
+    section _DATA
+  %endm
+  %macro f_section__BSS 0
+    section _BSS
+    resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+  %endm
+  %macro f_end 0
+  %endm
+%elifidn __OUTPUT_FORMAT__, elf  ; Untested. We assume that the output executable format of the linker is ELF-32.
+  section .text align=1
+  section .rodata.str align=1  ; CONST.
+  section .rodata align=4
+  section .data align=4
+  section .bss align=4 nobits
+  section .text
+  extern _edata
+  %define _bss_start _edata  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _edata.
+
+  %macro f_section__TEXT 0
+    section .text
+  %endm
+  %macro f_section_CONST 0
+    section .rodata.str
+  %endm
+  %macro f_section_CONST2 0
+    section .rodata
+    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+  %endm
+  %macro f_section__DATA 0
+    section .data
+    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+  %endm
+  %macro f_section__DATA_UNA 0
+    section .data
+  %endm
+  %macro f_section__BSS
+    section .bss
+    resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+  %endm
+  %macro f_end 0
+  %endm
+%else
+  %error ERROR_UNSUPPORTED_OUTPUT_FORMAT __OUTPUT_FORMAT__
+  times -1 nop
+%endif
+%macro f_zero_data_byte 1
+  %ifidn __OUTPUT_FORMAT__, bin
+    f_section__DATA_UNA
+    ;%00:  ; Not useful, because label must be in the same line as macro invocation.
+    %1:
+		db 0  ;   Put it to .data so that clearing .bss doesn't affect it.
+  %else
+    f_section__BSS
+    ;%00:  ; Not useful, because label must be in the same line as macro invocation.
+    %1:
+		resb 1
+  %endif
+  f_section__TEXT
+%endm
+%ifndef COFF
+  ;global global_oscompat
+  f_zero_data_byte global_oscompat  ; Default (OSCAMPAT) is OSCOMPAT.LINUX == 0.
+%endif
+f_section__TEXT
+
+; --- Including the program source files.
+;
+; Example invocation: nasm -DINCLUDES="'mysrc1_32.nasm','mysrc2_32.nasm'"
+
+%ifndef INCLUDES
+  %error ERROR_MISSING_INCLUDES  ; Specify it like this: nasm -DINCLUDES="'f1.nasm','f2.nasm'"
+  times -1 nop
+%endif
+%macro f_global 1
+  %ifdef __GLOBAL_%1
+    %error ERROR_MULTIPLE_DEFINITIONS_FOR_%1
+    times -1 nop
+  %endif
+  %define __GLOBAL_%1
+  global %1  ; Adds the symbol to the object file (for __OUTPUT_FORMAT__ elf and obj).
+%endm
+%macro _do_includes 0-*
+  %rep %0
+    %ifnidn (%1), ()  ; This also does some of the `%define __NEED_...'.
+      %include %1
+    %endif
+    %rotate 1
+  %endrep
+%endmacro
+f_section__TEXT
+_do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
+
+; --- Function dependency analysis.
+
+%ifdef __NEED__isatty
+  %define __NEED__ioctl_wrapper
+%endif
+
+; --- Defines specific to the operating system.
+
+SYS:  ; Linux i386, FreeBSD i386, SysV SVR3 i386, SysV SVR4 i386, 386BSD syscall numbers.
+.exit equ 1
+.read equ 3
+.write equ 4
+.ioctl equ 54  ; Linux i386, FreeBSD i386, SysV SVR3 i386, SysV SVR4 i386, 386BSD, Minix 2.0 i386 (in FS).
+
+IOCTL_Linux:  ; Linux i386.
+.TCGETS         equ 0x5401  ; sizeof(struct termios) == 36 == 0x24. isatty(3) in minilibc686, uClibc and dietlibc use TCGETS.
+.TCGETA         equ 0x5405  ; sizeof(struct termio) == 26 == 0x1a.
+.TCGETS2        equ 0x542a  ; sizeof(struct termios2) == 44 == 0x2c.
+.TIOCGETD       equ 0x5424  ; Get the line discipline. sizeof(int) == 4.
+.TIOCGPGRP      equ 0x540f
+.TIOCGWINSZ     equ 0x5413
+.TIOCGSOFTCAR   equ 0x5419
+.TIOCGSERIAL    equ 0x541e
+.TIOCGSID       equ 0x5429  ; Return the session ID of FD
+.TIOCGRS485     equ 0x542e
+;.TIOCGPTN      _IOR('T', 0x30, unsigned int)  ; Get Pty Number (of pty-mux device)
+;.TIOCGDEV      _IOR('T', 0x32, unsigned int)  ; Get primary device node of /dev/console
+;.TIOCGPKT      _IOR('T', 0x38, int) ;  Get packet mode state
+;.TIOCGPTLCK    _IOR('T', 0x39, int) ;  Get Pty lock state
+;.TIOCGEXCL     _IOR('T', 0x40, int) ;  Get exclusive mode state
+;.TIOCGPTPEER   _IO('T', 0x41)  ; Safely open the slave
+.TIOCGLCKTRMIOS equ 0x5456
+.TIOCGICOUNT    equ 0x545d  ; read serial port __inline__ interrupt counts
+;.TIOCGETA  ; Missing.
+;.TIOCFETP  ; Missing.
+
+IOCTL_FreeBSD:  ; FreeBSD 3.5 i386.
+.TIOCGETA       equ 0x402c7413  ; _IOR('t', 19, struct termios). Get termios struct. sizeof(struct termios) == 44 == 0x2c. isatty(3) uses TIOCGETA.
+.TIOCGDRAINWAIT equ 0x40047456  ; _IOR('t', 86, int). Get ttywait timeout. sizeof(int) == 4.
+.TIOCGETC       equ 0x40067412  ; _IOR('t', 18, struct tchars). Get special characters. sizeof(struct tchars) == 6.
+.TIOCGETD       equ 0x4004741a  ; _IOR('t', 26, int). Get line discipline. sizeof(int) == 4.
+.TIOCGETP       equ 0x40067408  ; _IOR('t', 8, struct sgttyb). Get parameters -- gtty. sizeof(struct sgttyb) == 6.
+.TIOCGLTC       equ 0x40067474  ; _IOR('t', 116, struct ltchars). Get local special chars. sizeof(struct ltchars) == 6.
+.TIOCGPGRP      equ 0x40047477  ; _IOR('t', 119, int). Get pgrp of TTY. sizeof(int) == 4.
+.TIOCGWINSZ     equ 0x40087468  ; _IOR('t', 104, struct winsize). Get window size. sizeof(struct winsize) == 8.
+.OTIOCGETD      equ 0x40047400  ; _IOR('t', 0, int). Old get line discipline. sizeof(int) == 4.
+
+IOCTL_386BSD:  ; 386BSD 1.0.
+; usr/src/kernel/include/sys/ioctl.h
+.TIOCFLUSH equ 0x802c7415  ; _IOW('t', 16, int). flush buffers
+.TIOCGETA  equ 0x402c7413  ; _IOR('t', 19, struct termios). Get termios struct. sizeof(struct termios) == 44 == 0x2c. isatty(3) uses TIOCGETA.
+.TIOCSETAW equ 0x802c7415  ; _IOW('t', 21, struct termios). drain output, set
+.TIOCGPGRP equ 0x40047477  ; _IOR('t', 119, int). get pgrp of tty
+.TIOCSPGRP equ 0x80047476  ; _IOW('t', 118, int). set pgrp of tty
+.TIOCSBRK  equ 0x2000747b  ; _IO('t', 123). set break bit
+.TIOCCBRK  equ 0x2000747a  ; _IO('t', 122). clear break bit
+.TIOCDRAIN equ 0x2000745e  ; _IO('t', 94). wait till output drained
+.TIOCSTART equ 0x2000746e  ; _IO('t', 110). start output, like ^Q
+.TIOCGETD  equ 0x4004741a  ; _IOR('t', 26, int). get line discipline
+.TIOCGETP  equ 0x40067408  ; _IOR('t', 8, struct sgttyb). Get parameters -- gtty. sizeof(struct sgttyb) == 6.
+.TIOCGETC  equ 0x40067412  ; _IOR('t', 18, struct tchars). Get special characters. sizeof(struct tchars) == 6.
+.OTIOCGETD equ 0x40047400  ; _IOR('t', 0, int)  ; old get line discipline
+;.TIOCGETP  ; Missing.
+
+IOCTL_SysV:  ; AT&T Unix SysV SVR3 i386 and SVR4 i386.
+.TCGETA     equ 0x5401  ; SVR3 and SVR4. sizeof(struct termio) == 18. isatty(3) uses TCGETA.
+.TIOCGETP   equ 0x7408  ; sizeof(struct sgttyb) == 8.
+.TIOCGWINSZ equ 0x5468  ; sizeof(struct winsize) == 8.
+.TCGETS     equ 0x540d  ; SVR4 only. sizeof(struct termios) == 36 == 0x2c.
+.TCGETX     equ 0x5801  ; SVR4 only. sizeof(struct termiox) == 16.
+.TIOCGPGRP  equ 0x7414  ; SVR4 only. Get process group of TTY.
+.TIOCGSID   equ 0x7416  ; SVR4 only. Get session ID of CTTY.
+.TIOCGETD   equ 0x7400  ; SVR4 only. Get line discipline. sizeof(int) == 4.
+.TIOCGETC   equ 0x7412  ; SVR4 only. sizeof(struct ltchars) == 6.
+.TIOCGLTC   equ 0x7474	; SVR4 only. Get local special chars. sizeof(struct ltchars) == 6.
+.TIOCLGET   equ 0x747c  ; SVR4 only. Get local modes. sizeof(int) == 4.
+
+IOCTL_Coherent4:  ; Coherent 4.x i386. Similar to SysV SVR3.
+.TCGETA     equ 0x5401  ; Get terminal parameters. sizeof(struct termio) == 18.
+.TIOCGETP   equ 0x7408  ; Terminal get modes (old gtty). sizeof(struct sgttyb) == 8. isatty(3) uses TIOCGETP.
+.TIOCGWINSZ equ 0x5468  ; Get window size. sizeof(struct winsize) == 8.
+.TIOCGETC   equ 0x7412  ; Get characters. sizeof(struct tchars) == 6. SVR3 doesn't have it.
+
+IOCTL_Minix2:  ; Minix 2.0.4 i386. Minix for 8086 has the low 16 bits only.
+.TCGETS     equ 0x80245408  ; _IOR('T',  8, struct termios). sizeof(struct termios) == 36 == 0x24. isatty(3) uses TCGETS.
+.TIOCGWINSZ equ 0x80085410  ; _IOR('T', 16, struct winsize). sizeof(struct sinsize) == 8.
+.TIOCGPGRP  equ 0x40045412  ; _IOW('T', 18, int). There is a bug, it should be _IOR. sizeof(int) == 4.
+.TIOCGETP   equ 0x80087401  ; _IOR('t',  1, struct sgttyb). sizeof(struct sgttyb) == 8.
+.TIOCGETC   equ 0x80067403  ; _IOR('t',  3, struct tchars). sizeof(struct tchars) == 6.
+
+; FreeBSD 3.5 src/sys/i386/ibcs2/ibcs2_termios.h
+IOCTL_iBCS2:
+.TCGETA     equ 0x5401  ; sizeof(struct termio) == 18.
+.TIOCGWINSZ equ 0x5468  ; sizeof(struct winsize) == 8.
+.TIOCGPGRP  equ 0x5477  ; sizeof(int) == 4.
+.TCGETSC    equ 0x5422  ; Get scan codes.
+.XCGETA     equ 0x695801  ; sizoef(struct termios) == 24. Not implemented in SVR3 or SRV4.
+.OXCGETA    equ 0x7801  ; sizoef(struct termios) == 24. Not implemented in SVR3 or SRV4.
+
+; !! Add IOCTL_* numbers for Minix 3.2.x, xv6, v7x86 and Xenix/386.
+
+SYS_Linux:  ; Linux i386 syscalls. Syscall input: EAX: syscall number; EBX: arg1; ECX: arg2; EDX: arg3.
+.mmap equ 90
+
+MAP_Linux:  ; Symbolic constants for Linux i386 mmap(2).
+.PRIVATE equ 2
+.FIXED equ 0x10
+.ANONYMOUS equ 0x20
+
+PROT:  ; Symbolic constants for Linux and FreeBSD mmap(2).
+.READ equ 1
+.WRITE equ 2
+
+OSCOMPAT:  ; Our platform flags. global_oscompat is a bitmask of these.
+.LINUX equ 0  ; (All ELF.) Linux i386 native; Linux i386 running on Linux amd64; Linux (any architecture) qemu-i386; Linux i386 ibcs-us ELF.
+.SYSV equ 1  ; AT&T Unix System V/386 (SysV) Release 3 (SVR3) COFF; AT&T Unix System V/386 (SysV) Release 4 (SVR4) ELF; Coherent 4.x COFF; iBCS2 COFF; Linux i386 ibcs-us COFF.
+.FREEBSD equ 2  ; (All ELF.) FreeBSD i386. !! Will it work on NetBSD, OpenBSD or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
+
+f_section__TEXT
+
+; --- Program entry point (_start), system autodetection and exit.
+
+%ifdef __NEED__cstart_
+  global _cstart_  ; If there is a main function, the OpenWatcom C compiler generates this symbol.
+  _cstart_:
+%endif
+; Program entry point.
+global _start
+_start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
+		; Now the stack looks like (from top to bottom):
+		;   dword [esp]: argc
+		;   dword [esp+4]: argv[0] pointer
+		;   esp+8...: argv[1..] pointers
+		;   NULL that ends argv[]
+		;   environment pointers
+		;   NULL that ends envp[]
+		;   ELF Auxiliary Table (auxv): key-value pairs ending with (AT_NULL (== 0), NULL).
+		;   argv strings, environment strings, program name etc.
+%ifndef COFF
+		; Linux >=1.0 and FreeBSD >=3.5 both set up a non-empty
+		; auxv, even for statically linked executable. SVR4 2.1
+		; doesn't even add an auxv: the argv[0] string directly
+		; follows the NULL after envp.
+  %ifdef __NEED___argc  ; This branch keeps argc on the stack. Automatically defined by __WATCOMC__ iif main(...) takes arguments. For __GNUC__, use `nasm -D__NEED___argc'.
+		mov eax, [esp]  ; argc.
+		lea edi, [esp+eax*4+8]  ; EDI := envp.
+		mov ecx, [esp+4]  ; argv[0].
+  %else
+		pop eax  ; Discard argc. Also ESP := argv.
+		lea edi, [esp+eax*4+4]  ; EDI := envp.
+		mov ecx, [esp]  ; argv[0].
+  %endif
+		xor eax, eax
+  .next_envvar:
+		scasd
+		jne short .next_envvar
+		; Now: EDI is auxv.
+		cmp edi, ecx
+		; Jump iff there is no auxv (but argv[0] starts right after
+		; the NULL of environ). This happens on SysV SVR4, rather
+		; than Linux >=1.0.4, ibcs-us (which inherits to auxv from
+		; the host Linux or FreeBSD >=3.5). Real SysV SVR4 i386 has
+		; an empty auxv for statically linked ELF-32 executable
+		; programs.
+		je short .sysv
+		scasd
+		; Jump iff the first element of auxv is AT_NULL (== 0). This
+		; doesn't seem to happen in practice, but if it happens, we
+		; assume that we are running on SysV SVR4, rather than Linux
+		; >=1.0.4, ibcs-us (which inherits to auxv from the host
+		; Linux or FreeBSD >=3.5). Real SysV SVR4 i386 has an empty
+		; auxv for statically linked ELF-32 executable programs.
+		je short .sysv
+		push byte SYS.write  ; SYS_write for both Linux i386 and FreeBSD.
+		pop eax
+		xor edx, edx  ; Argument count of Linux i386 SYS_write.
+		push edx  ; Argument count of FreeBSD SYS_write.
+		xor ecx, ecx  ; Argument buf of Linux i386 SYS_write.
+		push ecx  ; Argument buf of FreeBSD SYS_write.
+		or ebx, byte -1  ; Argument fd of Linux i386 SYS_write.
+		push ebx  ; Argument fd of FreeBSD SYS_write.
+		push eax  ; Fake return address of FreeBSD syscall.
+		int 0x80  ; Linux i386 and FreeBSD i386 syscall. It fails because of the negative fd.
+		add esp, byte 4*4  ; Clean up syscall arguments above.
+		test eax, eax
+		jns short .freebsd  ; Jump iff FreeBSD (EAX == EBADF, positive). Linux has EAX == -EBADF, negative here.
+		; Now we are running on Linux or Linux ibcs-us.
+		; Map .bss again using mmap(2). This is a workaround for ibcs-us 4.1.6 running on Linux i386, which maps pages of .data but not .bss.
+		push edx  ;  Argument offset == 0. We've set EDX to 0 above (for argument count of Linux i386 SYS_write).
+		push strict byte -1  ; Argument fd.
+		push strict byte MAP_Linux.PRIVATE|MAP_Linux.ANONYMOUS|MAP_Linux.FIXED  ; Argument flags.
+		push strict byte PROT.READ|PROT.WRITE  ; Argument prot.
+  %ifidn __OUTPUT_FORMAT__, bin  ; The subtractions below work only in a single section.
+		push strict dword (_bss_end-_bss_end_of_first_page+0xfff)&~0xfff  ; Argument length. mmap(2) doesn't need rounding to page boundary, but we do it for extra compatibility.
+		push strict dword _bss_end_of_first_page  ; Argument addr. mmap(2) needs rounding to page boundary, and we use a rounded value to avoid overwriting the last page of .data.
+  %else
+		mov eax, _bss_start  ; Symbol provided by the linker.
+		add eax, strict dword 0xfff
+		and eax, strict dword ~0xfff  ; EDX := _bss_start rounded up to page boundary.
+		mov ecx, _bss_end  ; Symbol provided by the linker.
+		sub ecx, eax
+		jnc short .mmap_length_ok
+		xor ecx, ecx  ; .bss fits within the last page of .data. Argument length := 0.
+    .mmap_length_ok:
+		push ecx  ; Argument length. mmap(2) doesn't need rounding to page boundary.
+		push eax  ; Argument addr. mmap(2) needs rounding to page boundary, and we use a rounded value to avoid overwriting the last page of .data.
+  %endif
+		mov ebx, esp  ; buffer, to be passed to SYS.mmap as arg1.
+		push byte SYS_Linux.mmap
+		pop eax
+		int 0x80  ; Linux i386 syscall. This fails if length == 0, but that's fine to ignore here.
+		add esp, byte 6*4  ; Clean up arguments of SYS.mmap above from the stack.
+		push byte OSCOMPAT.LINUX  ; We're running on Linux: either natively or in ibcs-us.
+		jmp short .detected
+  .freebsd:
+		push byte OSCOMPAT.FREEBSD
+		jmp short .detected
+  .sysv:
+		push byte OSCOMPAT.SYSV
+  .detected:
+		pop eax
+		mov [global_oscompat], al
+		; Now we clear the .bss part of the last page of .data. Some
+		; early Linux kernels keep junk there if there is junk at
+		; the end of the ELF-32 executable program file.
+		xor eax, eax
+		mov edi, _bss_start  ; Must be a multiple of 4.
+  %ifidn __OUTPUT_FORMAT__, bin
+		mov ecx, (_bss_end_of_first_page-_bss_start)>>2  ; Both of them are aligned to a multiple of 4.
+  %else
+		mov ecx, edi
+		neg ecx
+		and ecx, 0xfff
+		shr ecx, 2
+  %endif
+		rep stosd
+%endif  ; %ifndef COFF
+%ifdef __NEED___argc
+		pop eax  ; EAX := argc.
+		mov edx, esp  ; EDX := argv.
+		lea ebx, [esp+eax*4+4]  ; EBX := envp.
+  %ifdef __GLOBAL__main  ; int __cdecl main(int argc, char **argv, char **envp).
+		push ebx
+		push edx
+		push eax
+  %elifdef __GLOBAL_main_  ; int __watcall main(int argc, char **argv, char **envp).
+  %endif
+%endif
+  %ifdef __GLOBAL__main  ; int __cdecl main(...).
+    %ifdef __GLOBAL_main_  ; int __watcall main(...).
+      %error ERROR_MULTIPLE_MAIN_FUNCTIONS_CDECL_WATCALL
+      times -1 nop
+    %endif
+		call _main		
+  %elifdef __GLOBAL_main_  ; int __watcall main(...).
+		call main_
+  %else
+    %error ERROR_MISSING_MAIN_FUNCTION
+    times -1 nop
+  %endif
+		; Fall through to __watcall _exit(...). We already have the return value of main(...) in EAX.
+
+global _exit_
+_exit_:  ; __noreturn void __watcall _exit(int exit_code);
+global exit_
+exit_:  ; __noreturn void __watcall exit(int exit_code);
+		push eax  ; exit_code argument of __cdecl _exit(...) below.
+		push eax  ; Fake return address.
+		; Fall through to __cdecl  _exit(...).
+
+global __exit
+__exit:  ; __noreturn void __cdecl _exit(int exit_code);
+global _exit
+_exit:  ; __noreturn void __cdecl exit(int exit_code);
+		push byte SYS.exit
+		; Fall through to simple_syscall3_pop
+
+; Input stack: dword [esp]: syscall number (SYS....); dword [esp+4]: return address; dword [esp+8] syscall argument
+simple_syscall3_pop:
+		pop eax
+		; Fall through to simple_syscall3_eax.
+
+simple_syscall3_eax:
+%ifdef COFF  ; SysV SVR3 only.
+		call 7:dword 0  ; SysV syscall.
+		jnc short .ret
+%else
+		mov cl, [global_oscompat]
+		cmp cl, OSCOMPAT.SYSV
+		je short .sysv
+		test cl, cl  ; OSCOMPAT.LINUX
+		jnz short .freebsd
+  .linux:
+		push ebx  ; Save.
+		mov ebx, [esp+2*4]  ; Syscall argument 1.
+		mov ecx, [esp+3*4]  ; Syscall argument 2.
+		mov edx, [esp+4*4]  ; Syscall argument 3.
+		int 0x80  ; Linux i386 syscall.
+		pop ebx  ; Restore.
+		test eax, eax
+		jns short .ret
+		jmp short .error
+  .sysv:
+		call 7:dword 0  ; SysV i386 syscall.
+		jnc short .ret
+		jmp short .error
+  .freebsd:
+		int 0x80  ; FreeBSD i386 syscall.
+		jnc short .ret
+%endif
+.error:
+		;neg eax  ; Negation needed only for Linux.
+		;mov [errno], eax  ; errno is unused in this program.
+		or eax, byte -1  ; Return -1 to indicate error.
+.ret:
+%ifdef __NEED___argc
+  global __argc  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this symbol.
+  __argc:
+%endif
+		ret
+
+; --- Syscall wrappers (except for SYS.exit, which has been done above).
+
+%ifdef __NEED__write
+global _write
+_write:  ; int __cdecl write(int fd, const void *buf, unsigned count);
+		push byte SYS.write
+		jmp short simple_syscall3_pop
+%endif
+
+%ifdef __NEED__read
+_read:  ; int __cdecl read(int fd, void *buf, unsigned count);
+		push byte SYS.read
+		jmp short simple_syscall3_pop
+%endif
+
+%ifdef __NEED__ioctl_wrapper
+;global _ioctl_wrapper  ; Not exporting it, bacause the `request' and `arg' is not system-independent.
+_ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
+		push byte SYS.ioctl
+		jmp short simple_syscall3_pop
+%endif
+
+; --- System-specific libc functions.
+
+%ifdef __NEED__isatty
+global _isatty
+_isatty:  ; int __cdecl isatty(int fd);
+  %ifdef COFF
+    ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2, we round it up to dword bounadry.
+		sub esp, byte ISATTY_TERMIOS_SIZE
+		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
+  %else
+    ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREEBSD.
+		sub esp, byte ISATTY_TERMIOS_SIZE
+		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		cmp byte [global_oscompat], OSCOMPAT.FREEBSD
+		je short .freebsd
+    .linux_or_sysv:
+		push strict dword IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
+		jmp .ioctl_number_pushed
+    .freebsd:
+		push strict dword IOCTL_FreeBSD.TIOCGETA
+  %endif
+  .ioctl_number_pushed:
+		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this _isatty.
+		call _ioctl_wrapper
+		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of _ioctl_wrapper above from the stack, and also clean up the arg struct.
+		; Now convert result EAX: -1 to 0, everything else to 1.
+		inc eax
+		jz short .have_retval
+		xor eax, eax
+		inc eax  ; EAX := 1.
+    .have_retval:
+		ret
+%endif
+
+; --- System-independent libc functions.
+;
+; !! Add and use the __watcall counterparts (also for system-specific), they tend to be shorter.
+
+%ifdef __NEED__strlen
+  global _strlen  ; Longer code than strlen_.
+  _strlen:  ; size_t __cdecl strlen(const char *s);
+  ; unsigned int __cdecl strlen(const char *s);
+		push edi
+		mov edi, [esp+8]  ; Argument s.
+		xor eax, eax
+		or ecx, byte -1  ; ECX := -1.
+		repne scasb
+		sub eax, ecx
+		dec eax
+		dec eax
+		pop edi
+		ret
+%endif
+
+%ifdef __NEED__memset
+  global _memset  ; Longer code than memset_.
+  _memset:  ; void * __cdecl memset(void *s, int c, size_t n);
+  ; void * __cdecl memset(void *s, int c, unsigned int n);
+		push edi
+		mov edi, [esp+8]  ; Argument s.
+		mov al, [esp+0xc]  ; Argument c.
+		mov ecx, [esp+0x10]  ; Argument n.
+		push edi
+		rep stosb
+		pop eax  ; Result is argument s.
+		pop edi
+		ret
+%endif
+
+%ifdef __NEED__memcpy
+  global _memcpy  ; Longer code than memcpy_.
+  _memcpy:  ; void * __cdecl memcpy(void *dest, const void *src, size_t n);
+  ; void * __cdecl memcpy(void *dest, const void *src, unsigned n);
+		push edi
+		push esi
+		mov ecx, [esp+0x14]
+		mov esi, [esp+0x10]
+		mov edi, [esp+0xc]
+		push edi
+		rep movsb
+		pop eax  ; Result: pointer to dest.
+		pop esi
+		pop edi
+		ret
+%endif
+
+f_end
+
+; __END__

@@ -39,7 +39,7 @@ gcc -m64 -fsanitize=address -g -O2 -ansi -pedantic -W -Wall -Wextra -Wstrict-pro
 ./luuzcat <test_C1_split.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
 
-# !! Add test for concatenated streas.
+# !! Add test for concatenated streams.
 
 g++ -m32 -s -O2 -ansi -pedantic -W -Wall -Wextra -o luuzcat luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
 ./luuzcat <XFileMgro.sz >XFileMgro
@@ -76,7 +76,7 @@ g++ -m32 -s -O2 -ansi -pedantic -W -Wall -Wextra -o luuzcat luuzcat.c unscolzh.c
     cmp test_C1.good test_C1.bin
 
 # TODO(pts): Compile with --gcc=4.8 and extra warnings?
-minicc -ansi -pedantic -Wno-n201 -o luuzcat luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
+minicc -ansi -pedantic -march=i386 -Wno-n201 -o luuzcat luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
 ./luuzcat <XFileMgro.sz >XFileMgro
   cmp XFileMgro.good XFileMgro
 ./luuzcat <test_C1.bin.C >test_C1.bin
@@ -108,6 +108,48 @@ minicc -ansi -pedantic -Wno-n201 -o luuzcat luuzcat.c unscolzh.c uncompact.c uno
 ./luuzcat <test_C1.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1_split.zip >test_C1.bin
+    cmp test_C1.good test_C1.bin
+
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o luuzcat.c
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o unscolzh.c
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o uncompact.c
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o unopack.c
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o unpack.c
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o undeflate.c
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o uncompress.c
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o unfreeze.c
+perl=tools/miniperl-5.004.04.upx
+"$perl" -e0 || perl=perl  # Use the system perl(1) if tools is not available.
+fi=0
+for f in luuzcat.o unscolzh.o uncompact.o unopack.o unpack.o undeflate.o uncompress.o unfreeze.o; do
+  fi=$((fi+1))  # For local variables.
+  wdis -a -fi -fu -i=@ "$f" >"${f%.*}_32.wasm"
+  "$perl" wasm2nasm.pl "$fi" <"${f%.*}_32.wasm" >"${f%.*}_32.nasm"
+  # objconv 2.54 is buggy, it creates wrong destination for some `call' instructions.
+  # tools/objconv-2.54.upx -fnasm "$f" "${f%.*}_32.nasm"
+done
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'" -o luuzcatx.o progi386.nasm
+# * wlink generates a much larger ELF-32 file than necessary (e.g. it aligns
+#   .data to 4096 bytes in the file), but it can add the symbols, so it's useful for debugging.
+# * wlink op exportall == op exporta (undocumented flag) keeps symbols (i.e. no run of `strip').
+# * `disa 1080` disables the useless message: *Warning! W1080: file luuzcatx.o is a 16-bit object file*.
+#   NASM can't generate the relevant COMENT record..
+wlink op q form elf ru freebsd disa 1080 op noext op d op nored op start=_start op norelocs op exporta n luuzcatx.elf f luuzcatx.o
+./luuzcatx.elf <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+ibcs-us ./luuzcatx.elf <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                        -o luuzcat.elf  progi386.nasm
+chmod +x luuzcat.elf
+./luuzcat.elf <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+ibcs-us ./luuzcat.elf <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'" -DCOFF -DCOFF_PROGRAM_NAME="'luuzcat'" -o luuzcat.coff progi386.nasm
+chmod +x luuzcat.coff
+ibcs-us ./luuzcat.coff <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 # We compile with the OpenWatcom C compiler to a DOS 8086 .com program, but we don't use the OpenWatcom libc.

@@ -45,14 +45,14 @@
 #  define LIBC_PREINCLUDED 1
   int __cdecl write(int fd, const void *buf, unsigned count);
   int __cdecl read(int fd, void *buf, unsigned int count);
-  int __cdecl isatty(int fd);
-  __declspec(noreturn) void __cdecl exit(unsigned char exit_code);
-  unsigned int __cdecl strlen(const char *s);
+  int isatty(int fd);
+  __declspec(noreturn) void exit(unsigned char exit_code);
+  unsigned int strlen(const char *s);
   /* To prevent wlink: Error! E2028: strlen_ is an undefined reference */
 /*#  pragma intrinsic(strlen)*/  /* !! Add shorter `#pragma aux' or static. */
-  void * __cdecl memset(void *s, int c, unsigned int n);
+  void *memset(void *s, int c, unsigned int n);
 /*#  pragma intrinsic(memset)*/  /* !! Add shorter `#pragma aux' or static. */
-  void * __cdecl memcpy(void *dest, const void *src, unsigned n);
+  void *memcpy(void *dest, const void *src, unsigned n);
 /*#  pragma intrinsic(memcpy)*/  /* !! Add shorter `#pragma aux' or static. */
 
 #  define LUUZCAT_NL "\n"  /* Line ending for error messages on stderr. !! Assuming Unix since we don't know any better. */

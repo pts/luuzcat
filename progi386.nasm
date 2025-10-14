@@ -445,6 +445,9 @@ _do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
 %ifdef __NEED__isatty
   %define __NEED__ioctl_wrapper
 %endif
+%ifdef __NEED_isatty_
+  %define __NEED__ioctl_wrapper
+%endif
 
 ; --- Defines specific to the operating system.
 
@@ -787,6 +790,10 @@ _ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void
 		jmp short simple_syscall3_pop
 %endif
 
+; By adding and using the __watcall counterpart for simple_syscall3_pop
+; (__NEED_simple_syscall3_WAT), the program file doesn't become shorter,
+; because FreeBSD needs the syscall arguments on the stack.
+
 ; --- System-specific libc functions.
 
 %ifdef __NEED__isatty
@@ -810,7 +817,7 @@ _isatty:  ; int __cdecl isatty(int fd);
 		push strict dword IOCTL_FreeBSD.TIOCGETA
   %endif
   .ioctl_number_pushed:
-		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this _isatty.
+		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
 		call _ioctl_wrapper
 		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of _ioctl_wrapper above from the stack, and also clean up the arg struct.
 		; Now convert result EAX: -1 to 0, everything else to 1.
@@ -822,14 +829,48 @@ _isatty:  ; int __cdecl isatty(int fd);
 		ret
 %endif
 
+%ifdef __NEED_isatty_
+global isatty_
+isatty_:  ; int __watcall isatty(int fd);
+		push ecx  ; Save.
+		push edx  ; Save.
+  %ifdef COFF
+    ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2, we round it up to dword bounadry.
+		sub esp, byte ISATTY_TERMIOS_SIZE
+		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
+  %else
+    ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREEBSD.
+		sub esp, byte ISATTY_TERMIOS_SIZE
+		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		cmp byte [global_oscompat], OSCOMPAT.FREEBSD
+		je short .freebsd
+    .linux_or_sysv:
+		push strict dword IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
+		jmp .ioctl_number_pushed
+    .freebsd:
+		push strict dword IOCTL_FreeBSD.TIOCGETA
+  %endif
+  .ioctl_number_pushed:
+		push eax  ; Argument fd of this isatty(...).
+		call _ioctl_wrapper
+		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of _ioctl_wrapper above from the stack, and also clean up the arg struct.
+		; Now convert result EAX: -1 to 0, everything else to 1.
+		inc eax
+		jz short .have_retval
+		xor eax, eax
+		inc eax  ; EAX := 1.
+    .have_retval:
+		pop edx  ; Restore.
+		pop ecx  ; Restore.
+		ret
+%endif
+
 ; --- System-independent libc functions.
 ;
-; !! Add and use the __watcall counterparts (also for system-specific), they tend to be shorter.
-
 %ifdef __NEED__strlen
   global _strlen  ; Longer code than strlen_.
   _strlen:  ; size_t __cdecl strlen(const char *s);
-  ; unsigned int __cdecl strlen(const char *s);
 		push edi
 		mov edi, [esp+8]  ; Argument s.
 		xor eax, eax
@@ -842,10 +883,25 @@ _isatty:  ; int __cdecl isatty(int fd);
 		ret
 %endif
 
+%ifdef __NEED_strlen_
+  global strlen_
+  strlen_:  ; size_t __watcall strlen(const char *s);
+  ; unsigned int __cdecl strlen(const char *s);
+		push edi  ; Save.
+		xchg edi, eax  ; EDI := argument s; EAX : = junk.
+		xor eax, eax
+		or ecx, byte -1  ; ECX := -1.
+		repne scasb
+		sub eax, ecx
+		dec eax
+		dec eax
+		pop edi  ; Restore.
+		ret
+%endif
+
 %ifdef __NEED__memset
   global _memset  ; Longer code than memset_.
   _memset:  ; void * __cdecl memset(void *s, int c, size_t n);
-  ; void * __cdecl memset(void *s, int c, unsigned int n);
 		push edi
 		mov edi, [esp+8]  ; Argument s.
 		mov al, [esp+0xc]  ; Argument c.
@@ -857,10 +913,24 @@ _isatty:  ; int __cdecl isatty(int fd);
 		ret
 %endif
 
+%ifdef __NEED_memset_
+  global memset_
+  memset_:  ; void * __watcall memset(void *s, int c, size_t n);
+		push edi  ; Save.
+		xchg edi, eax  ; EDI := EAX (argument s); EAX := junk.
+		xchg eax, edx  ; EAX := EDX (argument c); EDX := junk.
+		xchg ecx, ebx  ; ECX := EBX (argument n); EBX := saved ECX.
+		push edi
+		rep stosb
+		pop eax  ; Result is argument s.
+		xchg ecx, ebx  ; ECX := saved ECX; EBX := 0 (unused).
+		pop edi  ; Restore.
+		ret
+%endif
+
 %ifdef __NEED__memcpy
   global _memcpy  ; Longer code than memcpy_.
   _memcpy:  ; void * __cdecl memcpy(void *dest, const void *src, size_t n);
-  ; void * __cdecl memcpy(void *dest, const void *src, unsigned n);
 		push edi
 		push esi
 		mov ecx, [esp+0x14]
@@ -870,6 +940,22 @@ _isatty:  ; int __cdecl isatty(int fd);
 		rep movsb
 		pop eax  ; Result: pointer to dest.
 		pop esi
+		pop edi
+		ret
+%endif
+
+%ifdef __NEED_memcpy_
+  global memcpy_
+  memcpy_:  ; void * __watcall memcpy(void *dest, const void *src, size_t n);
+		push edi
+		xchg esi, edx
+		xchg edi, eax  ; EDI := dest; EAX := junk.
+		xchg ecx, ebx
+		push edi
+		rep movsb
+		pop eax  ; Will return dest.
+		xchg ecx, ebx  ; Restore ECX from REGARG3. And REGARG3 is scratch, we don't care what we put there.
+		xchg esi, edx  ; Restore ESI.
 		pop edi
 		ret
 %endif

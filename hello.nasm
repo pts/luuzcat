@@ -29,7 +29,8 @@ main_:
 		ret  ; exit(1) if stdin is a TTY, 0 otherwise.
 
 f_section_CONST
-;f_section__DATA
+;f_section__DATA_UNA
+;f_section_CONST2
 msg:
 		db 'Hello, World!', 10
 .size equ $-msg

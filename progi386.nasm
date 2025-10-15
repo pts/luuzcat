@@ -79,7 +79,7 @@ cpu 386
 ; that it loads correctly in many operating systems.
 %ifidn __OUTPUT_FORMAT__, bin
   %if COFF  ; SysV SVR3 i386 COFF executable program.
-    _data_base_org equ 0x400000  ; Standard SysV SVR3 value.
+    _coff_data_base_org equ 0x400000  ; Standard SysV SVR3 value.
     section .text align=1 valign=1 start=0 vstart=0
     _text_start:
     section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Adds virtual address alignment of 4 without valign=1.
@@ -154,7 +154,7 @@ cpu 386
     .s_paddr:	dd _text_start+(coff_filehdr_end-coff_filehdr)  ; physical address, aliased s_nlib.
     .s_vaddr:	dd _text_start+(coff_filehdr_end-coff_filehdr)  ; virtual address.
     .s_size:	dd _text_size+_rodatastr_size+_rodata_size-(coff_filehdr_end-coff_filehdr)  ; section size.
-    .s_scnptr:	dd _text_fofs+(coff_filehdr_end-coff_filehdr)  ; file ptr to raw data for section.
+    .s_scnptr:	dd _coff_text_fofs+(coff_filehdr_end-coff_filehdr)  ; file ptr to raw data for section.
     .s_relptr:	dd 0  ; file ptr to relocation.
     .s_lnnoptr:	dd 0  ; file ptr to line numbers.
     .s_nreloc:	dw 0  ; number of relocation entries.
@@ -166,7 +166,7 @@ cpu 386
     .s_paddr:	dd _data_start  ; physical address, aliased s_nlib.
     .s_vaddr:	dd _data_start  ; virtual address.
     .s_size:	dd _data_size  ; section size.
-    .s_scnptr:	dd _data_fofs  ; file ptr to raw data for section.
+    .s_scnptr:	dd _coff_data_fofs  ; file ptr to raw data for section.
     .s_relptr:	dd 0  ; file ptr to relocation.
     .s_lnnoptr:	dd 0  ; file ptr to line numbers.
     .s_nreloc:	dw 0  ; number of relocation entries.
@@ -190,7 +190,7 @@ cpu 386
     .s_paddr:	dd 0  ; physical address, aliased s_nlib.
     .s_vaddr:	dd 0  ; virtual address.
     .s_size:	dd _comment_size  ; section size.
-    .s_scnptr:	dd _comment_fofs  ; file ptr to raw data for section.
+    .s_scnptr:	dd _coff_comment_fofs  ; file ptr to raw data for section.
     .s_relptr:	dd 0  ; file ptr to relocation.
     .s_lnnoptr:	dd 0  ; file ptr to line numbers.
     .s_nreloc:	dw 0  ; number of relocation entries.
@@ -233,7 +233,7 @@ cpu 386
     Elf32_Phdr0:
 		dd ELF_PT.LOAD, Elf32_header.end-Elf32_Ehdr, Elf32_header.end, 0, _text_size+_rodatastr_size+_rodata_size-(Elf32_header.end-Elf32_Ehdr), _text_size+_rodatastr_size+_rodata_size-(Elf32_header.end-Elf32_Ehdr), 5, 1<<12
     Elf32_Phdr1:
-		dd ELF_PT.LOAD, _datauna_fofs, _datauna_start, 0, _datauna_size+_data_size, _datauna_size+_data_size+_bss_size, 6, 1<<12
+		dd ELF_PT.LOAD, _text_size+_rodatastr_size+_rodata_size, _datauna_start, 0, _datauna_size+_data_size, _datauna_size+_data_size+_data_endalign_extra+_bss_size, 6, 1<<12
     Elf32_Phdr2:
 		dd ELF_PT.NOTE, Elf32_note-Elf32_Ehdr, Elf32_note, 0, Elf32_note.end-Elf32_note, Elf32_note.end-Elf32_note, 4, 1<<2
     Elf32_Phdr.end:
@@ -270,8 +270,8 @@ cpu 386
     S386BSD_exec:  ; `struct exec' in usr/src/kernel/include/sys/exec.h
     .a_magic:	dd 0x10b  ; Signature (magic number).
     .a_text:	dd (_text_size+_rodatastr_size+_rodata_size+0xfff)&~0xfff  ; Text segment size. Always a multiple of 0x1000.
-    .a_data:	dd _data_size  ; Initialized segment size. Always a multiple of 0x1000.
-    .a_bss:	dd _bss_size  ; Unintialized segment size. Can have any value, even 0.
+    .a_data:	dd _data_size  ; Initialized segment size.
+    .a_bss:	dd _data_endalign_extra+_bss_size  ; Unintialized segment size. Can have any value, even 0.
     .a_syms:	dd 0  ; Symbol table size.
     .a_entry:	dd _start  ; Entry point.
     .a_trsize:	dd 0  ; Text relocation size.
@@ -313,7 +313,7 @@ cpu 386
     .a_version: dw 0  ; Version stamp (unused by Minix).
     .a_text: dd _text_size  ; Size of text segement in bytes.
     .a_data: dd _rodatastr_size+_rodata_size+_data_size  ; Size of data segment in bytes.
-    .a_bss: dd _bss_size  ; Size of bss segment in bytes.
+    .a_bss: dd _data_endalign_extra+_bss_size  ; Size of bss segment in bytes.
     .a_entry: dd _start  ; Entry point.
     .a_total: dd _data_size+_bss_size+MINIX2I386_STACK  ; Total memory allocated for a_data, a_bss and stack, including argv and environ strings.
     .a_syms: dd 0  ; Size of symbol table.
@@ -331,7 +331,7 @@ cpu 386
     section .rodata
     times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
-  %macro f_section__DATA 0
+  %macro f_section__DATA 0  ; !! Create and use 1-argument macro so NASM can catch syntax errors as an error (rather than a warning for label-only lines).
     section .data
     times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
@@ -358,7 +358,17 @@ cpu 386
     section .rodata
     _rodata_endu:
     %if ELF
+      section .data
+      _data_size_before_oscompat equ $-$$
       section .data.una
+      %if ($-$$)+_data_size_before_oscompat==0
+        ; The reason why we add __oscompat to .data.una here rather
+        ; than to anywhere in .bss is to make sure that .data.una+.data is not
+        ; empty, which would cause ibcs-us 4.1.6 to segfault.
+        %define IS_OSCOMPAT_ADDED 1
+        global __oscompat
+        __oscompat: db 0  ; Initial value doesn't matter.
+      %endif
       _datauna_endu:
     %endif
     section .data
@@ -370,11 +380,6 @@ cpu 386
     %if S386BSD
       %if $-$$==0
         db 0  ; Workaround to avoid an empty .data, which would prevent 386BSD 1.0 from loading the program.
-      %endif
-    %endif
-    %if ELF
-      %if (_datauna_endu-_datauna_start)+($-$$)==0
-        dd 0  ; Workaround to avoid an empty .data, which would cause ibcs-us 4.1.6 to segfault. !!! Isn't a db enough here?
       %endif
     %endif
     _data_endu:
@@ -391,19 +396,25 @@ cpu 386
       %else
         _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
       %endif
+      _data_endalign equ (-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_data_endu-_data_start))&3
     %elif COFF+S386BSD
       _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
       _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
-    %elif _rodata_endu-_rodata_start  ; ELF, .rodata is not empty.
-      _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
-      _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
-      _datauna_endalign equ (-(_datauna_endu-_datauna_start))&3  ; !!! Should we have 0 instead here if .data is empty?
-    %else  ; ELF, .rodata is empty.
-      _rodatastr_endalign equ 0
-      _rodata_endalign equ 0
-      _datauna_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start)-(_datauna_endu-_datauna_start))&3  ; !!! Should we have 0 instead here if .data is empty?
+      _data_endalign equ (-(_data_endu-_data_start))&3
+    %elif ELF
+      %if _rodata_endu==_rodata_start
+        _rodatastr_endalign equ 0
+      %else
+        _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
+      %endif
+      _rodata_endalign equ 0  ; _datauna_endalign below will take care of aligning .data.
+      %if _data_endu==_data_start
+        _datauna_endalign equ 0
+      %else
+        _datauna_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_datauna_endu-_datauna_start))&3
+      %endif
+      _data_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_datauna_endu+_datauna_endalign-_datauna_start)-(_data_endu-_data_start))&3
     %endif
-    _data_endalign equ (-(_data_endu-_data_start))&3
     section .text
     _text_end:
     _text_size equ $-$$
@@ -424,15 +435,20 @@ cpu 386
       _datauna_size equ 0
     %endif
     section .data
-    %if S386BSD+MINIX2I386
-      _data_endalign_extra equ _data_endalign
-    %else
+    %if COFF
       _data_endalign_extra equ 0
       times _data_endalign db 0
+    %else  ; For non-COFF, it's OK that the end of .data is not padded with NUL bytes for alignment.
+      _data_endalign_extra equ _data_endalign
     %endif
     _data_end:
     _data_size equ $-$$  ; _data_size is a multiple of 4.
     section .bss
+    %if ELF && IS_OSCOMPAT_ADDED==0
+      %define IS_OSCOMPAT_ADDED 1
+      global __oscompat
+      __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
+    %endif
     %if COFF
       %if _text_size+_rodatastr_size+_rodata_size+_data_size+($-$$)<0x1000
         resb 0x1000-(_text_size+_rodatastr_size+_rodata_size+_data_size+($-$$))  ; Workaround to avoid the `<3>mm->brk does not lie within mmap' warning in ibcs-us 4.1.6.
@@ -442,28 +458,26 @@ cpu 386
     _bss_end:
     _bss_size equ $-$$  ; _bss_size is a multiple of 4.
     section .text
-
-    _text_fofs equ 0
-    _rodatastr_fofs equ _text_fofs+_text_size
-    _rodata_fofs equ _rodatastr_fofs+_rodatastr_size
-    _datauna_fofs equ _rodata_fofs+_rodata_size
-    _data_fofs equ _datauna_fofs+_datauna_size
-    %if MINIX2I386==0 && (_data_fofs&3)
+    %if MINIX2I386
+      _data_start_pagemod equ _rodatastr_size+_rodata_size
+    %elif S386BSD
+      _data_start_pagemod equ 0
+    %else
+      _data_start_pagemod equ _text_size+_rodatastr_size+_rodata_size
+    %endif
+    %if (_data_start_pagemod&3) && _data_size
       %error ERROR_DATA_NOT_DWORD_ALIGNED
       times -1 nop
     %endif
-    _data_end_fofs equ _data_fofs+_data_size+_data_endalign_extra
-    %if (_data_end_fofs-_data_fofs)&3
+    _bss_start_pagemod equ _data_start_pagemod+_datauna_size+_data_size+_data_endalign_extra
+    %if _bss_start_pagemod&3
       %error ERROR_BSS_NOT_DWORD_ALIGNED
       times -1 nop
     %endif
-    %if _bss_size+_data_end_fofs>(_data_end_fofs+0xfff)&~0xfff
-      _bss_end_of_first_page equ _bss_start+(-_data_end_fofs&0xfff)  ; This can be _bss.
-    %else
-      _bss_end_of_first_page equ _bss_start+_bss_size
-    %endif
     %if COFF
-      _comment_fofs equ _data_fofs+_data_size
+      _coff_text_fofs equ 0
+      _coff_data_fofs equ _text_size+_rodatastr_size+_rodata_size
+      _coff_comment_fofs equ _coff_data_fofs+_data_size
       section .comment
       %ifndef COFF_PROGRAM_NAME
         %define COFF_PROGRAM_NAME 'prog'  ; Just a default.
@@ -472,10 +486,17 @@ cpu 386
       times ($$-$)&3 db 0  ; Align end of section to a multiple of 4.
       _comment_end:
       _comment_size equ $-$$  ; _comment_size is a multiple of 4.
-      _data_vstart equ _data_base_org+_data_fofs
+      _data_vstart equ _coff_data_base_org+_coff_data_fofs
     %endif
     %if ELF
-      _data_vstart equ _base_org+(_datauna_fofs-_text_fofs)+((_text_fofs-_datauna_fofs)&0xfff)+((_datauna_fofs-_text_fofs)&0xfff)  ; Can be ...+...+0+0, but typically 0x1000.
+      _data_vstart equ _base_org+(_text_size+_rodatastr_size+_rodata_size)+(-(_text_size+_rodatastr_size+_rodata_size)&0xfff)+((_text_size+_rodatastr_size+_rodata_size)&0xfff)  ; Can be ...+...+0+0, but typically 0x1000.
+    %endif
+    %if ELF+S386BSD
+      %if _bss_size+_bss_start_pagemod>(_bss_start_pagemod+0xfff)&~0xfff
+        _bss_end_of_first_page equ _bss_start+(-_bss_start_pagemod&0xfff)  ; This can be _bss.
+      %else
+        _bss_end_of_first_page equ _bss_start+_bss_size  ; This is not page-aligned, and the Linux mmap(...) will fail. But that's OK, because it has nothing to do in that case.
+      %endif
     %endif
   %endm
 %elifidn __OUTPUT_FORMAT__, obj  ; Output of NASM will be sent to a linker: OpenWatcom wlink(1) or GNU ld(1).
@@ -517,6 +538,13 @@ cpu 386
     resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
   %macro f_end 0
+    %if ELF && IS_OSCOMPAT_ADDED==0
+      f_section__BSS
+      %define IS_OSCOMPAT_ADDED 1
+      global __oscompat
+      __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
+    %endif
+    f_section__TEXT
   %endm
 %elifidn __OUTPUT_FORMAT__, elf  ; Untested. Output of NASM will be sent to a linker: OpenWatcom wlink(1) or GNU ld(1).
   %if ELF==0
@@ -554,29 +582,19 @@ cpu 386
     resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
   %macro f_end 0
+    %if ELF && IS_OSCOMPAT_ADDED==0
+      f_section__BSS
+      %define IS_OSCOMPAT_ADDED 1
+      global __oscompat
+      __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
+    %endif
+    f_section__TEXT
   %endm
 %else
   %error ERROR_UNSUPPORTED_OUTPUT_FORMAT __OUTPUT_FORMAT__
   times -1 nop
 %endif
-%macro f_zero_data_byte 1
-  %ifidn __OUTPUT_FORMAT__, bin
-    f_section__DATA_UNA
-    ;%00:  ; Not useful, because label must be in the same line as macro invocation.
-    %1:
-		db 0  ;   Put it to .data so that clearing .bss doesn't affect it.
-  %else
-    f_section__BSS
-    ;%00:  ; Not useful, because label must be in the same line as macro invocation.
-    %1:
-		resb 1
-  %endif
-  f_section__TEXT
-%endm
-%if ELF
-  ;global __oscompat
-  f_zero_data_byte __oscompat  ; Default (OSCAMPAT) is OSCOMPAT.LINUX == 0.
-%endif
+%define IS_OSCOMPAT_ADDED 0
 f_section__TEXT
 
 ; --- Including the program source files.
@@ -735,7 +753,7 @@ IOCTL_iBCS2:
   OSCOMPAT:  ; Our platform flags. __oscompat is a bitmask of these.
   .LINUX equ 0  ; (All ELF.) Linux i386 native; Linux i386 running on Linux amd64; Linux (any architecture) qemu-i386; Linux i386 ibcs-us ELF.
   .SYSV equ 1  ; AT&T Unix System V/386 (SysV) Release 3 (SVR3) COFF; AT&T Unix System V/386 (SysV) Release 4 (SVR4) ELF; Coherent 4.x COFF; iBCS2 COFF; Linux i386 ibcs-us COFF.
-  .FREENETBSD equ 2  ; (All ELF.) FreeBSD or NetBSD i386. !! Will it work on OpenBSD (probably not, needs extra sections to describe syscall addresse) or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
+  .FREENETBSD equ 2  ; (All ELF.) FreeBSD or NetBSD i386. !! Will it work on OpenBSD (probably not, needs extra sections to describe syscall addresses) or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
 %endif
 
 f_section__TEXT
@@ -851,14 +869,14 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   .sysv:
 		push byte OSCOMPAT.SYSV
   .detected:
-		pop eax
-		mov [__oscompat], al
 %endif  ; Of %if ELF
 %if ELF+S386BSD  ; Not needed for COFF and MINIX2I386, because they don't do page-aligned mapping of the executable program file.
 		; Now we clear the .bss part of the last page of .data.
 		; 386BSD 1.0 and some early Linux kernels put junk there if
 		; there is junk at the end of the ELF-32 executable program
 		; file after the last PT_LOAD file byte.
+		;
+		; !! Do we ever have to clear subsequent .bss pages? Not on Linux ELF, because the mmap(...) above has cleared it.
 		xor eax, eax
 		mov edi, _bss_start  ; Must be a multiple of 4.
   %ifidn __OUTPUT_FORMAT__, bin
@@ -870,6 +888,10 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		shr ecx, 2
   %endif
 		rep stosd
+%endif
+%if ELF
+		pop eax
+		mov [__oscompat], al  ; We must do this after the clearing of the first page of .bss above.
 %endif
 %ifdef __NEED___argc
 		pop eax  ; EAX := argc.
@@ -1053,7 +1075,7 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 %endif
 
 %ifdef __NEED__ioctl_wrapper
-  ;global _ioctl_wrapper  ; Not exporting it, bacause the `request' and `arg' is not system-independent.
+  global _ioctl_wrapper  ; The `request' and `arg' is not system-independent, but still exporting it to aid debugging.
   _ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
   %if MINIX2I386
 		push ebx  ; Save.

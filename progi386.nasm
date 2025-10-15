@@ -776,7 +776,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		;   NULL that ends envp[]
 		;   ELF Auxiliary Table (auxv): key-value pairs ending with (AT_NULL (== 0), NULL).
 		;   argv strings, environment strings, program name etc.
-%if ELF
+		cld  ; Not all systems set DF := 0, so we play it safe.
+%if ELF  ; Auto-detect the operating system (OSCOMPAT) for ELF.
 		; Linux >=1.0 and FreeBSD >=3.5 both set up a non-empty
 		; auxv, even for statically linked executable. SVR4 2.1
 		; doesn't even add an auxv: the argv[0] string directly

@@ -11,6 +11,8 @@
 *.3b
 # Minix 2.x i386 executable program.
 *.m23
+# v7x86 executable program.
+*.v7x
 *.c.[0-9]*
 *.nasm.[0-9]*
 /un[0-9].c

@@ -28,6 +28,8 @@
 ;   386BSD >=1.0 (tested on 386BSD 1.0 (1994-10-27)).
 ; * prog.m23 (-DMINIX2I386):
 ;   Minix 2.x i386 (tested on Minix 2.0.4 (2003-11-09)).
+; * prog.v7x (-DV7X86):
+;   [v7x86](https://www.nordier.com/) (tested on v7x86 0.8a (2007-10-04)).
 ;
 ; These programs don't run on Xenix, SunOS 4.0.x, macOS (except in Docker),
 ; DOS or Win32 (except in Docker or WSL) or 386BSD.
@@ -60,10 +62,15 @@
 %else
   %define MINIX2I386 0
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386==0
+%ifdef V7X86
+  %define V7X86 1
+%else
+  %define V7X86 0
+%endif
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86==0
   %define ELF 1  ; Default.
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386>1
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86>1
   %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED
   times -1 nop
 %endif
@@ -249,8 +256,7 @@ cpu 386
 		db 0  ; Alignment padding to 4.
     Elf32_note.end:
     Elf32_header.end:
-  %endif
-  %if S386BSD
+  %elif S386BSD
     ; The minimum size for a 386BSD a.out executable (tried, it works) is
     ; 0x2001 bytes: 0x1000 bytes for the header, 0x1000 bytes for total text
     ; and 1 byte for total data. (Actual 386BSD 1.0 executables have their
@@ -268,17 +274,16 @@ cpu 386
     _bss_start:
     section .header
     S386BSD_exec:  ; `struct exec' in usr/src/kernel/include/sys/exec.h
-    .a_magic:	dd 0x10b  ; Signature (magic number).
-    .a_text:	dd (_text_size+_rodatastr_size+_rodata_size+0xfff)&~0xfff  ; Text segment size. Always a multiple of 0x1000.
-    .a_data:	dd _data_size  ; Initialized segment size.
-    .a_bss:	dd _data_endalign_extra+_bss_size  ; Unintialized segment size. Can have any value, even 0.
+    .a_magic:	dd 0x10b  ; ZMAGIC signature (magic number).
+    .a_text:	dd (_text_size+_rodatastr_size+_rodata_size+0xfff)&~0xfff  ; Size of text (code) segment. Always a multiple of 0x1000.
+    .a_data:	dd _data_size  ; Size of initialized data segment.
+    .a_bss:	dd _data_endalign_extra+_bss_size  ; Size of uninitialized data segment. Can have any value, even 0.
     .a_syms:	dd 0  ; Symbol table size.
-    .a_entry:	dd _start  ; Entry point.
+    .a_entry:	dd _start  ; Virtual address (vaddr) of entry point.
     .a_trsize:	dd 0  ; Text relocation size.
     .a_drsize:	dd 0  ; Data relocation size.
     section .text
-  %endif
-  %if MINIX2I386
+  %elif MINIX2I386
     %ifndef MINIX2I386_STACK
       %define MINIX2I386_STACK 0x4000  ; 16 KiB. Minix i386 programs (such as cat(1)) use this value.
     %endif
@@ -286,7 +291,7 @@ cpu 386
       %define MINIX2I386_STACK 0x1000
     %endif
     section .header align=1 valign=1 start=0 vstart=0
-    section .text align=1 valign=1 follows=.header vstart=0
+    section .text align=1 valign=0x1000 follows=.header vstart=0
     _text_start:
     ; It would be more traditional to group .rodata.str and .rodata together
     ; with .text (rather than .data), just like Linux does it, but that
@@ -295,7 +300,7 @@ cpu 386
     ; Minix, CS can be used to access a_text only (no a_data), and DS and ES
     ; can be used to access a_data only (no a_text), and offsets reset to 0
     ; at the beginning of a_text. This is not the flat memory model!
-    section .rodata.str align=1 valign=1 follows=.text vstart=0  ; CONST.
+    section .rodata.str align=1 valign=0x1000 follows=.text vstart=0  ; CONST.
     _rodatastr_start:
     section .rodata align=1 valign=1 follows=.rodata.str vfollows=.rodata.str  ; CONST2.
     _rodata_start:
@@ -314,10 +319,38 @@ cpu 386
     .a_text: dd _text_size  ; Size of text segement in bytes.
     .a_data: dd _rodatastr_size+_rodata_size+_data_size  ; Size of data segment in bytes.
     .a_bss: dd _data_endalign_extra+_bss_size  ; Size of bss segment in bytes.
-    .a_entry: dd _start  ; Entry point.
+    .a_entry: dd _start  ; Virtual address (vaddr) of entry point.
     .a_total: dd _data_size+_bss_size+MINIX2I386_STACK  ; Total memory allocated for a_data, a_bss and stack, including argv and environ strings.
     .a_syms: dd 0  ; Size of symbol table.
     .size: equ $-MINIX2I386_exec
+    section .text
+  %elif V7X86
+    ; V7X86 supports two a.out executable formats, which only differ in the
+    ; memory layout of a_data: NMAGIC uses up to 0xfff bytes more of virtual
+    ; memory, but can share a_text among multiple processes of the same
+    ; executable; FMAGIC can't do any sharing. The majority of the a.out
+    ; executables in v7x86 is NMAGIC, so we also do that here.
+    section .header align=1 valign=1 start=0 vstart=0
+    section .text align=1 valign=0x1000 follows=.header vstart=0
+    _text_start:
+    section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Grouped together with .text.
+    _rodatastr_start:
+    section .rodata align=1 valign=1 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Grouped together .text.
+    _rodata_start:
+    section .data align=1 valign=0x1000 follows=.rodata vfollows=.rodata  ; FMAGIC would have valign=1 for .text.
+    _data_start:
+    section .bss align=4 follows=.data nobits
+    _bss_start:
+    section .header
+    V7X86_exec:  ; `struct exec' in usr/include/a.out.h
+    .a_magic:	dd 0x108  ; NMAGIC signature (magic number). FMAGIC would be 0x107.
+    .a_text:	dd _text_size+_rodatastr_size+_rodata_size  ; Size of text (code) segment.
+    .a_data:	dd _data_size  ; Size of initialized data segment.
+    .a_bss:	dd _data_endalign_extra+_bss_size  ; Size of uninitialized data segment. Can have any value, even 0.
+    .a_syms:	dd 0  ; Symbol table size.
+    .a_entry:	dd _start  ; Virtual address (vaddr) of entry point.
+    .a_trsize:	dd 0  ; Text relocation size.
+    .a_drsize:	dd 0  ; Data relocation size.
     section .text
   %endif
 
@@ -401,6 +434,14 @@ cpu 386
       _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
       _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
       _data_endalign equ (-(_data_endu-_data_start))&3
+    %elif V7X86
+      %if _rodata_endu==_rodata_start
+        _rodatastr_endalign equ 0
+      %else
+        _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
+      %endif
+      _rodata_endalign equ 0  ; .data has align=1 valign=0x1000, no need to add any alignment before .data to the file.
+      _data_endalign equ (-(_data_endu-_data_start))&3
     %elif ELF
       %if _rodata_endu==_rodata_start
         _rodatastr_endalign equ 0
@@ -460,7 +501,7 @@ cpu 386
     section .text
     %if MINIX2I386
       _data_start_pagemod equ _rodatastr_size+_rodata_size
-    %elif S386BSD
+    %elif S386BSD+V7X86
       _data_start_pagemod equ 0
     %else
       _data_start_pagemod equ _text_size+_rodatastr_size+_rodata_size
@@ -683,8 +724,7 @@ IOCTL_FreeBSD:  ; FreeBSD 3.5 i386.
 IOCTL_NetBSD:  ; NetBSD 1.5.2 i386.
 .TIOCGETA       equ 0x402c7413  ; _IOR('t', 19, struct termios). Get termios struct. sizeof(struct termios) == 44 == 0x2c. isatty(3) uses TIOCGETA.
 
-IOCTL_386BSD:  ; 386BSD 1.0.
-; usr/src/kernel/include/sys/ioctl.h
+IOCTL_386BSD:  ; 386BSD 1.0 in usr/src/kernel/include/sys/ioctl.h
 .TIOCGETA  equ 0x402c7413  ; _IOR('t', 19, struct termios). Get termios struct. sizeof(struct termios) == 44 == 0x2c. isatty(3) uses TIOCGETA.
 .TIOCFLUSH equ 0x802c7415  ; _IOW('t', 16, int). flush buffers
 .TIOCSETAW equ 0x802c7415  ; _IOW('t', 21, struct termios). drain output, set
@@ -726,8 +766,15 @@ IOCTL_Minix2:  ; Minix 2.0.4 i386. Minix for 8086 has the low 16 bits only.
 .TIOCGETP   equ 0x80087401  ; _IOR('t',  1, struct sgttyb). sizeof(struct sgttyb) == 8.
 .TIOCGETC   equ 0x80067403  ; _IOR('t',  3, struct tchars). sizeof(struct tchars) == 6.
 
-; FreeBSD 3.5 src/sys/i386/ibcs2/ibcs2_termios.h
-IOCTL_iBCS2:
+IOCTL_v7x86:  ; v7x86 0.8a in usr/include/sgtty.h
+.TIOCGETP equ 0x7408  ; (('t'<<8)|8).  sizeof(struct sgttyb) == 8. There is no `struct termio' or `struct termios' in Unix V7.
+.TIOCSETP equ 0x7409  ; (('t'<<8)|9).  sizeof(struct sgttyb) == 8.
+.TIOCSETC equ 0x7411  ; (('t'<<8)|17).  sizeof(struct tchars) == 6.
+.TIOCGETC equ 0x7412  ; (('t'<<8)|18).  sizeof(struct tchars) == 6.
+.TIOCGETD equ 0x7400  ; (('t'<<8)|0).  sizeof(int) == 1.
+.TIOCSETD equ 0x7401  ; (('t'<<8)|`).  sizeof(int) == 1.
+
+IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
 .TCGETA     equ 0x5401  ; sizeof(struct termio) == 18.
 .TIOCGWINSZ equ 0x5468  ; sizeof(struct winsize) == 8.
 .TIOCGPGRP  equ 0x5477  ; sizeof(int) == 4.
@@ -735,7 +782,7 @@ IOCTL_iBCS2:
 .XCGETA     equ 0x695801  ; sizoef(struct termios) == 24. Not implemented in SVR3 or SRV4.
 .OXCGETA    equ 0x7801  ; sizoef(struct termios) == 24. Not implemented in SVR3 or SRV4.
 
-; !! Add IOCTL_* numbers for Minix 3.2.x, xv6, v7x86 and Xenix/386.
+; !! Add IOCTL_* numbers for Minix 3.2.x, xv6, and Xenix/386.
 
 %if ELF
   SYS_Linux:  ; Linux i386 syscalls. Syscall input: EAX: syscall number; EBX: arg1; ECX: arg2; EDX: arg3.
@@ -871,7 +918,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push byte OSCOMPAT.SYSV
   .detected:
 %endif  ; Of %if ELF
-%if ELF+S386BSD  ; Not needed for COFF and MINIX2I386, because they don't do page-aligned mapping of the executable program file.
+%if ELF+S386BSD  ; Not needed for COFF+MINIX2I386+V7X86, because they don't do page-aligned mapping of the executable program file.
 		; Now we clear the .bss part of the last page of .data.
 		; 386BSD 1.0 and some early Linux kernels put junk there if
 		; there is junk at the end of the ELF-32 executable program
@@ -980,6 +1027,9 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
   ; TOSO(pts): Size optimization: Don't generate the return value porcessing if the program uses only exit(...).
   %if COFF+S386BSD
 		call 7:dword 0  ; SysV syscall.
+		jnc short .ret
+  %elif V7X86
+		int 0x30  ; v7x86 syscall.
 		jnc short .ret
   %elif ELF
 		mov cl, [__oscompat]
@@ -1119,7 +1169,12 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
     ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
-		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8.
+		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
+  %elif V7X86
+    ISATTY_TERMIOS_SIZE equ 8  ; sizeof(struct agttyb) == 8 on V7X86.
+		sub esp, byte ISATTY_TERMIOS_SIZE
+		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push strict dword IOCTL_v7x86.TIOCGETP  ; Alternatively, we could use IOCTL_v7x86.TIOCGETD with the smaller sizeof(int) == 3.
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -1169,7 +1224,12 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
     ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
-		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8.
+		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
+  %elif V7X86
+    ISATTY_TERMIOS_SIZE equ 8  ; sizeof(struct agttyb) == 8 on V7X86.
+		sub esp, byte ISATTY_TERMIOS_SIZE
+		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push strict dword IOCTL_v7x86.TIOCGETP  ; Alternatively, we could use IOCTL_v7x86.TIOCGETD with the smaller sizeof(int) == 3.
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE

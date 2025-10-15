@@ -9,6 +9,8 @@
 *.coff
 # 386BSD 1.0 executable program.
 *.3b
+# Minix 2.x i386 executable program.
+*.m23
 *.c.[0-9]*
 *.nasm.[0-9]*
 /un[0-9].c

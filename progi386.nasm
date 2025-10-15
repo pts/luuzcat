@@ -26,6 +26,8 @@
 ;   [ibcs-us](https://ibcs-us.sourceforge.io/) running on Linux i386.
 ; * prog.3b (-DS386BSD):
 ;   386BSD >=1.0 (tested on 386BSD 1.0 (1994-10-27)).
+; * prog.m23 (-DMINIX2I386):
+;   Minix 2.x i386 (tested on Minix 2.0.4 (2003-11-09)).
 ;
 ; These programs don't run on Xenix, SunOS 4.0.x, macOS (except in Docker),
 ; DOS or Win32 (except in Docker or WSL) or 386BSD.
@@ -53,10 +55,15 @@
 %else
   %define S386BSD 0
 %endif
-%if COFF+ELF+S386BSD==0
+%ifdef MINIX2I386
+  %define MINIX2I386 1
+%else
+  %define MINIX2I386 0
+%endif
+%if COFF+ELF+S386BSD+MINIX2I386==0
   %define ELF 1  ; Default.
 %endif
-%if COFF+ELF+S386BSD>1
+%if COFF+ELF+S386BSD+MINIX2I386>1
   %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED
   times -1 nop
 %endif
@@ -251,9 +258,9 @@ cpu 386
     section .header align=1 valign=1 start=0 vstart=0
     section .text align=0x1000 valign=0x1000 start=0x1000 vstart=0
     _text_start:
-    section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Same PT_LOAD as .text.
+    section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Grouped together with .text.
     _rodatastr_start:
-    section .rodata align=1 valign=1 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text. The actual alinment is 4, but we specify align=1 so that .data.una can be unaligned if .rodata is empty.
+    section .rodata align=1 valign=1 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Grouped together .text.
     _rodata_start:
     section .data align=0x1000 valign=0x1000 follows=.rodata vfollows=.rodata
     _data_start:
@@ -269,6 +276,48 @@ cpu 386
     .a_entry:	dd _start  ; Entry point.
     .a_trsize:	dd 0  ; Text relocation size.
     .a_drsize:	dd 0  ; Data relocation size.
+    section .text
+  %endif
+  %if MINIX2I386
+    %ifndef MINIX2I386_STACK
+      %define MINIX2I386_STACK 0x4000  ; 16 KiB. Minix i386 programs (such as cat(1)) use this value.
+    %endif
+    %if MINIX2I386_STACK<0x1000  ; Must include argv and environ strings.
+      %define MINIX2I386_STACK 0x1000
+    %endif
+    section .header align=1 valign=1 start=0 vstart=0
+    section .text align=1 valign=1 follows=.header vstart=0
+    _text_start:
+    ; It would be more traditional to group .rodata.str and .rodata together
+    ; with .text (rather than .data), just like Linux does it, but that
+    ; wouldn't work, because for that we'd have to generate the `cs;' prefix
+    ; in assembly instructions reading data from .rodata. That's because in
+    ; Minix, CS can be used to access a_text only (no a_data), and DS and ES
+    ; can be used to access a_data only (no a_text), and offsets reset to 0
+    ; at the beginning of a_text. This is not the flat memory model!
+    section .rodata.str align=1 valign=1 follows=.text vstart=0  ; CONST.
+    _rodatastr_start:
+    section .rodata align=1 valign=1 follows=.rodata.str vfollows=.rodata.str  ; CONST2.
+    _rodata_start:
+    section .data align=1 valign=1 follows=.rodata vfollows=.rodata
+    _data_start:
+    section .bss align=4 follows=.data nobits
+    _bss_start:
+    section .header
+    MINIX2I386_exec:  ; `struct exec' in usr/include/a.out.h
+    .a_magic: db 1, 3  ; Signature (magic number).
+    .a_flags: db 0x20  ; A_SEP == 0x20. Flags.
+    .a_cpu: db 0x10  ; CPU ID.
+    .a_hdrlen: db .size  ; Length of header.
+    .a_unused: db 0  ; Reserved for future use.
+    .a_version: dw 0  ; Version stamp (unused by Minix).
+    .a_text: dd _text_size  ; Size of text segement in bytes.
+    .a_data: dd _rodatastr_size+_rodata_size+_data_size  ; Size of data segment in bytes.
+    .a_bss: dd _bss_size  ; Size of bss segment in bytes.
+    .a_entry: dd _start  ; Entry point.
+    .a_total: dd _data_size+_bss_size+MINIX2I386_STACK  ; Total memory allocated for a_data, a_bss and stack, including argv and environ strings.
+    .a_syms: dd 0  ; Size of symbol table.
+    .size: equ $-MINIX2I386_exec
     section .text
   %endif
 
@@ -320,31 +369,41 @@ cpu 386
     %endif
     %if S386BSD
       %if $-$$==0
-        db 0  ; Workaround to avoid an empty .data, which would prevent 386BSd 1.0 from loading the program.
+        db 0  ; Workaround to avoid an empty .data, which would prevent 386BSD 1.0 from loading the program.
       %endif
     %endif
     %if ELF
       %if (_datauna_endu-_datauna_start)+($-$$)==0
-        dd 0  ; Workaround to avoid an empty .data, which would cause ibcs-us 4.1.6 to segfault.
+        dd 0  ; Workaround to avoid an empty .data, which would cause ibcs-us 4.1.6 to segfault. !!! Isn't a db enough here?
       %endif
     %endif
     _data_endu:
     section .text
 
-    %if ELF==0  ; COFF and S386BSD.
+    %if MINIX2I386
+      %if _data_endu==_data_start && _rodata_endu==_rodata_start  ; Both .rodata and .data are empty.
+        _rodatastr_endalign equ 0  ; For S386BSD this wouldn't make a difference because of the page-alignment of nonempty data. For compatibility, we make everything a multiple of 4 in COFF.
+      %else
+        _rodatastr_endalign equ (-(_rodatastr_endu-_rodatastr_start))&3
+      %endif
+      %if _data_endu==_data_start  ; For S386BSD this wouldn't make a difference because of the page-alignment of nonempty data. For compatibility, we make everything a multiple of 4 in COFF.
+        _rodata_endalign equ 0
+      %else
+        _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
+      %endif
+    %elif COFF+S386BSD
       _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
       _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
-    %elif _rodata_endu-_rodata_start  ; .rodata is not empty.
+    %elif _rodata_endu-_rodata_start  ; ELF, .rodata is not empty.
       _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
       _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
-      _datauna_endalign equ (-(_datauna_endu-_datauna_start))&3
-    %else
+      _datauna_endalign equ (-(_datauna_endu-_datauna_start))&3  ; !!! Should we have 0 instead here if .data is empty?
+    %else  ; ELF, .rodata is empty.
       _rodatastr_endalign equ 0
       _rodata_endalign equ 0
-      _datauna_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start)-(_datauna_endu-_datauna_start))&3
+      _datauna_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start)-(_datauna_endu-_datauna_start))&3  ; !!! Should we have 0 instead here if .data is empty?
     %endif
     _data_endalign equ (-(_data_endu-_data_start))&3
-
     section .text
     _text_end:
     _text_size equ $-$$
@@ -365,7 +424,7 @@ cpu 386
       _datauna_size equ 0
     %endif
     section .data
-    %if S386BSD
+    %if S386BSD+MINIX2I386
       _data_endalign_extra equ _data_endalign
     %else
       _data_endalign_extra equ 0
@@ -389,12 +448,12 @@ cpu 386
     _rodata_fofs equ _rodatastr_fofs+_rodatastr_size
     _datauna_fofs equ _rodata_fofs+_rodata_size
     _data_fofs equ _datauna_fofs+_datauna_size
-    %if _data_fofs&3
+    %if MINIX2I386==0 && (_data_fofs&3)
       %error ERROR_DATA_NOT_DWORD_ALIGNED
       times -1 nop
     %endif
     _data_end_fofs equ _data_fofs+_data_size+_data_endalign_extra
-    %if _data_end_fofs&3
+    %if (_data_end_fofs-_data_fofs)&3
       %error ERROR_BSS_NOT_DWORD_ALIGNED
       times -1 nop
     %endif
@@ -562,7 +621,13 @@ SYS:  ; Linux i386, FreeBSD i386, SysV SVR3 i386, SysV SVR4 i386, 386BSD syscall
 .exit equ 1
 .read equ 3
 .write equ 4
-.ioctl equ 54  ; Linux i386, FreeBSD i386, SysV SVR3 i386, SysV SVR4 i386, 386BSD, Minix 2.0 i386 (in FS).
+.ioctl equ 54  ; Linux i386, FreeBSD i386, SysV SVR3 i386, SysV SVR4 i386, 386BSD, Minix 2.x i386 (in FS).
+
+%if MINIX2I386
+MINIX_WHO:  ; include/lib.h . Minix syscall ``who'' subsystems.
+.MM equ 0
+.FS equ 1
+%endif
 
 IOCTL_Linux:  ; Linux i386.
 .TCGETS         equ 0x5401  ; sizeof(struct termios) == 36 == 0x24. isatty(3) in minilibc686, uClibc and dietlibc use TCGETS.
@@ -789,7 +854,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop eax
 		mov [__oscompat], al
 %endif  ; Of %if ELF
-%if ELF+S386BSD
+%if ELF+S386BSD  ; Not needed for COFF and MINIX2I386, because they don't do page-aligned mapping of the executable program file.
 		; Now we clear the .bss part of the last page of .data.
 		; 386BSD 1.0 and some early Linux kernels put junk there if
 		; there is junk at the end of the ELF-32 executable program
@@ -843,33 +908,63 @@ global __exit
 __exit:  ; __noreturn void __cdecl _exit(int exit_code);
 global _exit
 _exit:  ; __noreturn void __cdecl exit(int exit_code);
+%if MINIX2I386
+		push ebx  ; Save.
+		sub esp, byte 36-3*4  ; Message struct.
+		push dword [esp+36-3*4+2*4]  ; .m1_i1, at offset 8 of the struct. Set it to exit_code.
+		push byte SYS.exit  ; .m_type, at offset 4 of the struct.
+		push byte MINIX_WHO.MM  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
+		mov ebx, esp
+		; Fall through to minix_syscall_cont.
+%else
 		push byte SYS.exit
 		; Fall through to simple_syscall3_pop
+%endif
 
-; Calls a single systcall of 0, 1, 2 or 3. arguments.
-;
-; Input stack: dword [esp]: syscall number (SYS....); dword [esp+4]: return
-; address; dword [esp+2*4] syscall argument 1; dword [esp+3*4] syscall
-; argument 2; dword [esp+4*4] syscall argument 3.
-;
-; Output: EAX is -1 on error, otherwise EAX contains the result. The syscall
-; number and the return address have been popped from the stack, the caller
-; is responsible for cleaning up the rest.
-simple_syscall3_pop:
+%if MINIX2I386
+  minix_syscall_cont:
+		pop eax  ; MINIX_WHO.FS or MINIX_WHO.MM.
+		push eax  ; Put it back to .m_source, at offset 0. We do it just to manage the balance of the stack.
+		push byte 3  ; sendrec.
+		pop ecx
+		int 0x21  ; Minix 2.x i386 syscall. Inputs: EAX, EBX and ECX; returns EAX.
+		pop ecx  ; Discard .m_source, at offset 0.
+		pop ecx  ; ECX := .m_type, at offset 4. Also discards it.
+		add esp, byte 36-2*4  ; Clean up message struct from stack.
+		pop ebx  ; Restore.
+		test eax, eax
+		jnz short .have_status_tested
+		or eax, ecx  ; EAX := ECX. Also sets SF for `jns' below.
+  .have_status_tested:
+		jns short .ret
+		; Now we could get errno from the negative of EAX.
+		; Fall through to .error.
+%else
+  ; Calls a single systcall of 0, 1, 2 or 3. arguments.
+  ;
+  ; Input stack: dword [esp]: syscall number (SYS....); dword [esp+4]: return
+  ; address; dword [esp+2*4] syscall argument 1; dword [esp+3*4] syscall
+  ; argument 2; dword [esp+4*4] syscall argument 3.
+  ;
+  ; Output: EAX is -1 on error, otherwise EAX contains the result. The syscall
+  ; number and the return address have been popped from the stack, the caller
+  ; is responsible for cleaning up the rest.
+  simple_syscall3_pop:
 		pop eax
 		; Fall through to simple_syscall3_eax.
 
-simple_syscall3_eax:
-%if COFF+S386BSD
+  simple_syscall3_eax:
+  ; TOSO(pts): Size optimization: Don't generate the return value porcessing if the program uses only exit(...).
+  %if COFF+S386BSD
 		call 7:dword 0  ; SysV syscall.
 		jnc short .ret
-%elif ELF
+  %elif ELF
 		mov cl, [__oscompat]
 		cmp cl, OSCOMPAT.SYSV
 		je short .sysv
 		test cl, cl  ; OSCOMPAT.LINUX.
 		jnz short .freenetbsd  ; OSCOMPAT.FREENETBSD.
-  .linux:
+    .linux:
 		push ebx  ; Save.
 		mov ebx, [esp+2*4]  ; Syscall argument 1.
 		mov ecx, [esp+3*4]  ; Syscall argument 2.
@@ -879,23 +974,24 @@ simple_syscall3_eax:
 		test eax, eax
 		jns short .ret
 		jmp short .error
-  .sysv:
+    .sysv:
 		call 7:dword 0  ; SysV i386 syscall.
 		dw 0xb966  ; `mov cx, ...' to skip over the `int 0x80' below.
-  .freenetbsd:
+    .freenetbsd:
 		int 0x80  ; FreeBSD i386 syscall.
-  %if $-.freenetbsd!=2
-    %error ERROR_SKIP_FREEBSD_MUST_BE_2_BYTES  ; For the `dw 0xb966' above.
+    %if $-.freenetbsd!=2
+      %error ERROR_SKIP_FREEBSD_MUST_BE_2_BYTES  ; For the `dw 0xb966' above.
+      times -1 nop
+    %endif
+    .after_syscall:
+                  jnc short .ret
+  %else
+    %error ERROR_MISSING_SYSCALL_WRAPPER
     times -1 nop
   %endif
-  .after_syscall:
-		jnc short .ret
-%else
-  %error ERROR_MISSING_SYSCALL_WRAPPER
-  times -1 nop
 %endif
 .error:
-		;neg eax  ; Negation needed only for Linux.
+		;neg eax  ; Negation needed only for Linux and Minix 2.x.
 		;mov [errno], eax  ; errno is unused in this program.
 		or eax, byte -1  ; Return -1 to indicate error.
 .ret:
@@ -908,23 +1004,73 @@ simple_syscall3_eax:
 ; --- Syscall wrappers (except for SYS.exit, which has been done above).
 
 %ifdef __NEED__write
-global _write
-_write:  ; int __cdecl write(int fd, const void *buf, unsigned count);
+  global _write
+  _write:  ; int __cdecl write(int fd, const void *buf, unsigned count);
+  %if MINIX2I386
+		push ebx  ; Save.
+		sub esp, byte 36-2*4  ; Message struct.
+		push byte SYS.write
+    .common:
+		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
+		mov ebx, esp
+		mov eax, [ebx+36+2*4]  ; fd.
+		mov [ebx+8], eax  ; .m1_i1.
+		mov eax, [ebx+36+3*4]  ; buf.
+		mov [ebx+20], eax  ; .m1_p1.
+		mov eax, [ebx+36+4*4]  ; count.
+		mov [ebx+12], eax  ; ; .m1_i2.
+		jmp short minix_syscall_cont
+  %else
 		push byte SYS.write
 		jmp short simple_syscall3_pop
+  %endif
 %endif
 
 %ifdef __NEED__read
-_read:  ; int __cdecl read(int fd, void *buf, unsigned count);
+  global _read
+  _read:  ; int __cdecl read(int fd, void *buf, unsigned count);
+  %if MINIX2I386
+		push ebx  ; Save.
+		sub esp, byte 36-2*4  ; Message struct.
+		push byte SYS.read  ; .m_type, at offset 4 of the struct.
+    %ifdef __NEED__write
+		jmp short _write.common
+    %else
+		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
+		mov ebx, esp
+		mov eax, [ebx+36+2*4]  ; fd.
+		mov [ebx+8], eax  ; .m1_i1.
+		mov eax, [ebx+36+3*4]  ; buf.
+		mov [ebx+20], eax  ; .m1_p1.
+		mov eax, [ebx+36+4*4]  ; count.
+		mov [ebx+12], eax  ; ; .m1_i2.
+		jmp short minix_syscall_cont
+    %endif
+  %else
 		push byte SYS.read
 		jmp short simple_syscall3_pop
+  %endif
 %endif
 
 %ifdef __NEED__ioctl_wrapper
-;global _ioctl_wrapper  ; Not exporting it, bacause the `request' and `arg' is not system-independent.
-_ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
+  ;global _ioctl_wrapper  ; Not exporting it, bacause the `request' and `arg' is not system-independent.
+  _ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
+  %if MINIX2I386
+		push ebx  ; Save.
+		sub esp, byte 36-5*4  ; Message struct.
+		push dword [esp+36-5*4+3*4]  ; .m2_i3, at offset 16 of the struct (TTY_REQUEST == COUNT == m2_i3 == m_u.m_m2.m2i3 == 16). Set it to request.
+		push eax  ; Put dummy value at offset 12 of the struct.
+		push dword [esp+36-3*4+2*4]  ; .m2_i1, at offset 8 of the struct (TTY_LINE == DEVICE == m2_i1 == m_u.m_m2.m2i1 == 8). Set it to fd.
+		push byte SYS.ioctl  ; .m_type, at offset 4 of the struct.
+		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
+		mov ebx, esp
+		mov eax, [ebx+36+4*4]  ; arg.
+		mov [ebx+28], eax  ; .m2_p1, at offset 28 of the struct (ADDRESS == m2_p1 == m_u.m_m2.m2p1 == 28).
+		jmp short minix_syscall_cont
+  %else
 		push byte SYS.ioctl
 		jmp short simple_syscall3_pop
+  %endif
 %endif
 
 ; By adding and using the __watcall counterpart for simple_syscall3_pop
@@ -934,8 +1080,8 @@ _ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void
 ; --- System-specific libc functions.
 
 %ifdef __NEED__isatty
-global _isatty
-_isatty:  ; int __cdecl isatty(int fd);
+  global _isatty
+  _isatty:  ; int __cdecl isatty(int fd);
   %if COFF
     ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2 (we round it up to 20, to dword bounadry).
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -946,6 +1092,11 @@ _isatty:  ; int __cdecl isatty(int fd);
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_386BSD.TIOCGETA
+  %elif MINIX2I386
+    ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386.
+		sub esp, byte ISATTY_TERMIOS_SIZE
+		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8.
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -977,8 +1128,8 @@ _isatty:  ; int __cdecl isatty(int fd);
 %endif
 
 %ifdef __NEED_isatty_
-global isatty_
-isatty_:  ; int __watcall isatty(int fd);
+  global isatty_
+  isatty_:  ; int __watcall isatty(int fd);
 		push ecx  ; Save.
 		push edx  ; Save.
   %if COFF
@@ -991,6 +1142,11 @@ isatty_:  ; int __watcall isatty(int fd);
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_386BSD.TIOCGETA
+  %elif MINIX2I386
+    ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386.
+		sub esp, byte ISATTY_TERMIOS_SIZE
+		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8.
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE

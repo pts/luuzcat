@@ -29,15 +29,15 @@ main_:
 		call isatty_  ; isatty(STDIN_FILENO).
 		ret  ; exit(1) if stdin is a TTY, 0 otherwise.
 
-f_section_CONST
-;f_section__DATA_UNA
-;f_section_CONST2
+f_section CONST
+;f_section _DATA_UNA
+;f_section CONST2
 msg:
 		db 'Hello, World!', 10
 .size equ $-msg
 		;times ($$-$)&3 db '_'  ; Alingment padding to avoid NULs.
 
-f_section__BSS
+f_section _BSS
 bssvar:
 		resb 4
 

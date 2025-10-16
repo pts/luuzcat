@@ -354,21 +354,21 @@ cpu 386
     section .text
   %endif
 
-  %macro f_section__TEXT 0
+  %macro prog_section__TEXT 0
     section .text
   %endm
-  %macro f_section_CONST 0
+  %macro prog_section_CONST 0
     section .rodata.str
   %endm
-  %macro f_section_CONST2 0
+  %macro prog_section_CONST2 0
     section .rodata
     times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
-  %macro f_section__DATA 0  ; !! Create and use 1-argument macro so NASM can catch syntax errors as an error (rather than a warning for label-only lines).
+  %macro prog_section__DATA 0
     section .data
     times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
-  %macro f_section__DATA_UNA 0  ; Like _DATA, but unaligned.
+  %macro prog_section__DATA_UNA 0  ; Like _DATA, but unaligned.
     %if ELF
       section .data.una
     %else
@@ -376,7 +376,7 @@ cpu 386
       times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
     %endif
   %endm
-  %macro f_section__BSS 0
+  %macro prog_section__BSS 0
     section .bss
     resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
@@ -557,35 +557,35 @@ cpu 386
   extern _end
   %define _bss_end _end  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _end.
 
-  %macro f_section__TEXT 0
+  %macro prog_section__TEXT 0
     section _TEXT
   %endm
-  %macro f_section_CONST 0
+  %macro prog_section_CONST 0
     section _CONST
   %endm
-  %macro f_section_CONST2 0
+  %macro prog_section_CONST2 0
     times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
     section _CONST2
   %endm
-  %macro f_section__DATA 0
+  %macro prog_section__DATA 0
     times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
     section _DATA
   %endm
-  %macro f_section__DATA_UNA 0
+  %macro prog_section__DATA_UNA 0
     section _DATA
   %endm
-  %macro f_section__BSS 0
+  %macro prog_section__BSS 0
     section _BSS
     resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
   %macro f_end 0
     %if ELF && IS_OSCOMPAT_ADDED==0
-      f_section__BSS
+      prog_section__BSS
       %define IS_OSCOMPAT_ADDED 1
       global __oscompat
       __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
     %endif
-    f_section__TEXT
+    prog_section__TEXT
   %endm
 %elifidn __OUTPUT_FORMAT__, elf  ; Untested. Output of NASM will be sent to a linker: OpenWatcom wlink(1) or GNU ld(1).
   %if ELF==0
@@ -601,42 +601,61 @@ cpu 386
   extern _edata
   %define _bss_start _edata  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _edata.
 
-  %macro f_section__TEXT 0
+  %macro prog_section__TEXT 0
     section .text
   %endm
-  %macro f_section_CONST 0
+  %macro prog_section_CONST 0
     section .rodata.str
   %endm
-  %macro f_section_CONST2 0
+  %macro prog_section_CONST2 0
     section .rodata
     times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
-  %macro f_section__DATA 0
+  %macro prog_section__DATA 0
     section .data
     times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
-  %macro f_section__DATA_UNA 0
+  %macro prog_section__DATA_UNA 0
     section .data
   %endm
-  %macro f_section__BSS
+  %macro prog_section__BSS
     section .bss
     resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
   %endm
   %macro f_end 0
     %if ELF && IS_OSCOMPAT_ADDED==0
-      f_section__BSS
+      prog_section__BSS
       %define IS_OSCOMPAT_ADDED 1
       global __oscompat
       __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
     %endif
-    f_section__TEXT
+    prog_section__TEXT
   %endm
 %else
   %error ERROR_UNSUPPORTED_OUTPUT_FORMAT __OUTPUT_FORMAT__
   times -1 nop
 %endif
 %define IS_OSCOMPAT_ADDED 0
-f_section__TEXT
+%define HAVE_SECTION
+%define HAVE_SECTION__TEXT
+%define HAVE_SECTION_CONST
+%define HAVE_SECTION_CONST2
+%define HAVE_SECTION__DATA
+%define HAVE_SECTION__DATA_UNA
+%define HAVE_SECTION__BSS
+; `f_section _TEXT' is safer against typos in the NASM code than
+; `prog_section__TEXT', because NASM silently ignores the latter (or just
+; displays a warning with `nasm -w+orphan-labels') if there is a typo in
+; `_TEXT'.
+%macro f_section 1
+  %ifdef HAVE_SECTION_%1
+    prog_section_%1
+  %else
+    %error ERROR_UNKNOWN_SECTION_%1
+    times -1 nop
+  %endif
+%endm
+prog_section__TEXT
 
 ; --- Including the program source files.
 ;
@@ -662,7 +681,7 @@ f_section__TEXT
     %rotate 1
   %endrep
 %endmacro
-f_section__TEXT
+prog_section__TEXT
 _do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
 %macro libc_declare 1
   %ifdef __NEED_G@%1
@@ -832,7 +851,7 @@ IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
   .FREENETBSD equ 2  ; (All ELF.) FreeBSD or NetBSD i386. !! Will it work on OpenBSD (probably not, needs extra sections to describe syscall addresses) or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
 %endif
 
-f_section__TEXT
+prog_section__TEXT
 
 ; --- Program entry point (_start), system autodetection and exit.
 

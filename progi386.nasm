@@ -31,14 +31,14 @@
 ; * prog.v7x (-DV7X86):
 ;   [v7x86](https://www.nordier.com/) (tested on v7x86 0.8a (2007-10-04)).
 ;
-; These programs don't run on Xenix, SunOS 4.0.x, macOS (except in Docker),
-; DOS or Win32 (except in Docker or WSL) or 386BSD.
+; These programs don't run on Xenix 2.2 (but the COFF variant runs on Xenix
+; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
+; Docker or WSL).
 ;
-; !! Which version of Xenix/386 can run these iBCS2 COFF programs?
-; !! Add binary release for older Xenix/386.
+; !! Add x.out binary release for older Xenix/386 (e.g. 2.2.2c).
 ; !! Test on FreeBSD 3.5 (1995-05-28).
 ; !! For FreeBSD, try alternative of ELF_OSABI.FreeBSD (i.e. at EI_ABIVERSION == EI_BRAND == 8). NetBSD 10.1 also allows it.
-; !! Test on 386BSD 0.0 (1992-03-17), 386BSD 0.1 (1992-07-14).
+; !! Test on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
 ;
 

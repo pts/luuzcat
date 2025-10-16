@@ -664,8 +664,37 @@ f_section__TEXT
 %endmacro
 f_section__TEXT
 _do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
+%macro libc_declare 1
+  %ifdef __NEED_G@%1
+    %define __NEED_%1
+  %endif
+%endm
+%macro libc_export 0+  ; Usage: myfunc: libc_export 'int myfunc(void);'
+  global G@%00
+  G@%00:  ; Do this first, so that the .sub labels inherit from those without G@.
+  global %00  ; Use the label in front of the macro.
+  %00:
+%endm
 
 ; --- Function dependency analysis.
+
+; For each `%ifdef __NEED_...' below, we need `libc_declare ...' here.
+libc_declare _cstart_
+libc_declare __argc
+libc_declare exit_
+libc_declare _exit
+libc_declare _exit_
+libc_declare __exit
+libc_declare _read
+libc_declare _write
+libc_declare _isatty
+libc_declare isatty_
+libc_declare _strlen
+libc_declare strlen_
+libc_declare _memset
+libc_declare memset_
+libc_declare _memcpy
+libc_declare memcpy_
 
 %ifdef __NEED__isatty
   %define __NEED__ioctl_wrapper
@@ -807,12 +836,11 @@ f_section__TEXT
 
 ; --- Program entry point (_start), system autodetection and exit.
 
-%ifdef __NEED__cstart_
-  global _cstart_  ; If there is a main function, the OpenWatcom C compiler generates this symbol.
-  _cstart_:
+%ifdef __NEED__cstart_  ; If there is a main function, the OpenWatcom C compiler generates this symbol.
+  _cstart_: libc_export '__noreturn __no_return_address void __cdecl cstart_(int argc, ...);'
 %endif
 ; Program entry point.
-global _start
+global _start  ; This is a libc implementation detail, we only but still making it global to aid debugging.
 _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		; Now the stack looks like (from top to bottom):
 		;   dword [esp]: argc
@@ -941,6 +969,18 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop eax
 		mov [__oscompat], al  ; We must do this after the clearing of the first page of .bss above.
 %endif
+%ifndef __GLOBAL__main
+  %ifdef __GLOBAL_G@_main
+    %define __GLOBAL__main
+    _main: equ G@_main
+  %endif
+%endif
+%ifndef __GLOBAL_main_
+  %ifdef __GLOBAL_G@main_
+    %define __GLOBAL_main_
+    main_: equ G@main_
+  %endif
+%endif
 %ifdef __NEED___argc
 		pop eax  ; EAX := argc.
 		mov edx, esp  ; EDX := argv.
@@ -966,18 +1006,14 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 		; Fall through to __watcall _exit(...). We already have the return value of main(...) in EAX.
 
-global _exit_
-_exit_:  ; __noreturn void __watcall _exit(int exit_code);
-global exit_
-exit_:  ; __noreturn void __watcall exit(int exit_code);
+_exit_: libc_export '__noreturn void __watcall _exit(int exit_code);'
+exit_:  libc_export '__noreturn void __watcall  exit(int exit_code);'
 		push eax  ; exit_code argument of __cdecl _exit(...) below.
 		push eax  ; Fake return address.
 		; Fall through to __cdecl  _exit(...).
 
-global __exit
-__exit:  ; __noreturn void __cdecl _exit(int exit_code);
-global _exit
-_exit:  ; __noreturn void __cdecl exit(int exit_code);
+__exit: libc_export '__noreturn void __cdecl _exit(int exit_code);'
+_exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 %if MINIX2I386
 		push ebx  ; Save.
 		sub esp, byte 36-3*4  ; Message struct.
@@ -1069,16 +1105,14 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 		or eax, byte -1  ; Return -1 to indicate error.
 .ret:
 %ifdef __NEED___argc
-  global __argc  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this symbol.
-  __argc:
+  __argc: libc_export ''  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this symbol.
 %endif
 		ret
 
 ; --- Syscall wrappers (except for SYS.exit, which has been done above).
 
 %ifdef __NEED__write
-  global _write
-  _write:  ; int __cdecl write(int fd, const void *buf, unsigned count);
+  _write: libc_export 'int __cdecl write(int fd, const void *buf, unsigned count);'
   %if MINIX2I386
 		push ebx  ; Save.
 		sub esp, byte 36-2*4  ; Message struct.
@@ -1100,8 +1134,7 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 %endif
 
 %ifdef __NEED__read
-  global _read
-  _read:  ; int __cdecl read(int fd, void *buf, unsigned count);
+  _read: libc_export 'int __cdecl read(int fd, void *buf, unsigned count);'
   %if MINIX2I386
 		push ebx  ; Save.
 		sub esp, byte 36-2*4  ; Message struct.
@@ -1126,7 +1159,7 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 %endif
 
 %ifdef __NEED__ioctl_wrapper
-  global _ioctl_wrapper  ; The `request' and `arg' is not system-independent, but still exporting it to aid debugging.
+  global _ioctl_wrapper  ; The `request' and `arg' is not system-independent, but still making it global to aid debugging.
   _ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
   %if MINIX2I386
 		push ebx  ; Save.
@@ -1153,8 +1186,7 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 ; --- System-specific libc functions.
 
 %ifdef __NEED__isatty
-  global _isatty
-  _isatty:  ; int __cdecl isatty(int fd);
+  _isatty: libc_export 'int __cdecl isatty(int fd);'
   %if COFF
     ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2 (we round it up to 20, to dword bounadry).
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -1206,8 +1238,7 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 %endif
 
 %ifdef __NEED_isatty_
-  global isatty_
-  isatty_:  ; int __watcall isatty(int fd);
+  isatty_: libc_export 'int __watcall isatty(int fd);'
 		push ecx  ; Save.
 		push edx  ; Save.
   %if COFF
@@ -1263,10 +1294,9 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 %endif
 
 ; --- System-independent libc functions.
-;
-%ifdef __NEED__strlen
-  global _strlen  ; Longer code than strlen_.
-  _strlen:  ; size_t __cdecl strlen(const char *s);
+
+%ifdef __NEED__strlen  ; Longer code than strlen_.
+  _strlen: libc_export 'size_t __cdecl strlen(const char *s);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
 		xor eax, eax
@@ -1280,9 +1310,7 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 %endif
 
 %ifdef __NEED_strlen_
-  global strlen_
-  strlen_:  ; size_t __watcall strlen(const char *s);
-  ; unsigned int __cdecl strlen(const char *s);
+  strlen_: libc_export 'size_t __watcall strlen(const char *s);'
 		push edi  ; Save.
 		xchg edi, eax  ; EDI := argument s; EAX : = junk.
 		xor eax, eax
@@ -1295,9 +1323,8 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 		ret
 %endif
 
-%ifdef __NEED__memset
-  global _memset  ; Longer code than memset_.
-  _memset:  ; void * __cdecl memset(void *s, int c, size_t n);
+%ifdef __NEED__memset  ; Longer code than memset_.
+  _memset: libc_export 'void * __cdecl memset(void *s, int c, size_t n);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
 		mov al, [esp+0xc]  ; Argument c.
@@ -1310,8 +1337,7 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 %endif
 
 %ifdef __NEED_memset_
-  global memset_
-  memset_:  ; void * __watcall memset(void *s, int c, size_t n);
+  memset_: libc_export 'void * __watcall memset(void *s, int c, size_t n);'
 		push edi  ; Save.
 		xchg edi, eax  ; EDI := EAX (argument s); EAX := junk.
 		xchg eax, edx  ; EAX := EDX (argument c); EDX := junk.
@@ -1324,9 +1350,8 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 		ret
 %endif
 
-%ifdef __NEED__memcpy
-  global _memcpy  ; Longer code than memcpy_.
-  _memcpy:  ; void * __cdecl memcpy(void *dest, const void *src, size_t n);
+%ifdef __NEED__memcpy  ; Longer code than memcpy_.
+  _memcpy: libc_export 'void * __cdecl memcpy(void *dest, const void *src, size_t n);'
 		push edi
 		push esi
 		mov ecx, [esp+0x14]
@@ -1341,8 +1366,7 @@ _exit:  ; __noreturn void __cdecl exit(int exit_code);
 %endif
 
 %ifdef __NEED_memcpy_
-  global memcpy_
-  memcpy_:  ; void * __watcall memcpy(void *dest, const void *src, size_t n);
+  memcpy_: libc_export 'void * __watcall memcpy(void *dest, const void *src, size_t n);'
 		push edi
 		xchg esi, edx
 		xchg edi, eax  ; EDI := dest; EAX := junk.

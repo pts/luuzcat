@@ -7,13 +7,21 @@
 #
 
 BEGIN { $^W = 1 }
-use integer; use strict;
-my $fi = int($ARGV[0]); die("bad fi: $fi\n") if !$fi;
+use integer;
+use strict;
+my $fi = int($ARGV[0]); die("fatal: bad or missing file index argument: $fi\n") if !$fi;  # File index.
 my $ofs;
 my %globals;  # Symbol names to be prefixed with "G\@".
-# !! TODO(pts): Also convert the local synmbols to have @ in their name.
+my %locals;  # Explicitly defined symbol names (e.g. for C static globals) to be prefixed with "L\@$fi\@".
+my @lines;
 while (<STDIN>) {
   chomp;
+  die("fatal: unexpected characters in WASM line: $_\n") if y@\x00-\x08\x0a-\x1f\x7f-\xff\x27"~`\\;!^=\#%&/|<>?(){}@@ and  # Allow "\@\$digit".
+      !m@^(?:_TEXT|CONST2?|_DATA|_BSS|YI[BE]?)\s+SEGMENT\t@;  # Allow 'CODE' etc. in segment declaration.
+  $locals{$1} = 1 if m@^([_a-zA-Z]\w*)(?::|\s+LABEL\s)@;
+  push @lines, $_;
+}
+for $_ (@lines) {
   if (s@^\t(?!\t)@@) {  # Assembly instructions in _TEXT.
     die("bad quote: $_\n") if m@["\x27]@;
     s@\s+@ @g; s@\bFLAT:@@g; s@\@\$(\d+)\b@L\x40$fi\x40$1@g; s@,(?! )@, @g;
@@ -21,8 +29,9 @@ while (<STDIN>) {
     s@\b(byte|d?word) ptr (\[[^\\[\]]*?\])@\U$1\E $2@g;
     s@\boffset @@g;
     if (m@^(CALL|JMP) near ptr (L\@\d+\@\d+|[_a-zA-Z]\w*)$@) { $_ = "$1 $2" }
-    s@\b([_a-zA-Z]\w*)(?!\@)@ exists($globals{$1}) ? "G\x40$1" : $1 @ge;
+    s@\b([_a-zA-Z]\w*)(?!\@)@ exists($globals{$1}) ? "G\x40$1" : exists($locals{$1}) ? "L\x40$fi\x40$1" : $1 @ge;
     #else { die("bad instruction: $_\n") }
+    die("fatal: unexpected characters in output line: $_\n") if y@\x27"~`\\;!^=#\$%&/|<>?(){}@@;
     print("\t\t", $_, "\n");
   } elsif (m@^\t\t@) {
     if (m@^\t\tPUBLIC\s+([_a-zA-Z]\w*)$@) { $globals{$1} = 1; print("f_global G\@$1\n") }
@@ -31,14 +40,16 @@ while (<STDIN>) {
     elsif ($_ eq "\t\tEND") {}
     else { die("bad: $_\n") }
   } else {
-    if (m@^([_a-zA-Z]\w*)(?::|\s+LABEL\s)@) { print(exists($globals{$1}) ? "G\@$1:\n" : "$1:\n") }
+    if (m@^([_a-zA-Z]\w*)(?::|\s+LABEL\s)@) { print(exists($globals{$1}) ? "G\@$1:\n" : exists($locals{$1}) ? "L\@$fi\@$1:\n" : "$1:\n") }
     elsif (m@^\@\$(\d+)(?::|\s+LABEL\s)@) { print("L\@$fi\@$1:\n") }
-    elsif (m@^    D[BWD]\s+@) { s@^\s+@\t\t@; die("bad quote: $_\n") if m@["\x27]@; if (s@\boffset (?:FLAT:)?@@g) { s@\@\$(\d+)\b@L\x40$fi\x40$1@g; s@\b([_a-zA-Z]\w*)(?!\@)@ exists($globals{$1}) ? "G\x40$1" : $1 @ge } print($_, "\n") }
+    elsif (m@^    D[BWD]\s+@) { s@^\s+@\t\t@; die("bad quote: $_\n") if m@["\x27]@; if (s@\boffset (?:FLAT:)?@@g) { s@\@\$(\d+)\b@L\x40$fi\x40$1@g; s@\b([_a-zA-Z]\w*)(?!\@)@ exists($globals{$1}) ? "G\x40$1" : exists($locals{$1}) ? "L\x40$fi\x40$1" : $1 @ge }
+        die("fatal: unexpected characters in output line: $_\n") if y@\x27"~`\\;!^=\#\$%&/|<>?(){}@@;
+        print($_, "\n") }
     elsif (m@^    ORG\s+(\d[\da-f]*)(H?)@) { die("bad ofs: $_\n") if !defined($ofs); my $oldofs = $ofs; $ofs = $2 ? hex($1) : int($1); print("\t\tresb $oldofs\n") if ($oldofs = $ofs - $oldofs) > 0; }
-    elsif (m@^DGROUP\s+GROUP\t@) {}
-    elsif (m@^(_TEXT|CONST2?|_DATA|_BSS)\s+SEGMENT\t@) { print("f_section_$1\n"); $ofs = 0 if $1 eq "_BSS" }
+    elsif (m@^DGROUP\s+GROUP\s@) {}
+    elsif (m@^(_TEXT|CONST2?|_DATA|_BSS)\s+SEGMENT\s@) { print("f_section_$1\n"); $ofs = 0 if $1 eq "_BSS" }
     elsif (m@^[_A-Z0-9]+\s+ENDS$@) { $ofs = undef }
-    elsif ($_ eq ".387" or $_ eq ".386p" or $_ eq ".model flat" or !length($_) or m@^YI[BE]?\s+SEGMENT\t@) {}
+    elsif ($_ eq ".387" or $_ eq ".386p" or $_ eq ".model flat" or !length($_) or m@^YI[BE]?\s+SEGMENT\s@) {}
     else { die("bad: $_\n") }
   }
 }

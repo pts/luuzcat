@@ -731,6 +731,8 @@ prog_section__TEXT
 %macro _do_includes 0-*
   %rep %0
     %ifnidn (%1), ()  ; This also does some of the `%define __NEED_...'.
+      cpu 386
+      bits 32
       %include %1
     %endif
     %rotate 1

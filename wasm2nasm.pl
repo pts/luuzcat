@@ -14,13 +14,19 @@ my $ofs;
 my %globals;  # Symbol names to be prefixed with "G\@".
 my %locals;  # Explicitly defined symbol names (e.g. for C static globals) to be prefixed with "L\@$fi\@".
 my @lines;
+my $cpu;
+my $bits = 16;
 while (<STDIN>) {
   chomp;
   die("fatal: unexpected characters in WASM line: $_\n") if y@\x00-\x08\x0a-\x1f\x7f-\xff\x27"~`\\;!^=\#%&/|<>?(){}@@ and  # Allow "\@\$digit".
       !m@^(?:_TEXT|CONST2?|_DATA|_BSS|YI[BE]?)\s+SEGMENT\t@;  # Allow 'CODE' etc. in segment declaration.
   $locals{$1} = 1 if m@^([_a-zA-Z]\w*)(?::|\s+LABEL\s)@;
+  $cpu = $1 + 0 if m@^[.]([1-6]86)@;
+  $bits = 32 if m@^_TEXT\s+SEGMENT[ \t]@ and m@[ \t]USE32\b@;
   push @lines, $_;
 }
+$cpu = ($bits == 32) ? 386 : 8086 if !defined($cpu);
+print("cpu $cpu\nbits $bits\n");
 for $_ (@lines) {
   if (s@^\t(?!\t)@@) {  # Assembly instructions in _TEXT.
     die("bad quote: $_\n") if m@["\x27]@;

@@ -165,6 +165,12 @@ chmod +x luuzcat.v7x
 # We can't run luuzcat.v7x on Linux i386 directly, so we just check for the file size.
 test -s luuzcat.v7x
 
+rm -f luuzcat.x63
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'" -DXV6I386                              -o luuzcat.x63   progi386.nasm
+chmod +x luuzcat.x63
+# We can't run luuzcat.x63 on Linux i386 directly, so we just check for the file size.
+test -s luuzcat.x63
+
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'" -DCOFF -DCOFF_PROGRAM_NAME="'luuzcat'" -o luuzcat.coff progi386.nasm
 chmod +x luuzcat.coff
 ibcs-us ./luuzcat.coff <test_C1_new9.Z >test_C1.bin

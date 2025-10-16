@@ -30,6 +30,8 @@
 ;   Minix 2.x i386 (tested on Minix 2.0.4 (2003-11-09)).
 ; * prog.v7x (-DV7X86):
 ;   [v7x86](https://www.nordier.com/) (tested on v7x86 0.8a (2007-10-04)).
+; * prog.x63 (-DXV6I386):
+;   [xv6-i386](https://github.com/mit-pdos/xv6-public) (tested on xv6-i386 2020-01-21).
 ;
 ; These programs don't run on Xenix 2.2 (but the COFF variant runs on Xenix
 ; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
@@ -67,10 +69,15 @@
 %else
   %define V7X86 0
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+V7X86==0
+%ifdef XV6I386
+  %define XV6I386 1
+%else
+  %define XV6I386 0
+%endif
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386==0
   %define ELF 1  ; Default.
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+V7X86>1
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386>1
   %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED
   times -1 nop
 %endif
@@ -206,14 +213,13 @@ cpu 386
 
     coff_scnhdr_end:
     coff_filehdr_end:
-  %endif
-  %if ELF
+  %elif ELF
     _base_org equ 0x8048000  ; Standard Linux i386, FreeBSD i386 and SysV SVR4 i386 value.
     section .text align=1 valign=1 start=0 vstart=_base_org
     _text_start:
     section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Same PT_LOAD as .text.
     _rodatastr_start:
-    section .rodata align=1 valign=1 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text. The actual alinment is 4, but we specify align=1 so that .data.una can be unaligned if .rodata is empty.
+    section .rodata align=1 valign=1 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text. !! Is this still true: The actual alinment is 4, but we specify align=1 so that .data.una can be unaligned if .rodata is empty.
     _rodata_start:
     section .data.una align=1 valign=1 follows=.rodata vstart=_data_vstart
     _datauna_start:
@@ -352,6 +358,43 @@ cpu 386
     .a_trsize:	dd 0  ; Text relocation size.
     .a_drsize:	dd 0  ; Data relocation size.
     section .text
+  %elif XV6I386
+    ; xv6-i386 uses ELF which is mostly incompatible with Linux, FreeBSD etc. (because e.g. .text vstart is not page-aligned for xv6-i386), so we keep it separate from ELF above.
+    ;_base_org equ 0  ; xv6-i386 uses ELF with base 0. It would work with higher bases, but then it would waste memory. 0x8048000 would be way too much to waste.
+    section .header align=1 valign=1 start=0 vstart=0
+    section .text align=0x10 valign=0x1000 follows=.header vstart=0
+    _text_start:
+    section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Same PT_LOAD as .text.
+    _rodatastr_start:
+    section .rodata align=4 valign=4 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text.
+    _rodata_start:
+    section .data align=4 valign=4 follows=.rodata vfollows=.rodata  ; There is no alignment at EOF if .rodata and .data are empty.
+    _data_start:
+    section .bss align=4 follows=.data nobits  ; align=4 is also important for the clearing with `rep stosd'.
+    _bss_start:
+
+    ELF_OSABI:  ; ELF EI_OSABI constants.
+    .SysV equ 0
+
+    ELF_PT:  ; ELF PHDR type constants.
+    .LOAD equ 1
+
+    section .header
+    ; We use ELF_OSABI.FreeBSD, because newer FreeBSD checks it. Linux, NetBSD and SysV SVR4 don't check it.
+    Elf32_Ehdr:
+		db 0x7F, 'ELF', 1, 1, 1, ELF_OSABI.SysV, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, ERROR_MISSING_F_END
+		dd 1, _start, Elf32_Phdr0-Elf32_Ehdr, 0, 0
+		dw Elf32_Phdr0-Elf32_Ehdr, Elf32_Phdr1missing-Elf32_Phdr0, (Elf32_Phdr.end-Elf32_Phdr0)>>5, 0x28, 0, 0
+    Elf32_Phdr0:
+		dd ELF_PT.LOAD, (Elf32_header.end-Elf32_Ehdr+0xf)&~0xf, 0, 0, _text_size+_rodatastr_size+_rodata_size+_data_size, _text_size+_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size, 7, 1<<4
+    Elf32_Phdr1missing:
+    Elf32_Phdr.end:
+    Elf32_header.end:
+    ;times ($$-$)&0xf db 0  ; Not needed, `section .text align=0x10' will take care of it.
+    section .text
+  %else
+    %error ERROR_ASSERT_UNKNOWN_EXECUTABLE_FORMAT
+    times -1 nop
   %endif
 
   %macro prog_section__TEXT 0
@@ -442,6 +485,18 @@ cpu 386
       %endif
       _rodata_endalign equ 0  ; .data has align=1 valign=0x1000, no need to add any alignment before .data to the file.
       _data_endalign equ (-(_data_endu-_data_start))&3
+    %elif XV6I386
+      %if _rodata_endu==_rodata_start
+        _rodatastr_endalign equ 0
+      %else
+        _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
+      %endif
+      %if _data_endu==_data_start
+        _rodata_endalign equ 0
+      %else
+        _rodata_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start))&3
+      %endif
+      _data_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_data_endu-_data_start))&3
     %elif ELF
       %if _rodata_endu==_rodata_start
         _rodatastr_endalign equ 0
@@ -716,19 +771,29 @@ libc_declare _memcpy
 libc_declare memcpy_
 
 %ifdef __NEED__isatty
-  %define __NEED__ioctl_wrapper
+  %if XV6I386==0
+    %define __NEED__ioctl_wrapper
+  %endif
 %endif
 %ifdef __NEED_isatty_
-  %define __NEED__ioctl_wrapper
+  %if XV6I386==0
+    %define __NEED__ioctl_wrapper
+  %endif
 %endif
 
 ; --- Defines specific to the operating system.
 
-SYS:  ; Linux i386, FreeBSD i386, SysV SVR3 i386, SysV SVR4 i386, 386BSD syscall numbers.
+SYS:
+%if XV6I386  ; xv6-i386 syscall numbers, from syscall.h
+.exit equ 2
+.read equ 5
+.write equ 16
+%else  ; Linux i386, FreeBSD i386, NetBSD i386, v7x86, SysV SVR3 i386, SysV SVR4 i386, iBCS2, 386BSD, Minix 2.x syscall numbers.
 .exit equ 1
 .read equ 3
 .write equ 4
-.ioctl equ 54  ; Linux i386, FreeBSD i386, SysV SVR3 i386, SysV SVR4 i386, 386BSD, Minix 2.x i386 (in FS).
+.ioctl equ 54  ; Linux i386, FreeBSD i386, NetBSD i386, v7x86, SysV SVR3 i386, SysV SVR4 i386, iBCS2, 386BSD, Minix 2.x i386 (in FS).
+%endif
 
 %if MINIX2I386
 MINIX_WHO:  ; include/lib.h . Minix syscall ``who'' subsystems.
@@ -861,7 +926,11 @@ prog_section__TEXT
 ; Program entry point.
 global _start  ; This is a libc implementation detail, we only but still making it global to aid debugging.
 _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
-		; Now the stack looks like (from top to bottom):
+		; Now the stack looks like (frop top to bottom) for XV6I386:
+		;   dword [esp]: exit(...) return address from main
+		;   dword [esp+4]: argc
+		;   dword [esp+8}: argv
+		; Now the stack looks like (from top to bottom) for XV6I386==0:
 		;   dword [esp]: argc
 		;   dword [esp+4]: argv[0] pointer
 		;   esp+8...: argv[1..] pointers
@@ -965,7 +1034,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push byte OSCOMPAT.SYSV
   .detected:
 %endif  ; Of %if ELF
-%if ELF+S386BSD  ; Not needed for COFF+MINIX2I386+V7X86, because they don't do page-aligned mapping of the executable program file.
+%if ELF+S386BSD  ; Not needed for COFF+MINIX2I386+V7X86+XV6I386, because they don't do page-aligned mapping of the executable program file.
 		; Now we clear the .bss part of the last page of .data.
 		; 386BSD 1.0 and some early Linux kernels put junk there if
 		; there is junk at the end of the ELF-32 executable program
@@ -1001,13 +1070,20 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %endif
 %endif
 %ifdef __NEED___argc
+  %if XV6I386
+                pop eax  ; Return address of main, pushed by the xv6-i386 kernel. Will call exit(...). We discard it here, because we don't need it.
+                pop eax  ; argc.
+                pop edx  ; argv.
+                lea ebx, [edx+eax*4-4]  ; Address of NULL pointer argv[argc-1]. We'll use it as a fake envp for main(...).
+  %else
 		pop eax  ; EAX := argc.
 		mov edx, esp  ; EDX := argv.
 		lea ebx, [esp+eax*4+4]  ; EBX := envp.
+  %endif
   %ifdef __GLOBAL__main  ; int __cdecl main(int argc, char **argv, char **envp).
-		push ebx
-		push edx
-		push eax
+		push ebx  ; envp for _main.
+		push edx  ; argv for _main.
+		push eax  ; argc for _main.
   %elifdef __GLOBAL_main_  ; int __watcall main(int argc, char **argv, char **envp).
   %endif
 %endif
@@ -1018,7 +1094,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %endif
 		call _main
 %elifdef __GLOBAL_main_  ; int __watcall main(...).
-		call main_
+		call main_  ; According the __watcall, argc is in EAX, argv is in EDX and envp is in EBX at call time.
 %else
   %error ERROR_MISSING_MAIN_FUNCTION
   times -1 nop
@@ -1086,6 +1162,9 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
   %elif V7X86
 		int 0x30  ; v7x86 syscall.
 		jnc short .ret
+  %elif XV6I386
+		int 0x40  ; xv6-i386 syscall.
+		; It directly returns -1 in EAX on error. There is no errno value returned.
   %elif ELF
 		mov cl, [__oscompat]
 		cmp cl, OSCOMPAT.SYSV
@@ -1118,11 +1197,13 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
     times -1 nop
   %endif
 %endif
+%if XV6I386==0
 .error:
 		;neg eax  ; Negation needed only for Linux and Minix 2.x.
 		;mov [errno], eax  ; errno is unused in this program.
 		or eax, byte -1  ; Return -1 to indicate error.
 .ret:
+%endif
 %ifdef __NEED___argc
   __argc: libc_export ''  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this symbol.
 %endif
@@ -1192,6 +1273,9 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		mov eax, [ebx+36+4*4]  ; arg.
 		mov [ebx+28], eax  ; .m2_p1, at offset 28 of the struct (ADDRESS == m2_p1 == m_u.m_m2.m2p1 == 28).
 		jmp short minix_syscall_cont
+  %elif XV6I386
+    %error ERROR_ASSERT_NO_IOCTL_WRAPPER_FOR_XV6I386  ; This is fine, isatty(2) below is a dummy for xv6-i386.
+    times -1 nop
   %else
 		push byte SYS.ioctl
 		jmp short simple_syscall3_pop
@@ -1226,6 +1310,9 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_v7x86.TIOCGETP  ; Alternatively, we could use IOCTL_v7x86.TIOCGETD with the smaller sizeof(int) == 3.
+  %elif XV6I386
+		xor eax, eax
+		inc eax  ; EAX := 1. This is a fallback of isatty(...) always returning true (1), because there is no isatty(3) or ioctl(2) on xv6-i386.
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -1238,28 +1325,32 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
     .freenetbsd:
 		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
-  .ioctl_number_pushed:
+  %if XV6I386==0
+    .ioctl_number_pushed:
 		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
 		call _ioctl_wrapper
 		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of _ioctl_wrapper above from the stack, and also clean up the arg struct.
 		; Now convert result EAX: -1 to 0, everything else to 1.
 		inc eax
-  %if 0  ; Faster (because it avoids the jump) but 1 byte longer.
+    %if 0  ; Faster (because it avoids the jump) but 1 byte longer.
 		setnz al
 		movzx eax, al
-  %else
+    %else
 		jz short .have_retval
 		xor eax, eax
 		inc eax  ; EAX := 1.
     .have_retval:
+    %endif
   %endif
 		ret
 %endif
 
 %ifdef __NEED_isatty_
   isatty_: libc_export 'int __watcall isatty(int fd);'
+  %if XV6I386==0
 		push ecx  ; Save.
 		push edx  ; Save.
+  %endif
   %if COFF
     ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2 (we round it up to 20, to dword bounadry).
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -1280,6 +1371,9 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of _ioctl_wrapper.
 		push strict dword IOCTL_v7x86.TIOCGETP  ; Alternatively, we could use IOCTL_v7x86.TIOCGETD with the smaller sizeof(int) == 3.
+  %elif XV6I386
+		xor eax, eax
+		inc eax  ; EAX := 1. This is a fallback of isatty(...) always returning true (1), because there is no isatty(3) or ioctl(2) on xv6-i386.
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -1292,23 +1386,25 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
     .freenetbsd:
 		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
-  .ioctl_number_pushed:
+  %if XV6I386==0
+    .ioctl_number_pushed:
 		push eax  ; Argument fd of this isatty(...).
 		call _ioctl_wrapper
 		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of _ioctl_wrapper above from the stack, and also clean up the arg struct.
 		; Now convert result EAX: -1 to 0, everything else to 1.
 		inc eax
-  %if 0  ; Faster (because it avoids the jump) but 1 byte longer.
+    %if 0  ; Faster (because it avoids the jump) but 1 byte longer.
 		setnz al
 		movzx eax, al
-  %else
+    %else
 		jz short .have_retval
 		xor eax, eax
 		inc eax  ; EAX := 1.
-    .have_retval:
-  %endif
+      .have_retval:
+    %endif
 		pop edx  ; Restore.
 		pop ecx  ; Restore.
+  %endif
 		ret
 %endif
 

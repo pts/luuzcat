@@ -13,6 +13,8 @@
 *.m23
 # v7x86 executable program.
 *.v7x
+# xv6-i386 executable program.
+*.x63
 *.c.[0-9]*
 *.nasm.[0-9]*
 /un[0-9].c

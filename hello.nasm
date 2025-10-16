@@ -9,10 +9,13 @@
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DV7X86 -o hello.v7x progi386.nasm && printf ThereIsJunk >>hello.v7x && chmod +x hello.v7x
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DXV6I386 -o hello.x63 progi386.nasm && printf ThereIsJunk >>hello.x63 && chmod +x hello.x63
 
-;%define __NEED___argc
-%define __NEED__write
-%define __NEED_isatty_
-%define __NEED__exit
+cpu 386
+bits 32
+
+;extern __argc
+extern _write
+extern isatty_
+extern _exit
 global main_
 main_:
 

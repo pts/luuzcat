@@ -740,6 +740,12 @@ __prog_section _TEXT
   %idefine global __prog_global
 %endm
 %idefine global __prog_global  ; Like the NASM default `global', but fails on multiple definitions of the same symbol.
+%ifndef MULTIPLEOBJS  ; Usually true.
+  %macro __prog_extern 1
+    %define __NEED_%1
+  %endm
+  %idefine extern __prog_extern  ; Like the NASM default `extern', but with different functionality.
+%endif
 %macro _do_includes 0-*
   %rep %0
     %ifnidn (%1), ()  ; This also does some of the `%define __NEED_...'.

@@ -43,6 +43,10 @@
 ; !! Test on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
 ;
+; Compatibility note: The OpenWatcom C compiler puts floating point
+; constants to CONST (in addition to string literals) as well, unaligned.
+; Does it also put integers for `x / 10' in 16-bit mode? Test if this works.
+;
 
 %ifdef COFF
   %define COFF 1
@@ -92,7 +96,16 @@ cpu 386
 ; executable may be a few dozen bytes longer than absolutely necessary, so
 ; that it loads correctly in many operating systems.
 %ifidn __OUTPUT_FORMAT__, bin
+  %define __FILESECTIONNAME__TEXT .text
+  %define __FILESECTIONNAME_CONST .rodata.str
+  %define __FILESECTIONNAME_CONST2 .rodata
+  %define __FILESECTIONNAME__DATA .data
+  %define __FILESECTIONNAME__DATAUNA .data  ; Like _DATA, but unaligned. Will be put in front of _DATA. It may also get mixed with _DATA, so if the caller uses this, it should start each `section _DATA' with `times ($$-$)&3 db 0'.
+  %define __FILESECTIONNAME__BSS .bss
+
   %if COFF  ; SysV SVR3 i386 COFF executable program.
+    %define __SECTIONNAME_.comment COMMENT
+    %define __FILESECTIONNAME_COMMENT .comment  ; Only COFF has this.
     _coff_data_base_org equ 0x400000  ; Standard SysV SVR3 value.
     section .text align=1 valign=1 start=0 vstart=0
     _text_start:
@@ -214,6 +227,7 @@ cpu 386
     coff_scnhdr_end:
     coff_filehdr_end:
   %elif ELF
+    %define __FILESECTIONNAME__DATAUNA .data.una  ; Like _DATA, but unaligned. ELF implements it, other executable file formats don't.
     _base_org equ 0x8048000  ; Standard Linux i386, FreeBSD i386 and SysV SVR4 i386 value.
     section .text align=1 valign=1 start=0 vstart=_base_org
     _text_start:
@@ -288,7 +302,6 @@ cpu 386
     .a_entry:	dd _start  ; Virtual address (vaddr) of entry point.
     .a_trsize:	dd 0  ; Text relocation size.
     .a_drsize:	dd 0  ; Data relocation size.
-    section .text
   %elif MINIX2I386
     %ifndef MINIX2I386_STACK
       %define MINIX2I386_STACK 0x4000  ; 16 KiB. Minix i386 programs (such as cat(1)) use this value.
@@ -329,7 +342,6 @@ cpu 386
     .a_total: dd _data_size+_bss_size+MINIX2I386_STACK  ; Total memory allocated for a_data, a_bss and stack, including argv and environ strings.
     .a_syms: dd 0  ; Size of symbol table.
     .size: equ $-MINIX2I386_exec
-    section .text
   %elif V7X86
     ; V7X86 supports two a.out executable formats, which only differ in the
     ; memory layout of a_data: NMAGIC uses up to 0xfff bytes more of virtual
@@ -357,7 +369,6 @@ cpu 386
     .a_entry:	dd _start  ; Virtual address (vaddr) of entry point.
     .a_trsize:	dd 0  ; Text relocation size.
     .a_drsize:	dd 0  ; Data relocation size.
-    section .text
   %elif XV6I386
     ; xv6-i386 uses ELF which is mostly incompatible with Linux, FreeBSD etc. (because e.g. .text vstart is not page-aligned for xv6-i386), so we keep it separate from ELF above.
     ;_base_org equ 0  ; xv6-i386 uses ELF with base 0. It would work with higher bases, but then it would waste memory. 0x8048000 would be way too much to waste.
@@ -391,38 +402,11 @@ cpu 386
     Elf32_Phdr.end:
     Elf32_header.end:
     ;times ($$-$)&0xf db 0  ; Not needed, `section .text align=0x10' will take care of it.
-    section .text
   %else
     %error ERROR_ASSERT_UNKNOWN_EXECUTABLE_FORMAT
     times -1 nop
   %endif
-
-  %macro prog_section__TEXT 0
-    section .text
-  %endm
-  %macro prog_section_CONST 0
-    section .rodata.str
-  %endm
-  %macro prog_section_CONST2 0
-    section .rodata
-    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-  %endm
-  %macro prog_section__DATA 0
-    section .data
-    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-  %endm
-  %macro prog_section__DATA_UNA 0  ; Like _DATA, but unaligned.
-    %if ELF
-      section .data.una
-    %else
-      section .data
-      times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-    %endif
-  %endm
-  %macro prog_section__BSS 0
-    section .bss
-    resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-  %endm
+  section .text
 
   %macro f_end 0
     ERROR_MISSING_F_END equ 0  ; If you are getting ERROR_MISSING_F_END errors, then add `f_end' to the end of your .nasm source file.
@@ -595,122 +579,147 @@ cpu 386
       %endif
     %endif
   %endm
-%elifidn __OUTPUT_FORMAT__, obj  ; Output of NASM will be sent to a linker: OpenWatcom wlink(1) or GNU ld(1).
+%elifidn __OUTPUT_FORMAT__, obj  ; Output of NASM will be sent to a linker: OpenWatcom wlink(1) (tested) or GNU ld(1) (untested).
+  ; !! Group CONST with _TEXT. OpenWatcom wlink(1) groups CONST and CONST2 with _DATA in the output PT_LOAD, rather than _TEXT. Grouping with _TEXT is more common on Linux, and for some programs, _DATA would remain empty (except for __oscompat).
   %if ELF==0
     %error ERROR_OUTPUT_FORMAT_OBJ_NEEDS_ELF_EXECUTABLE
     times -1 nop
   %endif
+  %define __FILESECTIONNAME__TEXT _TEXT
+  %define __FILESECTIONNAME_CONST CONST
+  %define __FILESECTIONNAME_CONST2 CONST2
+  %define __FILESECTIONNAME__DATA _DATA
+  %define __FILESECTIONNAME__DATAUNA _DATA
+  %define __FILESECTIONNAME__BSS _BSS
+
   section _TEXT  USE32 class=CODE align=1
   section CONST  USE32 class=DATA align=1
   section CONST2 USE32 class=DATA align=4
   section _DATA  USE32 class=DATA align=4
   section _BSS   USE32 class=BSS  align=4 NOBITS
   group DGROUP CONST CONST2 _DATA _BSS
-  section .text
+  section _TEXT
   extern _edata
   %define _bss_start _edata  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _edata.
   extern _end
   %define _bss_end _end  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _end.
 
-  %macro prog_section__TEXT 0
-    section _TEXT
-  %endm
-  %macro prog_section_CONST 0
-    section _CONST
-  %endm
-  %macro prog_section_CONST2 0
-    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-    section _CONST2
-  %endm
-  %macro prog_section__DATA 0
-    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-    section _DATA
-  %endm
-  %macro prog_section__DATA_UNA 0
-    section _DATA
-  %endm
-  %macro prog_section__BSS 0
-    section _BSS
-    resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-  %endm
   %macro f_end 0
     %if ELF && IS_OSCOMPAT_ADDED==0
-      prog_section__BSS
+      __prog_section _BSS
       %define IS_OSCOMPAT_ADDED 1
       global __oscompat
       __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
     %endif
-    prog_section__TEXT
+    __prog_section _TEXT
   %endm
-%elifidn __OUTPUT_FORMAT__, elf  ; Untested. Output of NASM will be sent to a linker: OpenWatcom wlink(1) or GNU ld(1).
+%elifidn __OUTPUT_FORMAT__, elf  ; Untested. Output of NASM will be sent to a linker: OpenWatcom wlink(1) (untested, section __FILESECTIONNAME_* are wrong) or GNU ld(1) (untested).
   %if ELF==0
     %error ERROR_OUTPUT_FORMAT_ELF_NEEDS_ELF_EXECUTABLE
     times -1 nop
   %endif
+  %define __FILESECTIONNAME__TEXT .text
+  %define __FILESECTIONNAME_CONST .rodata.str
+  %define __FILESECTIONNAME_CONST2 .rodata
+  %define __FILESECTIONNAME__DATA .data
+  %define __FILESECTIONNAME__DATAUNA .data.una
+  %define __FILESECTIONNAME__BSS .bss
+
   section .text align=1
   section .rodata.str align=1  ; CONST.
   section .rodata align=4
   section .data align=4
+  section .data.una align=1
   section .bss align=4 nobits
   section .text
   extern _edata
   %define _bss_start _edata  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _edata.
 
-  %macro prog_section__TEXT 0
-    section .text
-  %endm
-  %macro prog_section_CONST 0
-    section .rodata.str
-  %endm
-  %macro prog_section_CONST2 0
-    section .rodata
-    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-  %endm
-  %macro prog_section__DATA 0
-    section .data
-    times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-  %endm
-  %macro prog_section__DATA_UNA 0
-    section .data
-  %endm
-  %macro prog_section__BSS
-    section .bss
-    resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
-  %endm
   %macro f_end 0
     %if ELF && IS_OSCOMPAT_ADDED==0
-      prog_section__BSS
+      __prog_section _BSS
       %define IS_OSCOMPAT_ADDED 1
       global __oscompat
       __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
     %endif
-    prog_section__TEXT
+    __prog_section _TEXT
   %endm
 %else
   %error ERROR_UNSUPPORTED_OUTPUT_FORMAT __OUTPUT_FORMAT__
   times -1 nop
 %endif
 %define IS_OSCOMPAT_ADDED 0
-%define HAVE_SECTION
-%define HAVE_SECTION__TEXT
-%define HAVE_SECTION_CONST
-%define HAVE_SECTION_CONST2
-%define HAVE_SECTION__DATA
-%define HAVE_SECTION__DATA_UNA
-%define HAVE_SECTION__BSS
-; `f_section _TEXT' is safer against typos in the NASM code than
-; `prog_section__TEXT', because NASM silently ignores the latter (or just
+; The definitions below include aliases.
+%define __SECTIONNAME__TEXT _TEXT
+%define __SECTIONNAME_TEXT _TEXT
+%define __SECTIONNAME_CODE _TEXT
+%define __SECTIONNAME_CONST CONST
+%define __SECTIONNAME_RODATASTR CONST
+%define __SECTIONNAME_CONST2 CONST2
+%define __SECTIONNAME_RODATA CONST2
+%define __SECTIONNAME__DATAUNA _DATAUNA
+%define __SECTIONNAME__DATA _DATA
+%define __SECTIONNAME__BSS _BSS
+%define __SECTIONNAME_DATAUNA _DATAUNA
+%define __SECTIONNAME_DATA _DATA
+%define __SECTIONNAME_BSS _BSS
+%define __SECTIONNAME_.text _TEXT
+%define __SECTIONNAME_.code _TEXT
+%define __SECTIONNAME_.rodata.str CONST
+%define __SECTIONNAME_.rodatastr CONST
+%define __SECTIONNAME_.rodata CONST2
+%define __SECTIONNAME_.data.una _DATAUNA
+%define __SECTIONNAME_.datauna _DATAUNA
+%define __SECTIONNAME_.data _DATA
+%define __SECTIONNAME_.bss _BSS
+%define __SECTIONNAME_text _TEXT
+%define __SECTIONNAME_code _TEXT
+%define __SECTIONNAME_rodatastr CONST
+%define __SECTIONNAME_rodata CONST2
+%define __SECTIONNAME_datauna _DATAUNA
+%define __SECTIONNAME_data _DATA
+%define __SECTIONNAME_bss _BSS
+; `__prog_section _TEXT' is safer against typos in the NASM code than
+; `__prog_section__TEXT', because NASM silently ignores the latter (or just
 ; displays a warning with `nasm -w+orphan-labels') if there is a typo in
 ; `_TEXT'.
-%macro f_section 1
-  %ifdef HAVE_SECTION_%1
-    prog_section_%1
+%macro __prog_section 1
+  %undef align
+  %idefine align ,  ; Convert `__prog_section CONST align=1' to `__prog_section CONST ,1' so that `__prog_section_low 2+' below can catch the error.
+  __prog_section_low %1
+  %undef align
+%endm
+%macro __prog_section 0
+  %error ERROR_MISSING_SECTION_NAME  ; Solution: Add an argument to `section', e.g. `section .rodata.str'.
+  times -1 nop
+%endm
+%macro __prog_section 2+
+  %error ERROR_TOO_MANY_ARGUMENTS_TO_SECTION
+  times -1 nop
+%endm
+%macro __prog_section_low 1
+  %ifdef __SECTIONNAME_%1
+    __prog_section_low2 __SECTIONNAME_%1  ; Expands __SECTIONNAME_%1 first. This does canonicalization: it converts section name aliases to canonical section names.
   %else
-    %error ERROR_UNKNOWN_SECTION_%1
+    %error ERROR_UNKNOWN_SECTION_%1  ; This indicates a bug in the user program: trying to use an unknown section, maybe a typo.
     times -1 nop
   %endif
 %endm
-prog_section__TEXT
+%macro __prog_section_low 2
+  %error ERROR_SPECIFY_SECTION_WITHOUT_ALIGNMENT %1  ; progi386.nasm has set up alignment properly for all sections. Changing it would make things fall apart.
+  times -1 nop
+%endm
+%macro __prog_section_low2 1
+  %ifdef __FILESECTIONNAME_%1
+    %undef section  ; So that the `section ...' directive works inside __prog_section.
+    section __FILESECTIONNAME_%1  ; The expansion of __FILESECTIONNAME_%1 depends on the executable file format.
+    %idefine section __prog_section
+  %else
+    %error ERROR_UNKNOWN_FILE_SECTION_%1  ; This indicates a bug in progi386.nasm.
+    times -1 nop
+  %endif
+%endm
+__prog_section _TEXT
 
 ; --- Including the program source files.
 ;
@@ -733,13 +742,20 @@ prog_section__TEXT
     %ifnidn (%1), ()  ; This also does some of the `%define __NEED_...'.
       cpu 386
       bits 32
+      __prog_section CONST2
+      times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+      __prog_section _DATA
+      times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+      __prog_section _BSS
+      resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+      __prog_section _TEXT
       %include %1
     %endif
     %rotate 1
   %endrep
 %endmacro
-prog_section__TEXT
 _do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
+__prog_section _TEXT
 %macro libc_declare 1
   %ifdef __NEED_G@%1
     %define __NEED_%1
@@ -918,7 +934,7 @@ IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
   .FREENETBSD equ 2  ; (All ELF.) FreeBSD or NetBSD i386. !! Will it work on OpenBSD (probably not, needs extra sections to describe syscall addresses) or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
 %endif
 
-prog_section__TEXT
+__prog_section _TEXT
 
 ; --- Program entry point (_start), system autodetection and exit.
 
@@ -1011,9 +1027,13 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push strict dword (ERROR_MISSING_F_END+_bss_end-_bss_end_of_first_page+0xfff)&~0xfff  ; Argument length. mmap(2) doesn't need rounding to page boundary, but we do it for extra compatibility.
 		push strict dword _bss_end_of_first_page  ; Argument addr. mmap(2) needs rounding to page boundary, and we use a rounded value to avoid overwriting the last page of .data.
   %else
+    global _start.startref1
+    .startref1:  ; fix_elf_edata.pl will find this symbol by name, and then it will fix the value in the instruction below.
 		mov eax, _bss_start  ; Symbol provided by the linker.
 		add eax, strict dword 0xfff
 		and eax, strict dword ~0xfff  ; EDX := _bss_start rounded up to page boundary.
+    global _start.endref1
+    .endref1:  ; fix_elf_edata.pl will find this symbol by name, and then it will fix the value in the instruction below.
 		mov ecx, _bss_end  ; Symbol provided by the linker.
 		sub ecx, eax
 		jnc short .mmap_length_ok
@@ -1044,6 +1064,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		;
 		; !! Do we ever have to clear subsequent .bss pages? Not on Linux ELF, because the mmap(...) above has cleared it.
 		xor eax, eax
+  global _start.startref2
+  .startref2:  ; fix_elf_edata.pl will find this symbol by name, and then it will fix the value in the instruction below.
 		mov edi, _bss_start  ; Must be a multiple of 4.
   %ifidn __OUTPUT_FORMAT__, bin
 		mov ecx, (ERROR_MISSING_F_END+_bss_end_of_first_page-_bss_start)>>2  ; Both of them are aligned to a multiple of 4.

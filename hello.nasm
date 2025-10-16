@@ -30,15 +30,29 @@ main_:
 		call isatty_  ; isatty(STDIN_FILENO).
 		ret  ; exit(1) if stdin is a TTY, 0 otherwise.
 
-f_section CONST
-;f_section _DATA_UNA
-;f_section CONST2
+%idefine foo bar
+%ifndef FOO
+%error FOO1
+%endif
+%undef foo
+%ifdef FOO
+%error FOO1
+%endif
+
+
+section .rodata.str  ; Synonym of CONST .
+;section CONST align=8  ; Error, not allowed to specify alignment.
+;section  ; Error: missing argument.
+;section a, b  ; Error too many arguments.
+;section CONST
+;section _DATA_UNA
+;section CONST2
 msg:
 		db 'Hello, World!', 10
 .size equ $-msg
 		;times ($$-$)&3 db '_'  ; Alingment padding to avoid NULs.
 
-f_section _BSS
+section _BSS
 bssvar:
 		resb 4
 

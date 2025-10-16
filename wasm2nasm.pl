@@ -53,7 +53,7 @@ for $_ (@lines) {
         print($_, "\n") }
     elsif (m@^    ORG\s+(\d[\da-f]*)(H?)@) { die("bad ofs: $_\n") if !defined($ofs); my $oldofs = $ofs; $ofs = $2 ? hex($1) : int($1); print("\t\tresb $oldofs\n") if ($oldofs = $ofs - $oldofs) > 0; }
     elsif (m@^DGROUP\s+GROUP\s@) {}
-    elsif (m@^(_TEXT|CONST2?|_DATA|_BSS)\s+SEGMENT\s@) { print("f_section $1\n"); $ofs = 0 if $1 eq "_BSS" }
+    elsif (m@^(_TEXT|CONST2?|_DATA|_BSS)\s+SEGMENT\s@) { print("section $1\n"); $ofs = 0 if $1 eq "_BSS" }
     elsif (m@^[_A-Z0-9]+\s+ENDS$@) { $ofs = undef }
     elsif ($_ eq ".387" or $_ eq ".386p" or $_ eq ".model flat" or !length($_) or m@^YI[BE]?\s+SEGMENT\s@) {}
     else { die("bad: $_\n") }

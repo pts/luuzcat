@@ -711,7 +711,7 @@ cpu 386
 %endm
 %macro __prog_section_low2 1
   %ifdef __FILESECTIONNAME_%1
-    %undef section  ; So that the `section ...' directive works inside __prog_section.
+    %undef section  ; So that the `section ...' directive below does the NASM default.
     section __FILESECTIONNAME_%1  ; The expansion of __FILESECTIONNAME_%1 depends on the executable file format.
     %idefine section __prog_section
   %else
@@ -729,14 +729,17 @@ __prog_section _TEXT
   %error ERROR_MISSING_INCLUDES  ; Specify it like this: nasm -DINCLUDES="'f1.nasm','f2.nasm'"
   times -1 nop
 %endif
-%macro f_global 1
+%macro __prog_global 1
   %ifdef __GLOBAL_%1
     %error ERROR_MULTIPLE_DEFINITIONS_FOR_%1
     times -1 nop
   %endif
   %define __GLOBAL_%1
+  %undef global  ; So that the `section ...' directive below does the NASM default.
   global %1  ; Adds the symbol to the object file (for __OUTPUT_FORMAT__ elf and obj).
+  %idefine global __prog_global
 %endm
+%idefine global __prog_global  ; Like the NASM default `global', but fails on multiple definitions of the same symbol.
 %macro _do_includes 0-*
   %rep %0
     %ifnidn (%1), ()  ; This also does some of the `%define __NEED_...'.

@@ -13,7 +13,7 @@
 %define __NEED__write
 %define __NEED_isatty_
 %define __NEED__exit
-f_global main_
+global main_
 main_:
 
 		push strict byte msg.size

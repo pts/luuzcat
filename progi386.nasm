@@ -89,7 +89,15 @@
 bits 32
 cpu 386
 
-; Executable program file header generation.
+; --- Executable program file header generation.
+
+%ifidn __OUTPUT_FORMAT__, obj
+  %define __PROG_IS_OBJ_OR_ELF 1
+%elifidn __OUTPUT_FORMAT__, elf
+  %define __PROG_IS_OBJ_OR_ELF 1
+%else
+  %define __PROG_IS_OBJ_OR_ELF 0
+%endif
 
 ; This header generation aims for maximum compatibility with existing
 ; operating systems, and it sacrifices file sizes, i.e. the generated
@@ -579,61 +587,50 @@ cpu 386
       %endif
     %endif
   %endm
-%elifidn __OUTPUT_FORMAT__, obj  ; Output of NASM will be sent to a linker: OpenWatcom wlink(1) (tested) or GNU ld(1) (untested).
+%elif __PROG_IS_OBJ_OR_ELF  ; Output of NASM will be sent to a linker: OpenWatcom wlink(1) (tested with `nasm -f obj' only) or GNU ld(1) (untested).
   ; !! Group CONST with _TEXT. OpenWatcom wlink(1) groups CONST and CONST2 with _DATA in the output PT_LOAD, rather than _TEXT. Grouping with _TEXT is more common on Linux, and for some programs, _DATA would remain empty (except for __oscompat).
   %if ELF==0
     %error ERROR_OUTPUT_FORMAT_OBJ_NEEDS_ELF_EXECUTABLE
     times -1 nop
   %endif
-  %define __FILESECTIONNAME__TEXT _TEXT
-  %define __FILESECTIONNAME_CONST CONST
-  %define __FILESECTIONNAME_CONST2 CONST2
-  %define __FILESECTIONNAME__DATA _DATA
-  %define __FILESECTIONNAME__DATAUNA _DATA
-  %define __FILESECTIONNAME__BSS _BSS
-
-  section _TEXT  USE32 class=CODE align=1
-  section CONST  USE32 class=DATA align=1
-  section CONST2 USE32 class=DATA align=4
-  section _DATA  USE32 class=DATA align=4
-  section _BSS   USE32 class=BSS  align=4 NOBITS
-  group DGROUP CONST CONST2 _DATA _BSS
-  section _TEXT
-  extern _edata
-  %define _bss_start _edata  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _edata.
+  ; We must have all `extern' directives above the first `section'
+  ; directive, otherwise the OpenWatcom wlink(1) would misunderstand the
+  ; output of `nasm -f obj' for this file, and wlink(1) would generate an
+  ; incorrect each time these extern symbols are referenced.
+  extern _edata  ; Both OpenWatcom wlink(1) and GNU ld(1) generate the symbol _edata. OpenWatcom wlink(1) also generates __edata, and GNU ld(1) also generates edata, with the same value.
+  %define _bss_start _edata
   extern _end
-  %define _bss_end _end  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _end.
+  %define _bss_end _end  ; Both OpenWatcom wlink(1) and GNU ld(1) generate the symbol _end. OpenWatcom wlink(1) also generates __end, and GNU ld(1) also generates end, with the same value.
 
-  %macro f_end 0
-    %if ELF && IS_OSCOMPAT_ADDED==0
-      __prog_section _BSS
-      %define IS_OSCOMPAT_ADDED 1
-      global __oscompat
-      __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
-    %endif
-    __prog_section _TEXT
-  %endm
-%elifidn __OUTPUT_FORMAT__, elf  ; Untested. Output of NASM will be sent to a linker: OpenWatcom wlink(1) (untested, section __FILESECTIONNAME_* are wrong) or GNU ld(1) (untested).
-  %if ELF==0
-    %error ERROR_OUTPUT_FORMAT_ELF_NEEDS_ELF_EXECUTABLE
-    times -1 nop
+  %ifidn __OUTPUT_FORMAT__, obj
+    %define __FILESECTIONNAME__TEXT _TEXT
+    %define __FILESECTIONNAME_CONST CONST
+    %define __FILESECTIONNAME_CONST2 CONST2
+    %define __FILESECTIONNAME__DATA _DATA
+    %define __FILESECTIONNAME__DATAUNA _DATA
+    %define __FILESECTIONNAME__BSS _BSS
+    section _TEXT  USE32 class=CODE align=1
+    section CONST  USE32 class=DATA align=1
+    section CONST2 USE32 class=DATA align=4
+    section _DATA  USE32 class=DATA align=4
+    section _BSS   USE32 class=BSS  align=4 NOBITS
+    group DGROUP CONST CONST2 _DATA _BSS
+    section _TEXT
+  %else
+    %define __FILESECTIONNAME__TEXT .text
+    %define __FILESECTIONNAME_CONST .rodata.str
+    %define __FILESECTIONNAME_CONST2 .rodata
+    %define __FILESECTIONNAME__DATA .data
+    %define __FILESECTIONNAME__DATAUNA .data.una
+    %define __FILESECTIONNAME__BSS .bss
+    section .text align=1
+    section .rodata.str align=1
+    section .rodata align=4
+    section .data align=4
+    section .data.una align=1
+    section .bss align=4 nobits
+    section .text
   %endif
-  %define __FILESECTIONNAME__TEXT .text
-  %define __FILESECTIONNAME_CONST .rodata.str
-  %define __FILESECTIONNAME_CONST2 .rodata
-  %define __FILESECTIONNAME__DATA .data
-  %define __FILESECTIONNAME__DATAUNA .data.una
-  %define __FILESECTIONNAME__BSS .bss
-
-  section .text align=1
-  section .rodata.str align=1  ; CONST.
-  section .rodata align=4
-  section .data align=4
-  section .data.una align=1
-  section .bss align=4 nobits
-  section .text
-  extern _edata
-  %define _bss_start _edata  ; Both OpenWatcom wlink(1) and GNU ld(1) generate _edata.
 
   %macro f_end 0
     %if ELF && IS_OSCOMPAT_ADDED==0
@@ -719,6 +716,7 @@ cpu 386
     times -1 nop
   %endif
 %endm
+%define PROG_SECTIONS_DEFINED PROG_SECTIONS_DEFINED  ; The program source files will notice as `%ifdef PROG_SECTIONS_DEFINED'.
 __prog_section _TEXT
 
 ; --- Including the program source files.
@@ -729,13 +727,24 @@ __prog_section _TEXT
   %error ERROR_MISSING_INCLUDES  ; Specify it like this: nasm -DINCLUDES="'f1.nasm','f2.nasm'"
   times -1 nop
 %endif
+%macro __prog_extern_in_text 1
+  %if __GLOBAL_%1+0==2
+    %undef extern  ; So that the `extern ...' directive below does the NASM default.
+    ; This breaks the ELF output of OpenWatcom wlink(1) if used for extern
+    ; symbols outside .text. To make it work for symbols everywhere, we'd
+    ; have to move this NASM `extern' directive above the first `section'
+    ; definition.
+    extern %1
+    %idefine extern __prog_extern
+  %endif
+%endm
 %macro __prog_global 1
   %ifdef __GLOBAL_%1
     %error ERROR_MULTIPLE_DEFINITIONS_FOR_%1
     times -1 nop
   %endif
   %define __GLOBAL_%1
-  %undef global  ; So that the `section ...' directive below does the NASM default.
+  %undef global  ; So that the `global ...' directive below does the NASM default.
   global %1  ; Adds the symbol to the object file (for __OUTPUT_FORMAT__ elf and obj).
   %idefine global __prog_global
 %endm
@@ -1092,12 +1101,14 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 %ifndef __GLOBAL__main
   %ifdef __GLOBAL_G@_main
+    __prog_extern_in_text G@_main  ; Make it work even if we don't %include the other .nasm source files.
     %define __GLOBAL__main
     _main: equ G@_main
   %endif
 %endif
 %ifndef __GLOBAL_main_
   %ifdef __GLOBAL_G@main_
+    __prog_extern_in_text G@main_  ; Make it work even if we don't %include the other .nasm source files.
     %define __GLOBAL_main_
     main_: equ G@main_
   %endif
@@ -1125,8 +1136,10 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     %error ERROR_MULTIPLE_MAIN_FUNCTIONS_CDECL_WATCALL
     times -1 nop
   %endif
+		__prog_extern_in_text _main  ; Make it work even if we don't %include the other .nasm source files.
 		call _main
 %elifdef __GLOBAL_main_  ; int __watcall main(...).
+		__prog_extern_in_text main_  ; Make it work even if we don't %include the other .nasm source files.
 		call main_  ; According the __watcall, argc is in EAX, argv is in EDX and envp is in EBX at call time.
 %else
   %error ERROR_MISSING_MAIN_FUNCTION

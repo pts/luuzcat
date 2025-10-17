@@ -241,7 +241,7 @@ cpu 386
     _text_start:
     section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Same PT_LOAD as .text.
     _rodatastr_start:
-    section .rodata align=1 valign=1 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text. !! Is this still true: The actual alinment is 4, but we specify align=1 so that .data.una can be unaligned if .rodata is empty.
+    section .rodata align=4 valign=4 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text.
     _rodata_start:
     section .data.una align=1 valign=1 follows=.rodata vstart=_data_vstart
     _datauna_start:

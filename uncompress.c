@@ -200,7 +200,7 @@ typedef unsigned int uint;
     static void tab_suffix_set(um16 code, uc8 value);
 #    pragma aux tab_suffix_set = "mov es, tab_suffix_seg"  "mov es:[bx], al" __parm [__bx] [__al] __modify __exact [__es]
 #  endif
-#  ifndef _DOSCOMSTART
+#  if !defined(_DOSCOMSTART) && !defined(_PROGX86)
 #    include <malloc.h>  /* For OpenWatcom __DOS__ halloc(...). */
 #  endif
 #  ifndef LUUZCAT_MALLOC_OK
@@ -215,7 +215,7 @@ typedef unsigned int uint;
      * hurt either.
      */
 #  define TAB_PARA_COUNT (unsigned short)((((1UL << BITS) - 256U) * 3 + 15) >> 4)  /* Number of 16-byte paragraphs needed by tables above. */
-#  ifndef _DOSCOMSTART
+#  if !defined(_DOSCOMSTART) && !defined(_PROGX86)
     void __far *a;
 #  endif
     unsigned short segment;
@@ -226,10 +226,22 @@ typedef unsigned int uint;
     if (TAB_PARA_COUNT + DOS_COM_PROG_PARA_COUNT > get_prog_mem_end_seg() - get_psp_seg()) fatal_out_of_memory();
     segment = get_psp_seg() + (TAB_PARA_COUNT + DOS_COM_PROG_PARA_COUNT);
 #  else
-    a = halloc(((unsigned long)TAB_PARA_COUNT) << 4, 1);  /* Always returns offset = 0. */  /* !! Reuse this between different decompressors (hfree(...)?). */
-    segment = (unsigned long)a >> 16;
-    if (segment == 0U || (unsigned short)a != 0U) fatal_out_of_memory();
+#    ifdef _PROGX86
+      if ((segment = progx86_para_alloc(TAB_PARA_COUNT)) == 0U)  fatal_out_of_memory();
+#    else
+      a = halloc(((unsigned long)TAB_PARA_COUNT) << 4, 1);  /* Always returns offset = 0. */  /* !! Reuse this between different decompressors (hfree(...)?). Currently none of the others need it. */
+      segment = (unsigned long)a >> 16;
+      if (segment == 0U || (unsigned short)a != 0U) fatal_out_of_memory();
 #  endif
+#  endif
+    /* !! For _PROGX86, compile a variant without segment arithmetic (so
+     *    that it works in 286 16-bit protected mode). For that, we'd have
+     *    to call progx86_para_alloc(...) 3 times. Currently we don't need
+     *    this, because both DOS and ELKS support segment arithmetic, and
+     *    elksemu(1) on Linux doesn't support far memory allocation.
+     *    Xenix/86 and OS/2 1.x NE command-line would be the first one to
+     *    need it.
+     */
     tab_prefix0_seg = segment - (256U >> 4);  /* For each code, it contains the last byte. */
     tab_prefix1_seg = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4);  /* Prefix for even codes. */
     tab_suffix_seg  = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4) * 2;  /* Prefix for odd codes. */

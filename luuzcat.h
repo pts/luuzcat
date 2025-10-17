@@ -32,18 +32,18 @@
 #  define IS_DOS_16 1
 #endif
 
-#if defined(_NOSYS32) && !defined(LIBC_PREINCLUDED)
+#if defined(_PROGX86) && !defined(LIBC_PREINCLUDED)
   /* Expecting an external tiny libc for OpenWatcom C compiler creating
    * system-independent i386 code.
    */
 #  ifndef __WATCOMC__
-#    error OpenWatcom C compiler needed by _NOSYS32.
+#    error OpenWatcom C compiler needed by _PROGX86.
 #  endif
-#  ifndef __386__
-#    error 386 CPU is needed by _NOSYS32.
+#  if !defined(__386__) && !IS_X86_16
+#    error x86 CPU (16-bit or 32-bit) is needed by _PROGX86.
 #  endif
 #  define LIBC_PREINCLUDED 1
-#  ifdef _NOSYS_ONLY_BINARY
+#  ifdef _PROGX86_ONLY_BINARY
 #    define write(fd, buf, count) write_binary(fd, buf, count)
     int __cdecl write_binary(int fd, const void *buf, unsigned count);
 #  else
@@ -61,7 +61,13 @@
 /*#  pragma intrinsic(memset)*/  /* !! Add shorter `#pragma aux' or static. */
   void *memcpy(void *dest, const void *src, unsigned n);
 /*#  pragma intrinsic(memcpy)*/  /* !! Add shorter `#pragma aux' or static. */
-#  ifdef _NOSYS_CRLF
+#  if IS_X86_16
+    /* Allocates size_para << 16 bytes of memory, aligned to 16 (paragraph),
+     * and returns the segment register value pointing to the beginning of it.
+     */
+    unsigned short progx86_para_alloc(unsigned short size_para);
+#  endif
+#  ifdef _PROGX86_CRLF
 #    define LUUZCAT_NL "\r\n"
 #  else
 #    define LUUZCAT_NL "\n"  /* Line ending for error messages on stderr. */
@@ -76,7 +82,10 @@
 #    error OpenWatcom C compiler needed by _DOSCOMSTART.
 #  endif
 #  ifndef IS_X86_16
-#    error 8086 CPU is needed by _NOSYS32.
+#    error 8086 CPU is needed by _DOSCOMSTART.  /* And the IS_X86_16 macro must work correctly. */
+#  endif
+#  ifndef __SMALL__
+#    error The small memory model is needed by _DOSCOMSTART.
 #  endif
 #  define LIBC_PREINCLUDED 1
   /* This must be put to a separate function than _comstart, otherwise wlink

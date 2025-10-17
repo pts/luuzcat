@@ -112,25 +112,48 @@ minicc -ansi -pedantic -march=i386 -Wno-n201 -o luuzcat luuzcat.c unscolzh.c unc
     cmp test_C1.good test_C1.bin
 
 # TODO(pts): Try `-os -oh' (more optimizations) here and elsewhere. What difference does it make?
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=luuzcat_32.o -D_NOSYS_ONLY_BINARY luuzcat.c
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=luuzcatt_32.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=luuzcatr_32.o -D_NOSYS_ONLY_BINARY -D_NOSYS_CRLF luuzcat.c  # Always prints \r\n (CRLF) to stderr.
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=unscolzh_32.o unscolzh.c
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=uncompact_32.o uncompact.c
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=unopack_32.o unopack.c
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=unpack_32.o unpack.c
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=undeflate_32.o undeflate.c
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=uncompress_32.o uncompress.c
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=unfreeze_32.o unfreeze.c
+#
+# `wcc386 -zp=4' is needed so that a struct containing a double is aligned
+# to 4, not 8. Both `wcc -zp=2' and `wcc' (default) align such a struct to
+# 2. Also both `wcc386 -zp=4' and `wcc386' (default) align a struct
+# containing a `short member[3];' to 2, not 4.
+common_wccargs="-q -fr -D_PROGX86 -za -os -s -j -ei -zl -zld -wx -we -wcd=201"  # zsh(1) SH_WORD_SPLIT is needed by $common_wccargs below.
+wcc16args="-bt=dos -0"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16args below.
+wcc32args="-bt=linux -3r -zp=4"  # zsh(1) SH_WORD_SPLIT is needed by $wcc32args below.
+rm -f -- *_16.o *_32.o *_16.wasm *_32.wasm *_16.nasm *_32.nasm
+
+wcc386 $wcc32args $common_wccargs -fo=luuzcat_32.o -D_PROGX86_ONLY_BINARY luuzcat.c
+wcc386 $wcc32args $common_wccargs -fo=luuzcatt_32.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
+wcc386 $wcc32args $common_wccargs -fo=luuzcatr_32.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF luuzcat.c  # Always prints \r\n (CRLF) to stderr.
+wcc386 $wcc32args $common_wccargs -fo=unscolzh_32.o unscolzh.c
+wcc386 $wcc32args $common_wccargs -fo=uncompact_32.o uncompact.c
+wcc386 $wcc32args $common_wccargs -fo=unopack_32.o unopack.c
+wcc386 $wcc32args $common_wccargs -fo=unpack_32.o unpack.c
+wcc386 $wcc32args $common_wccargs -fo=undeflate_32.o undeflate.c
+wcc386 $wcc32args $common_wccargs -fo=uncompress_32.o uncompress.c
+wcc386 $wcc32args $common_wccargs -fo=unfreeze_32.o unfreeze.c
+#
+wcc    $wcc16args $common_wccargs -fo=luuzcat_16.o -D_PROGX86_ONLY_BINARY luuzcat.c
+wcc    $wcc16args $common_wccargs -fo=luuzcatt_16.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
+wcc    $wcc16args $common_wccargs -fo=luuzcatr_16.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF luuzcat.c  # Always prints \r\n (CRLF) to stderr.
+wcc    $wcc16args $common_wccargs -fo=unscolzh_16.o unscolzh.c
+wcc    $wcc16args $common_wccargs -fo=uncompact_16.o uncompact.c
+wcc    $wcc16args $common_wccargs -fo=unopack_16.o unopack.c
+wcc    $wcc16args $common_wccargs -fo=unpack_16.o unpack.c
+wcc    $wcc16args $common_wccargs -fo=undeflate_16.o undeflate.c
+wcc    $wcc16args $common_wccargs -fo=uncompress_16.o uncompress.c
+wcc    $wcc16args $common_wccargs -fo=unfreeze_16.o unfreeze.c
+
 perl=tools/miniperl-5.004.04.upx
 "$perl" -e0 || perl=perl  # Use the system perl(1) if tools is not available.
 fi=0
-for f in luuzcat_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o uncompact_32.o unopack_32.o unpack_32.o undeflate_32.o uncompress_32.o unfreeze_32.o; do
+for f in luuzcat_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o uncompact_32.o unopack_32.o unpack_32.o undeflate_32.o uncompress_32.o unfreeze_32.o \
+         luuzcat_16.o luuzcatt_16.o luuzcatr_16.o unscolzh_16.o uncompact_16.o unopack_16.o unpack_16.o undeflate_16.o uncompress_16.o unfreeze_16.o; do
   fi=$((fi+1))  # For local variables.
   wdis -a -fi -fu -i=@ "$f" >"${f%.*}.wasm"
   "$perl" wasm2nasm.pl "$fi" <"${f%.*}.wasm" >"${f%.*}.nasm"
   # objconv 2.54 is buggy, it creates wrong destination for some `call' instructions.
-  # tools/objconv-2.54.upx -fnasm "$f" "${f%.*}_32.nasm"
+  # tools/objconv-2.54.upx -fnasm "$f" "${f%.*}.nasm"
 done
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'" -o luuzcatx.o progx86.nasm
 # * wlink generates a much larger ELF-32 file than necessary (e.g. it aligns
@@ -144,7 +167,6 @@ wlink op q form elf ru freebsd disa 1080 op noext op d op nored op start=_start 
 ibcs-us ./luuzcatx.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
-# As a proof-of-concept, we recompile the object files with NASM spearately.
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcat_32y.o luuzcat_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatt_32y.o luuzcatt_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatr_32y.o luuzcatr_32.nasm
@@ -155,6 +177,19 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unpack_32y.o unpack_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o undeflate_32y.o undeflate_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompress_32y.o uncompress_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unfreeze_32y.o unfreeze_32.nasm
+
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcat_16y.o luuzcat_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatt_16y.o luuzcatt_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatr_16y.o luuzcatr_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unscolzh_16y.o unscolzh_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompact_16y.o uncompact_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unopack_16y.o unopack_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unpack_16y.o unpack_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o undeflate_16y.o undeflate_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompress_16y.o uncompress_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unfreeze_16y.o unfreeze_16.nasm
+
+# As a proof-of-concept, we create luuzcatz.elf with separate object files recompiled with NASM.
 dneeds="-D__NEED__write -D__NEED__read -D__NEED_isatty_ -D__NEED___argc -D__NEED__cstart_ -D__NEED_memset_ -D__NEED_memcpy_ -D__NEED_strlen_"
 # zsh(1) SH_WORD_SPLIT is needed by $dneeds below.
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES= -D__GLOBAL_main_=2 $dneeds -o luuzcatz.o progx86.nasm
@@ -223,14 +258,14 @@ ibcs-us ./luuzcat.coff <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 # We compile with the OpenWatcom C compiler to a DOS 8086 .com program, but we don't use the OpenWatcom libc.
-wcc -q -bt=com -D_DOSCOMSTART -os -zl -j -ms -s -W -w4 -wx -we -wcd=201 -za -oi -0 -g=DGROUP -fo=.o luuzcat.c
-wcc -q -bt=com -D_DOSCOMSTART -os -zl -j -ms -s -W -w4 -wx -we -wcd=201 -za -oi -0 -g=DGROUP -fo=.o unscolzh.c
-wcc -q -bt=com -D_DOSCOMSTART -os -zl -j -ms -s -W -w4 -wx -we -wcd=201 -za -oi -0 -g=DGROUP -fo=.o uncompact.c
-wcc -q -bt=com -D_DOSCOMSTART -os -zl -j -ms -s -W -w4 -wx -we -wcd=201 -za -oi -0 -g=DGROUP -fo=.o unopack.c
-wcc -q -bt=com -D_DOSCOMSTART -os -zl -j -ms -s -W -w4 -wx -we -wcd=201 -za -oi -0 -g=DGROUP -fo=.o unpack.c
-wcc -q -bt=com -D_DOSCOMSTART -os -zl -j -ms -s -W -w4 -wx -we -wcd=201 -za -oi -0 -g=DGROUP -fo=.o undeflate.c
-wcc -q -bt=com -D_DOSCOMSTART -os -zl -j -ms -s -W -w4 -wx -we -wcd=201 -za -oi -0 -g=DGROUP -fo=.o uncompress.c
-wcc -q -bt=com -D_DOSCOMSTART -os -zl -j -ms -s -W -w4 -wx -we -wcd=201 -za -oi -0 -g=DGROUP -fo=.o unfreeze.c
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o luuzcat.c
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o unscolzh.c
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o uncompact.c
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o unopack.c
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o unpack.c
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o undeflate.c
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o uncompress.c
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o unfreeze.c
 wlink op q form dos com op d op nored op start=_comstart_ n luuzcatc.com f luuzcat.o f unscolzh.o f uncompact.o f unopack.o f unpack.o f undeflate.o f uncompress.o f unfreeze.o
 rm -f luuzcat.o unscolzh.o uncompact.o unopack.o unpack.o undeflate.o unfreeze.o
 ./kvikdos luuzcatc.com <XFileMgro.sz >XFileMgro

@@ -1,8 +1,8 @@
 ;
-; progi386.nasm: glue code for building i386 programs for various systems in NASM
+; progx86.nasm: glue code for building i386 programs for various systems in NASM
 ; by pts@fazekas.hu at Mon Oct 13 03:35:21 CEST 2025
 ;
-; Executable binary compatibility:
+; Executable binary compatibility with i386 (32-bit protected mode) targets:
 ;
 ; * prog.elf (-DELF, default):
 ;   Linux >=1.0.4 (1994-05-22) i386 and possibly earlier
@@ -104,8 +104,8 @@
   times -1 nop
 %endif
 
-bits 32
 cpu 386
+bits 32
 
 ; --- Executable program file header generation.
 
@@ -724,7 +724,7 @@ cpu 386
   %endif
 %endm
 %macro __prog_section_low 2
-  %error ERROR_SPECIFY_SECTION_WITHOUT_ALIGNMENT %1  ; progi386.nasm has set up alignment properly for all sections. Changing it would make things fall apart.
+  %error ERROR_SPECIFY_SECTION_WITHOUT_ALIGNMENT %1  ; progx86.nasm has set up alignment properly for all sections. Changing it would make things fall apart.
   times -1 nop
 %endm
 %macro __prog_section_low2 1
@@ -733,7 +733,7 @@ cpu 386
     section __FILESECTIONNAME_%1  ; The expansion of __FILESECTIONNAME_%1 depends on the executable file format.
     %idefine section __prog_section
   %else
-    %error ERROR_UNKNOWN_FILE_SECTION_%1  ; This indicates a bug in progi386.nasm.
+    %error ERROR_UNKNOWN_FILE_SECTION_%1  ; This indicates a bug in progx86.nasm.
     times -1 nop
   %endif
 %endm

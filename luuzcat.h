@@ -43,7 +43,14 @@
 #    error 386 CPU is needed by _NOSYS32.
 #  endif
 #  define LIBC_PREINCLUDED 1
-  int __cdecl write(int fd, const void *buf, unsigned count);
+#  ifdef _NOSYS_ONLY_BINARY
+#    define write(fd, buf, count) write_binary(fd, buf, count)
+    int __cdecl write_binary(int fd, const void *buf, unsigned count);
+#  else
+#    define O_BINARY 4
+    int setmode(int fd, unsigned char mode);
+    int __cdecl write(int fd, const void *buf, unsigned count);
+#  endif
   int __cdecl read(int fd, void *buf, unsigned int count);
   int isatty(int fd);
   __declspec(noreturn) void exit(unsigned char exit_code);
@@ -54,8 +61,11 @@
 /*#  pragma intrinsic(memset)*/  /* !! Add shorter `#pragma aux' or static. */
   void *memcpy(void *dest, const void *src, unsigned n);
 /*#  pragma intrinsic(memcpy)*/  /* !! Add shorter `#pragma aux' or static. */
-
-#  define LUUZCAT_NL "\n"  /* Line ending for error messages on stderr. !! Assuming Unix since we don't know any better. */
+#  ifdef _NOSYS_CRLF
+#    define LUUZCAT_NL "\r\n"
+#  else
+#    define LUUZCAT_NL "\n"  /* Line ending for error messages on stderr. */
+#  endif
 #endif
 
 #if defined(_DOSCOMSTART) && !defined(LIBC_PREINCLUDED)

@@ -31,7 +31,14 @@
 ; * prog.v7x (-DV7X86):
 ;   [v7x86](https://www.nordier.com/) (tested on v7x86 0.8a (2007-10-04)).
 ; * prog.x63 (-DXV6I386):
-;   [xv6-i386](https://github.com/mit-pdos/xv6-public) (tested on xv6-i386 2020-01-21).
+;   [xv6-i386](https://github.com/mit-pdos/xv6-public) (tested on xv6-i386
+;   2020-01-21).
+; * prog.exe (-DWIN32WL): Win32 i386 console application. It works on
+;   Windows NT >=3.1, Windows 95--98--ME, Windows
+;   2000--XP--Vista--7--8--10--11, ReactOS >=0.4.14. It also works on various
+;   emulators such as Wine >=1.6, WDOSX DOS extender and HX DOS extender. It
+;   doesn't work on Win32s, because Win32s can't run Win32 console
+;   applications.
 ;
 ; These programs don't run on Xenix 2.2 (but the COFF variant runs on Xenix
 ; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
@@ -42,6 +49,12 @@
 ; !! For FreeBSD, try alternative of ELF_OSABI.FreeBSD (i.e. at EI_ABIVERSION == EI_BRAND == 8). NetBSD 10.1 also allows it.
 ; !! Test on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
+;
+; Please note that this file implements a minialistic and simplified libc
+; for console applications (i.e. no GUI). Especially argv and envp
+; generation is very limited on non-Unix systems. Also I/O is very limited:
+; it's not possibly to open files, only stdin, stdout and stderr can be
+; used for read(...)ing and write(...)ing.
 ;
 ; Compatibility note: The OpenWatcom C compiler puts floating point
 ; constants to CONST (in addition to string literals) as well, unaligned.
@@ -78,10 +91,15 @@
 %else
   %define XV6I386 0
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386==0
+%ifdef WIN32WL  ; Win32 target with `nasm -f obj' + OpenWatcom wlink(1) `wlink form win nt'.
+  %define WIN32WL 1  ; !! Write a method which generates much shorter Win32 PE headers, saving up to 2 KiB of the final .exe.
+%else
+  %define WIN32WL 0
+%endif
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL==0
   %define ELF 1  ; Default.
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386>1
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL>1
   %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED
   times -1 nop
 %endif
@@ -430,12 +448,12 @@ cpu 386
       _data_size_before_oscompat equ $-$$
       section .data.una
       %if ($-$$)+_data_size_before_oscompat==0
-        ; The reason why we add __oscompat to .data.una here rather
+        ; The reason why we add @oscompat to .data.una here rather
         ; than to anywhere in .bss is to make sure that .data.una+.data is not
         ; empty, which would cause ibcs-us 4.1.6 to segfault.
         %define IS_OSCOMPAT_ADDED 1
-        global __oscompat
-        __oscompat: db 0  ; Initial value doesn't matter.
+        global @oscompat
+        @oscompat: db 0  ; Initial value doesn't matter.
       %endif
       _datauna_endu:
     %endif
@@ -534,8 +552,8 @@ cpu 386
     section .bss
     %if ELF && IS_OSCOMPAT_ADDED==0
       %define IS_OSCOMPAT_ADDED 1
-      global __oscompat
-      __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
+      global @oscompat
+      @oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
     %endif
     %if COFF
       %if _text_size+_rodatastr_size+_rodata_size+_data_size+($-$$)<0x1000
@@ -588,9 +606,8 @@ cpu 386
     %endif
   %endm
 %elif __PROG_IS_OBJ_OR_ELF  ; Output of NASM will be sent to a linker: OpenWatcom wlink(1) (tested with `nasm -f obj' only) or GNU ld(1) (untested).
-  ; !! Group CONST with _TEXT. OpenWatcom wlink(1) groups CONST and CONST2 with _DATA in the output PT_LOAD, rather than _TEXT. Grouping with _TEXT is more common on Linux, and for some programs, _DATA would remain empty (except for __oscompat).
-  %if ELF==0
-    %error ERROR_OUTPUT_FORMAT_OBJ_NEEDS_ELF_EXECUTABLE
+  %if ELF+WIN32WL==0
+    %error ERROR_OUTPUT_FORMAT_OBJ_NEEDS_ELF_OR_WIN32_EXECUTABLE
     times -1 nop
   %endif
   ; We must have all `extern' directives above the first `section'
@@ -603,6 +620,10 @@ cpu 386
   %define _bss_end _end  ; Both OpenWatcom wlink(1) and GNU ld(1) generate the symbol _end. OpenWatcom wlink(1) also generates __end, and GNU ld(1) also generates end, with the same value.
 
   %ifidn __OUTPUT_FORMAT__, obj
+    ; !! Group CONST with _TEXT. OpenWatcom wlink(1) groups CONST and CONST2
+    ;    with _DATA in the output PT_LOAD, rather than _TEXT. Grouping with
+    ;    _TEXT is more common on Linux, and for some programs, _DATA would
+    ;    remain empty (except for @oscompat).
     %define __FILESECTIONNAME__TEXT _TEXT
     %define __FILESECTIONNAME_CONST CONST
     %define __FILESECTIONNAME_CONST2 CONST2
@@ -636,8 +657,8 @@ cpu 386
     %if ELF && IS_OSCOMPAT_ADDED==0
       __prog_section _BSS
       %define IS_OSCOMPAT_ADDED 1
-      global __oscompat
-      __oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
+      global @oscompat
+      @oscompat: resb 1  ; Initial value doesn't matter.  Put it to the end of the .bss, because other parts may need larger alignment.
     %endif
     __prog_section _TEXT
   %endm
@@ -727,6 +748,17 @@ __prog_section _TEXT
   %error ERROR_MISSING_INCLUDES  ; Specify it like this: nasm -DINCLUDES="'f1.nasm','f2.nasm'"
   times -1 nop
 %endif
+%macro __prog_force_extern_in_text 1
+  %ifnidn __OUTPUT_FORMAT__, bin
+    %undef extern  ; So that the `extern ...' directive below does the NASM default.
+    ; This breaks the ELF output of OpenWatcom wlink(1) if used for extern
+    ; symbols outside .text. To make it work for symbols everywhere, we'd
+    ; have to move this NASM `extern' directive above the first `section'
+    ; definition.
+    extern %1
+    %idefine extern __prog_extern
+  %endif
+%endm
 %macro __prog_extern_in_text 1
   %if __GLOBAL_%1+0==2
     %undef extern  ; So that the `extern ...' directive below does the NASM default.
@@ -774,47 +806,84 @@ __prog_section _TEXT
 %endmacro
 _do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
 __prog_section _TEXT
-%macro libc_declare 1
+%macro __prog_libc_declare 1
   %ifdef __NEED_G@%1
     %define __NEED_%1
   %endif
 %endm
-%macro libc_export 0+  ; Usage: myfunc: libc_export 'int myfunc(void);'
+%macro __prog_libc_export 0+  ; Usage: myfunc: __prog_libc_export 'int myfunc(void);'
   global G@%00
   G@%00:  ; Do this first, so that the .sub labels inherit from those without G@.
   global %00  ; Use the label in front of the macro.
   %00:
 %endm
+%macro __prog_depend 2
+  %ifdef __NEED_%1
+    %define __NEED_%2
+  %endif
+%endm
 
 ; --- Function dependency analysis.
 
-; For each `%ifdef __NEED_...' below, we need `libc_declare ...' here.
-libc_declare _cstart_
-libc_declare __argc
-libc_declare exit_
-libc_declare _exit
-libc_declare _exit_
-libc_declare __exit
-libc_declare _read
-libc_declare _write
-libc_declare _isatty
-libc_declare isatty_
-libc_declare _strlen
-libc_declare strlen_
-libc_declare _memset
-libc_declare memset_
-libc_declare _memcpy
-libc_declare memcpy_
+; For each `%ifdef __NEED_...' below, we need `__prog_libc_declare ...' here.
+__prog_libc_declare _cstart_
+__prog_libc_declare __argc
+__prog_libc_declare exit_
+__prog_libc_declare _exit
+__prog_libc_declare _exit_
+__prog_libc_declare __exit
+__prog_libc_declare _read
+__prog_libc_declare _write
+__prog_libc_declare _write_binary
+__prog_libc_declare _isatty
+__prog_libc_declare isatty_
+__prog_libc_declare _setmode
+__prog_libc_declare setmode_
+__prog_libc_declare _strlen
+__prog_libc_declare strlen_
+__prog_libc_declare _memset
+__prog_libc_declare memset_
+__prog_libc_declare _memcpy
+__prog_libc_declare memcpy_
 
-%ifdef __NEED__isatty
-  %if XV6I386==0
-    %define __NEED__ioctl_wrapper
-  %endif
+%define __NEED__exit_  ; After main(...) returns.
+%define __NEED___exit  ; After main(...) returns.
+%if XV6I386+WIN32WL==0
+  __prog_depend _isatty, @ioctl_wrapper
+  __prog_depend isatty_, @ioctl_wrapper
 %endif
-%ifdef __NEED_isatty_
-  %if XV6I386==0
-    %define __NEED__ioctl_wrapper
-  %endif
+__prog_depend _write, _write_binary
+%if WIN32WL
+  %macro __prog_kimport 3
+    %ifdef __NEED_%1
+      __prog_kimport_low %2, _%2@%3
+    %endif
+  %endm
+  %macro __prog_kimport_low 2
+    %ifndef __IMPORTED%2
+      %define __IMPORTED%2  ; TODO(pts): Detect duplicates of %1 (without the argument byte count).
+      __prog_force_extern_in_text %2
+      import %2 kernel32.dll %1
+    %endif
+  %endm
+  __prog_depend _read, @read_write_helper
+  __prog_depend _write, @read_write_helper
+  __prog_depend _write_binary, @read_write_helper
+  __prog_depend _read, @fd_handles
+  __prog_depend _write_binary, @fd_handles
+  __prog_depend _isatty, @fd_handles
+  __prog_depend isatty_, @fd_handles
+  __prog_depend _setmode, @fd_handles
+  __prog_depend setmode_, @fd_handles
+  __prog_depend @fd_handles, @fd_modes
+  __prog_kimport @fd_handles, GetStdHandle, 4
+  __prog_kimport _exit_, ExitProcess, 4
+  __prog_kimport __exit, ExitProcess, 4
+  __prog_kimport __argc, GetCommandLineA, 0
+  __prog_kimport _read, ReadFile, 20
+  __prog_kimport _write, WriteFile, 20
+  __prog_kimport _isatty, GetFileType, 4
+  __prog_kimport isatty_, GetFileType, 4
 %endif
 
 ; --- Defines specific to the operating system.
@@ -946,10 +1015,21 @@ IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
   .READ equ 1
   .WRITE equ 2
 
-  OSCOMPAT:  ; Our platform flags. __oscompat is a bitmask of these.
+  OSCOMPAT:  ; Our platform flags. @oscompat is a bitmask of these.
   .LINUX equ 0  ; (All ELF.) Linux i386 native; Linux i386 running on Linux amd64; Linux (any architecture) qemu-i386; Linux i386 ibcs-us ELF.
   .SYSV equ 1  ; AT&T Unix System V/386 (SysV) Release 3 (SVR3) COFF; AT&T Unix System V/386 (SysV) Release 4 (SVR4) ELF; Coherent 4.x COFF; iBCS2 COFF; Linux i386 ibcs-us COFF.
   .FREENETBSD equ 2  ; (All ELF.) FreeBSD or NetBSD i386. !! Will it work on OpenBSD (probably not, needs extra sections to describe syscall addresses) or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
+%endif
+
+%if WIN32WL
+  STD_INPUT_HANDLE equ -11
+  STD_OUTPUT_HANDLE equ -11
+  STD_ERROR_HANDLE equ -12
+
+  INVALID_HANDLE_VALUE equ -1
+  NULL equ 0
+
+  FILE_TYPE_CHAR equ 2  ; For _GetFileType@4.
 %endif
 
 __prog_section _TEXT
@@ -957,7 +1037,7 @@ __prog_section _TEXT
 ; --- Program entry point (_start), system autodetection and exit.
 
 %ifdef __NEED__cstart_  ; If there is a main function, the OpenWatcom C compiler generates this symbol.
-  _cstart_: libc_export '__noreturn __no_return_address void __cdecl cstart_(int argc, ...);'
+  _cstart_: __prog_libc_export '__noreturn __no_return_address void __cdecl cstart_(int argc, ...);'
 %endif
 ; Program entry point.
 global _start  ; This is a libc implementation detail, we only but still making it global to aid debugging.
@@ -1097,7 +1177,24 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 %if ELF
 		pop eax
-		mov [__oscompat], al  ; We must do this after the clearing of the first page of .bss above.
+		mov [@oscompat], al  ; We must do this after the clearing of the first page of .bss above.
+%endif
+%if WIN32WL
+  %ifdef __NEED_@fd_handles
+		mov edi, @fd_handles
+		push byte STD_INPUT_HANDLE
+		call _GetStdHandle@4  ; Ruins EDX and ECX.
+		;call check_handle
+		stosd  ; STDIN_FILENO.
+		push byte STD_OUTPUT_HANDLE
+		call _GetStdHandle@4  ; Ruins EDX and ECX.
+		;call check_handle
+		stosd  ; STDOUT_FILENO.
+		push byte STD_ERROR_HANDLE
+		call _GetStdHandle@4  ; Ruins EDX and ECX.
+		;call check_handle
+		stosd  ; STDERR_FILENO.
+  %endif
 %endif
 %ifndef __GLOBAL__main
   %ifdef __GLOBAL_G@_main
@@ -1119,6 +1216,61 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
                 pop eax  ; argc.
                 pop edx  ; argv.
                 lea ebx, [edx+eax*4-4]  ; Address of NULL pointer argv[argc-1]. We'll use it as a fake envp for main(...).
+  %elif WIN32WL
+		call _GetCommandLineA@0
+		; Parse the _GetCommandLineA@0 string to argv[0] and
+		; possibly argv[1]. It is simple and limited compared to
+		; _CommandLineToArgvW@8 in shell32.dll:
+		;
+		; * Even if there is whitespace for separating arguments,
+		;   all aguments end up in argv[1].
+		; * Double quotes (") and whitespace in argv[1] are kept.
+		; * Double quotes (") and backslashes (\) in argv[0] are kept.
+		;
+		; See also https://nullprogram.com/blog/2022/02/18/
+		mov edx, eax  ; EDX := address of start of argv[0]. We'll NUL-terminate it below.
+		xchg esi, eax  ; EAX := start of the command line.
+    .next_progname_byte:
+		lodsb
+		cmp al, 0
+		je short .after_progname
+		cmp al, ' '
+		je short .after_progname
+		cmp al, 9  ; '\t'.
+		je short .after_progname
+		cmp al, '"'
+		jne short .next_progname_byte
+    .next_quoted_progname_byte:
+		lodsb
+		cmp al, '"'
+		je short .next_progname_byte
+		cmp al, 0
+		jne short .next_quoted_progname_byte
+    .after_progname:
+		mov byte [esi-1], 0  ; NUL-terminate argv[0]. Modify the statically allocated buffer returned by _GetCommandLineA@0 in place.
+		db 0xa8  ; `test al, ...'. Skip over the next `lodsb' byte.
+    .next_separator_byte:
+		lodsb
+    %if $-.next_separator_byte!=1
+      %error ERROR_ASSERT_LODSB_MUST_BE_1_BYTE  ; for the `test al, ...' above to work.
+    %endif
+		cmp al, ' '
+		je short .next_separator_byte
+		cmp al, 9  ; '\t'.
+		je short .next_separator_byte
+		dec esi
+		push byte 0  ; NULL: terminator of argv and fake envp.
+		mov ebx, esp  ; envp: fake empty environment.
+		xor ecx, ecx
+		inc ecx  ; ECX := 1.
+		cmp al, 0
+		je short .argv1_done
+		push esi  ; argv[1].
+		inc ecx
+    .argv1_done:
+		push edx  ; argv[0]. For simplicity, it contains the double quotes ("), if any.
+		mov edx, esp  ; argv.
+		xchg eax, ecx  ; EAX := argc; ECX := junk.
   %else
 		pop eax  ; EAX := argc.
 		mov edx, esp  ; EDX := argv.
@@ -1147,14 +1299,14 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 		; Fall through to __watcall _exit(...). We already have the return value of main(...) in EAX.
 
-_exit_: libc_export '__noreturn void __watcall _exit(int exit_code);'
-exit_:  libc_export '__noreturn void __watcall  exit(int exit_code);'
+_exit_: __prog_libc_export '__noreturn void __watcall _exit(int exit_code);'
+exit_:  __prog_libc_export '__noreturn void __watcall  exit(int exit_code);'
 		push eax  ; exit_code argument of __cdecl _exit(...) below.
 		push eax  ; Fake return address.
 		; Fall through to __cdecl  _exit(...).
 
-__exit: libc_export '__noreturn void __cdecl _exit(int exit_code);'
-_exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
+__exit: __prog_libc_export '__noreturn void __cdecl _exit(int exit_code);'
+_exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 %if MINIX2I386
 		push ebx  ; Save.
 		sub esp, byte 36-3*4  ; Message struct.
@@ -1162,14 +1314,18 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		push byte SYS.exit  ; .m_type, at offset 4 of the struct.
 		push byte MINIX_WHO.MM  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
 		mov ebx, esp
-		; Fall through to minix_syscall_cont.
+		; Fall through to @minix_syscall_cont.
+%elif WIN32WL
+		pop eax  ; Discard return address.
+		call _ExitProcess@4  ; Doesn't return.
 %else
 		push byte SYS.exit
-		; Fall through to simple_syscall3_pop
+		; Fall through to @simple_syscall3_pop
 %endif
 
 %if MINIX2I386
-  minix_syscall_cont:
+  global @minix_syscall_cont
+  @minix_syscall_cont:
 		pop eax  ; MINIX_WHO.FS or MINIX_WHO.MM.
 		push eax  ; Put it back to .m_source, at offset 0. We do it just to manage the balance of the stack.
 		push byte 3  ; sendrec.
@@ -1186,6 +1342,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		jns short .ret
 		; Now we could get errno from the negative of EAX.
 		; Fall through to .error.
+%elif WIN32WL
 %else
   ; Calls a single systcall of 0, 1, 2 or 3. arguments.
   ;
@@ -1196,7 +1353,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
   ; Output: EAX is -1 on error, otherwise EAX contains the result. The syscall
   ; number and the return address have been popped from the stack, the caller
   ; is responsible for cleaning up the rest.
-  simple_syscall3_pop:
+  @simple_syscall3_pop:
 		pop eax
 		; Fall through to simple_syscall3_eax.
 
@@ -1212,7 +1369,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		int 0x40  ; xv6-i386 syscall.
 		; It directly returns -1 in EAX on error. There is no errno value returned.
   %elif ELF
-		mov cl, [__oscompat]
+		mov cl, [@oscompat]
 		cmp cl, OSCOMPAT.SYSV
 		je short .sysv
 		test cl, cl  ; OSCOMPAT.LINUX.
@@ -1251,36 +1408,22 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 .ret:
 %endif
 %ifdef __NEED___argc
-  __argc: libc_export ''  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this symbol.
+  __argc: __prog_libc_export ''  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this symbol.
+%endif
+%if WIN32WL==0
+  %ifdef __NEED_setmode_
+    setmode_: __prog_libc_export 'void __watcall setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
+  %endif
+  %ifdef __NEED__setmode
+    _setmode: __prog_libc_export 'void __cdecl setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
+  %endif
 %endif
 		ret
 
 ; --- Syscall wrappers (except for SYS.exit, which has been done above).
 
-%ifdef __NEED__write
-  _write: libc_export 'int __cdecl write(int fd, const void *buf, unsigned count);'
-  %if MINIX2I386
-		push ebx  ; Save.
-		sub esp, byte 36-2*4  ; Message struct.
-		push byte SYS.write
-    .common:
-		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
-		mov ebx, esp
-		mov eax, [ebx+36+2*4]  ; fd.
-		mov [ebx+8], eax  ; .m1_i1.
-		mov eax, [ebx+36+3*4]  ; buf.
-		mov [ebx+20], eax  ; .m1_p1.
-		mov eax, [ebx+36+4*4]  ; count.
-		mov [ebx+12], eax  ; ; .m1_i2.
-		jmp short minix_syscall_cont
-  %else
-		push byte SYS.write
-		jmp short simple_syscall3_pop
-  %endif
-%endif
-
 %ifdef __NEED__read
-  _read: libc_export 'int __cdecl read(int fd, void *buf, unsigned count);'
+  _read: __prog_libc_export 'int __cdecl read(int fd, void *buf, unsigned count);'
   %if MINIX2I386
 		push ebx  ; Save.
 		sub esp, byte 36-2*4  ; Message struct.
@@ -1296,17 +1439,182 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		mov [ebx+20], eax  ; .m1_p1.
 		mov eax, [ebx+36+4*4]  ; count.
 		mov [ebx+12], eax  ; ; .m1_i2.
-		jmp short minix_syscall_cont
+		jmp short @minix_syscall_cont
     %endif
+  %elif WIN32WL
+		mov edx, _ReadFile@20
+		jmp short @read_write_helper
   %else
 		push byte SYS.read
-		jmp short simple_syscall3_pop
+		jmp short @simple_syscall3_pop
   %endif
 %endif
 
-%ifdef __NEED__ioctl_wrapper
-  global _ioctl_wrapper  ; The `request' and `arg' is not system-independent, but still making it global to aid debugging.
-  _ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
+%ifdef __NEED_@read_write_helper  ; WIN32WL.
+  global @read_write_helper  ; Making it global to aid debugging.
+  @read_write_helper:  ; Inputs: dword [esp] is function return address; dword [esp+4] is fd; dword [esp+8] is buf; dword [esp+12] is count; EDX is function pointer to _ReadFile@20 or _WriteFile@20. Outputs: result in EAX.
+		push eax  ; Make room for numberOfBytesWritten. The pushed value doesn't matter.
+		mov eax, esp
+		push byte NULL  ; lpOverlapped.
+		push eax  ; lpNumberOfBytesWritten.
+		push dword [esp+6*4]  ; nNumberOfBytesToWrite.
+		push dword [esp+6*4]  ; lpBuffer.
+		mov eax, [esp+6*4]  ; hFile.
+		; handle_from_fd. EAX --> EAX.
+		cmp eax, byte 3  ; CONFIG_FILE_HANDLE_COUNT
+		jnc short .bad_fd
+		mov eax, [@fd_handles+eax*4]
+		jmp short .have_handle
+  .bad_fd:
+		or eax, byte -1
+  .have_handle:
+		push eax  ; hFile.
+		call edx  ; _WriteFile@20 or _ReadFile@20. EAX := success indication. Ruins EDX and ECX.
+		test eax, eax
+		jnz short .ok
+		pop eax  ; Discard numberOfBytesWritten.
+		or eax, byte -1
+		jmp short .done
+  .ok:
+		pop eax  ; numberOfBytesWritten.
+  .done:
+		ret
+%endif
+
+%ifdef __NEED__write
+  %if WIN32WL==0
+    _write: __prog_libc_export 'int __cdecl write(int fd, const void *buf, unsigned count);'
+  %endif
+  ; Fall through to _write_binary.
+%endif
+%ifdef __NEED__write_binary
+  _write_binary: __prog_libc_export 'int __cdecl write_binary(int fd, const void *buf, unsigned count);'
+  %if MINIX2I386
+		push ebx  ; Save.
+		sub esp, byte 36-2*4  ; Message struct.
+		push byte SYS.write
+    .common:
+		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
+		mov ebx, esp
+		mov eax, [ebx+36+2*4]  ; fd.
+		mov [ebx+8], eax  ; .m1_i1.
+		mov eax, [ebx+36+3*4]  ; buf.
+		mov [ebx+20], eax  ; .m1_p1.
+		mov eax, [ebx+36+4*4]  ; count.
+		mov [ebx+12], eax  ; ; .m1_i2.
+		jmp short @minix_syscall_cont
+  %elif WIN32WL
+		mov edx, _WriteFile@20
+		jmp short @read_write_helper
+  %else
+		push byte SYS.write
+		jmp short @simple_syscall3_pop
+  %endif
+%endif
+
+%ifdef __NEED__write
+  %if WIN32WL
+    _write: __prog_libc_export 'int __cdecl write(int fd, const void *buf, unsigned count);'
+		mov eax, [esp+1*4]  ; fd.
+		cmp eax, byte 3
+		jnc short _write_binary
+		cmp byte [@fd_modes+eax], ah  ; Check for O_BINARY (nonzero); AH is now 0.
+		jne short _write_binary  ; Jump iff O_BINARY found in flags.
+		; Now we write the input, stopping before each LF ('\n'),
+		; writing a CRLF ("\r\n") instead, then continuing. This is
+		; a bit slow, because we for each line we call _WriteFile@20
+		; twice.
+		;
+		; State: address limit (ESI), current address (EDI).
+		push edi  ; Save.
+		push esi  ; Save.
+		mov edi, [esp+4*4]  ; buf.
+		mov esi, edi
+		add esi, [esp+5*4]  ; count.
+		jmp short .try_more
+    .more:  ; Now ECX is the number of remaining bytes, and ECX >= 1; AL == 10.
+		mov edx, edi  ; EDX := buf for _write_binary below.
+		repne scasb
+		jne short .scan_done  ; This is correct only if ECX wasn't 0 (true).
+		dec edi  ; Go back to the LF == '\n' just found.
+    .scan_done:
+		push edx  ; Save buf for _write_binary below.
+		sub edi, edx
+		push edi  ; Argument count for _write_binary below.
+		add edi, edx
+		push edx  ; Argument buf for _write_binary below.
+		push dword [esp+6*4]  ; Argument fd for _write_binary.
+		call _write_binary  ; Sets EAX to the result, ruins ECX and EDX.
+		add esp, byte 3*4  ; Clean up arguments of _write_binary above from the stack.
+		pop edx  ; Restore EDX := buf for _write_binary.
+		cmp eax, byte -1
+		je short .done
+		add eax, edx
+		cmp eax, edi
+		jne short .done  ; Stop at short write.
+		cmp edi, esi
+		je short .done
+		push dword (13|10<<8)  ; CRLF == "\r\n".
+		mov eax, esp
+		push byte 2  ; count for the binary write.
+		push eax  ; buf for _write_binary.
+		push dword [esp+6*4]  ; fd for _write_binary.
+		call _write_binary  ; Sets EAX to the result, ruins ECX and EDX.
+		add esp, byte 4*4  ; Clean up arguments of _write_binary above and also the CRLF from the stack.
+		cmp eax, byte 2
+		jne short .done
+		inc edi  ; Skip over the LF in the input.
+    .try_more:
+		mov al, 10  ; LF == '\n'.
+		mov ecx, esi
+		sub ecx, edi
+		jnz short .more
+		; It's important that EAX != 0 here, so that .swap below will be done if we're done writing.
+    .done:
+		sub edi, [esp+4*4]  ; EDI := total number of input bytes written (starting at the original buf).
+		jnz short .swap
+		cmp eax, byte -1
+		je short .done_swap
+    .swap:
+		xchg eax, edi  ; EAX := result (number of input bytes written); EDI := junk.
+    .done_swap:
+		pop esi  ; Restore.
+		pop edi  ; Restore.
+		ret
+  %endif
+%endif
+
+%if WIN32WL
+  %ifdef __NEED_setmode_
+    setmode_: __prog_libc_export 'void __watcall setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
+		cmp eax, byte 3  ; fd.
+		jnc .done
+		mov byte [@fd_modes+eax], dl  ; mode.
+    .done:
+		ret
+  %endif
+  %ifdef __NEED__setmode
+    _setmode: __prog_libc_export 'void __cdecl setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
+		cmp byte [esp+4], byte 3  ; fd.
+		jnc .done
+		mov dl, [esp+2*4]  ; mode.
+		mov byte [@fd_modes+eax], dl
+    .done:
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_@fd_handles  ; WIN32WL.
+  section _BSS
+  global @fd_handles  ; Making it global to aid debugging.
+  @fd_handles: resd 3  ; int [3]. stdin, stdout, stderr.
+  @fd_modes: resb 4  ; unsigned char [3]. stdin, stdout, stderr, dummy. A nonzero value means O_BINARY. Zero by default.
+  section _TEXT
+%endif
+
+%ifdef __NEED_@ioctl_wrapper
+  global @ioctl_wrapper  ; The `request' and `arg' is not system-independent, but still making it global to aid debugging.
+  @ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
   %if MINIX2I386
 		push ebx  ; Save.
 		sub esp, byte 36-5*4  ; Message struct.
@@ -1318,52 +1626,67 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		mov ebx, esp
 		mov eax, [ebx+36+4*4]  ; arg.
 		mov [ebx+28], eax  ; .m2_p1, at offset 28 of the struct (ADDRESS == m2_p1 == m_u.m_m2.m2p1 == 28).
-		jmp short minix_syscall_cont
+		jmp short @minix_syscall_cont
   %elif XV6I386
     %error ERROR_ASSERT_NO_IOCTL_WRAPPER_FOR_XV6I386  ; This is fine, isatty(2) below is a dummy for xv6-i386.
     times -1 nop
   %else
 		push byte SYS.ioctl
-		jmp short simple_syscall3_pop
+		jmp short @simple_syscall3_pop
   %endif
 %endif
 
-; By adding and using the __watcall counterpart for simple_syscall3_pop
+; By adding and using the __watcall counterpart for @simple_syscall3_pop
 ; (__NEED_simple_syscall3_WAT), the program file doesn't become shorter,
 ; because FreeBSD needs the syscall arguments on the stack.
 
 ; --- System-specific libc functions.
 
 %ifdef __NEED__isatty
-  _isatty: libc_export 'int __cdecl isatty(int fd);'
+  _isatty: __prog_libc_export 'int __cdecl isatty(int fd);'
   %if COFF
     ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2 (we round it up to 20, to dword bounadry).
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
   %elif S386BSD
     ISATTY_TERMIOS_SIZE equ 44  ; sizeof(struct termios) == 44 on 386BSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_386BSD.TIOCGETA
   %elif MINIX2I386
     ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386.
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
   %elif V7X86
     ISATTY_TERMIOS_SIZE equ 8  ; sizeof(struct agttyb) == 8 on V7X86.
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_v7x86.TIOCGETP  ; Alternatively, we could use IOCTL_v7x86.TIOCGETD with the smaller sizeof(int) == 3.
   %elif XV6I386
 		xor eax, eax
 		inc eax  ; EAX := 1. This is a fallback of isatty(...) always returning true (1), because there is no isatty(3) or ioctl(2) on xv6-i386.
+  %elif WIN32WL
+		; handle_from_fd. EAX --> EAX. !! Move to a helper function.
+		cmp eax, byte 3  ; CONFIG_FILE_HANDLE_COUNT
+		jnc short .bad_fd
+		mov eax, [@fd_handles+eax*4]
+		jmp short .have_handle
+    .bad_fd:
+		or eax, byte -1
+    .have_handle:
+		push eax  ; hFile.
+		call _GetFileType@4  ;  Ruins EDX and ECX.
+		xchg edx, eax  ; EDX := file type; EAX := junk.
+		xor eax, eax  ; EAX := 0.
+		cmp edx, byte FILE_TYPE_CHAR
+		sete al
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
-		cmp byte [__oscompat], OSCOMPAT.FREENETBSD
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
+		cmp byte [@oscompat], OSCOMPAT.FREENETBSD
 		je short .freenetbsd
     .linux_or_sysv:
 		push strict dword IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
@@ -1371,11 +1694,11 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
     .freenetbsd:
 		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
-  %if XV6I386==0
+  %if XV6I386+WIN32WL==0
     .ioctl_number_pushed:
 		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
-		call _ioctl_wrapper
-		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of _ioctl_wrapper above from the stack, and also clean up the arg struct.
+		call @ioctl_wrapper
+		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of @ioctl_wrapper above from the stack, and also clean up the arg struct.
 		; Now convert result EAX: -1 to 0, everything else to 1.
 		inc eax
     %if 0  ; Faster (because it avoids the jump) but 1 byte longer.
@@ -1392,7 +1715,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 %endif
 
 %ifdef __NEED_isatty_
-  isatty_: libc_export 'int __watcall isatty(int fd);'
+  isatty_: __prog_libc_export 'int __watcall isatty(int fd);'
   %if XV6I386==0
 		push ecx  ; Save.
 		push edx  ; Save.
@@ -1400,31 +1723,46 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
   %if COFF
     ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2 (we round it up to 20, to dword bounadry).
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
   %elif S386BSD
     ISATTY_TERMIOS_SIZE equ 44  ; sizeof(struct termios) == 44 on 386BSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_386BSD.TIOCGETA
   %elif MINIX2I386
     ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386.
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
   %elif V7X86
     ISATTY_TERMIOS_SIZE equ 8  ; sizeof(struct agttyb) == 8 on V7X86.
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_v7x86.TIOCGETP  ; Alternatively, we could use IOCTL_v7x86.TIOCGETD with the smaller sizeof(int) == 3.
   %elif XV6I386
 		xor eax, eax
 		inc eax  ; EAX := 1. This is a fallback of isatty(...) always returning true (1), because there is no isatty(3) or ioctl(2) on xv6-i386.
+  %elif WIN32WL
+		; handle_from_fd. EAX --> EAX. !! Move to a helper function.
+		cmp eax, byte 3  ; CONFIG_FILE_HANDLE_COUNT
+		jnc short .bad_fd
+		mov eax, [@fd_handles+eax*4]
+		jmp short .have_handle
+    .bad_fd:
+		or eax, byte -1
+    .have_handle:
+		push eax  ; hFile.
+		call _GetFileType@4  ;  Ruins EDX and ECX.
+		xchg edx, eax  ; EDX := file type; EAX := junk.
+		xor eax, eax  ; EAX := 0.
+		cmp edx, byte FILE_TYPE_CHAR
+		sete al
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of _ioctl_wrapper.
-		cmp byte [__oscompat], OSCOMPAT.FREENETBSD
+		push esp  ; Argument 3 arg of @ioctl_wrapper.
+		cmp byte [@oscompat], OSCOMPAT.FREENETBSD
 		je short .freenetbsd
     .linux_or_sysv:
 		push strict dword IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
@@ -1432,11 +1770,11 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
     .freenetbsd:
 		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
-  %if XV6I386==0
+  %if XV6I386+WIN32WL==0
     .ioctl_number_pushed:
 		push eax  ; Argument fd of this isatty(...).
-		call _ioctl_wrapper
-		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of _ioctl_wrapper above from the stack, and also clean up the arg struct.
+		call @ioctl_wrapper
+		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of @ioctl_wrapper above from the stack, and also clean up the arg struct.
 		; Now convert result EAX: -1 to 0, everything else to 1.
 		inc eax
     %if 0  ; Faster (because it avoids the jump) but 1 byte longer.
@@ -1448,6 +1786,8 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		inc eax  ; EAX := 1.
       .have_retval:
     %endif
+  %endif
+  %if XV6I386==0
 		pop edx  ; Restore.
 		pop ecx  ; Restore.
   %endif
@@ -1457,7 +1797,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 ; --- System-independent libc functions.
 
 %ifdef __NEED__strlen  ; Longer code than strlen_.
-  _strlen: libc_export 'size_t __cdecl strlen(const char *s);'
+  _strlen: __prog_libc_export 'size_t __cdecl strlen(const char *s);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
 		xor eax, eax
@@ -1471,7 +1811,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 %endif
 
 %ifdef __NEED_strlen_
-  strlen_: libc_export 'size_t __watcall strlen(const char *s);'
+  strlen_: __prog_libc_export 'size_t __watcall strlen(const char *s);'
 		push edi  ; Save.
 		xchg edi, eax  ; EDI := argument s; EAX : = junk.
 		xor eax, eax
@@ -1485,7 +1825,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 %endif
 
 %ifdef __NEED__memset  ; Longer code than memset_.
-  _memset: libc_export 'void * __cdecl memset(void *s, int c, size_t n);'
+  _memset: __prog_libc_export 'void * __cdecl memset(void *s, int c, size_t n);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
 		mov al, [esp+0xc]  ; Argument c.
@@ -1498,7 +1838,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 %endif
 
 %ifdef __NEED_memset_
-  memset_: libc_export 'void * __watcall memset(void *s, int c, size_t n);'
+  memset_: __prog_libc_export 'void * __watcall memset(void *s, int c, size_t n);'
 		push edi  ; Save.
 		xchg edi, eax  ; EDI := EAX (argument s); EAX := junk.
 		xchg eax, edx  ; EAX := EDX (argument c); EDX := junk.
@@ -1512,7 +1852,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 %endif
 
 %ifdef __NEED__memcpy  ; Longer code than memcpy_.
-  _memcpy: libc_export 'void * __cdecl memcpy(void *dest, const void *src, size_t n);'
+  _memcpy: __prog_libc_export 'void * __cdecl memcpy(void *dest, const void *src, size_t n);'
 		push edi
 		push esi
 		mov ecx, [esp+0x14]
@@ -1527,7 +1867,7 @@ _exit:  libc_export '__noreturn void __cdecl  exit(int exit_code);'
 %endif
 
 %ifdef __NEED_memcpy_
-  memcpy_: libc_export 'void * __watcall memcpy(void *dest, const void *src, size_t n);'
+  memcpy_: __prog_libc_export 'void * __watcall memcpy(void *dest, const void *src, size_t n);'
 		push edi
 		xchg esi, edx
 		xchg edi, eax  ; EDI := dest; EAX := junk.

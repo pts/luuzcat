@@ -112,7 +112,9 @@ minicc -ansi -pedantic -march=i386 -Wno-n201 -o luuzcat luuzcat.c unscolzh.c unc
     cmp test_C1.good test_C1.bin
 
 # TODO(pts): Try `-os -oh' (more optimizations) here and elsewhere. What difference does it make?
-wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o luuzcat.c
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o -D_NOSYS_ONLY_BINARY luuzcat.c
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=luuzcatt.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
+wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=luuzcatr.o -D_NOSYS_ONLY_BINARY -D_NOSYS_CRLF luuzcat.c  # Always prints \r\n (CRLF) to stderr.
 wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o unscolzh.c
 wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o uncompact.c
 wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za -wx -wce=308 -wcd=201 -fo=.o unopack.c
@@ -123,7 +125,7 @@ wcc386 -q -bt=linux -D_NOSYS32 -os -s -j -ei -of+ -ec -fr -zl -zld -zp=4 -3r -za
 perl=tools/miniperl-5.004.04.upx
 "$perl" -e0 || perl=perl  # Use the system perl(1) if tools is not available.
 fi=0
-for f in luuzcat.o unscolzh.o uncompact.o unopack.o unpack.o undeflate.o uncompress.o unfreeze.o; do
+for f in luuzcat.o luuzcatt.o luuzcatr.o unscolzh.o uncompact.o unopack.o unpack.o undeflate.o uncompress.o unfreeze.o; do
   fi=$((fi+1))  # For local variables.
   wdis -a -fi -fu -i=@ "$f" >"${f%.*}_32.wasm"
   "$perl" wasm2nasm.pl "$fi" <"${f%.*}_32.wasm" >"${f%.*}_32.nasm"
@@ -144,6 +146,8 @@ ibcs-us ./luuzcatx.elf <test_C1_new9.Z >test_C1.bin
 
 # As a proof-of-concept, we recompile the object files with NASM spearately.
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcat_32y.o luuzcat_32.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatt_32y.o luuzcatt_32.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatr_32y.o luuzcatr_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unscolzh_32y.o unscolzh_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompact_32y.o uncompact_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unopack_32y.o unopack_32.nasm
@@ -154,7 +158,7 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unfreeze_32y.o unfreeze_32.n
 dneeds="-D__NEED__write -D__NEED__read -D__NEED_isatty_ -D__NEED___argc -D__NEED__cstart_ -D__NEED_memset_ -D__NEED_memcpy_ -D__NEED_strlen_"
 # zsh(1) SH_WORD_SPLIT is needed by $dneeds below.
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES= -D__GLOBAL_main_=2 $dneeds -o luuzcatz.o progi386.nasm
-# !! Exampine the output of wlink (even better: analyze the .o files with Perl), autogenerate the `-D__NEED_...'s.
+# !! Examine the output of wlink (even better: analyze the .o files with Perl), autogenerate the `-D__NEED_...'s.
 wlink op q form elf ru freebsd disa 1080 op noext op d op nored op start=_start op norelocs op exporta n luuzcatz.elf f luuzcat.o f unscolzh.o f uncompact.o f unopack.o f unpack.o f undeflate.o f uncompress.o f unfreeze.o f luuzcatz.o
 # If we ignore section alignment, luuzcatz.elf is a few dozen bytes smaller than luuzcatx.elf, because NASM was able to optimize the jump instructions better whan wcc386(1) (even than `wcc386 -os -oh').
 ./luuzcatz.elf <test_C1_new9.Z >test_C1.bin
@@ -164,12 +168,23 @@ ibcs-us ./luuzcatz.elf <test_C1_new9.Z >test_C1.bin
 
 dneeds="-D__NEED_G@_write -D__NEED_G@_read -D__NEED_G@isatty_ -D__NEED_G@__argc -D__NEED_G@_cstart_ -D__NEED_G@memset_ -D__NEED_G@memcpy_ -D__NEED_G@strlen_"
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES= -D__GLOBAL_G@main_=2 $dneeds -o luuzcaty.o progi386.nasm
-# !! Exampine the output of wlink (even better: analyze the .o files with Perl), autogenerate the `-D__NEED_...'s.
+# !! Examine the output of wlink (even better: analyze the .o files with Perl), autogenerate the `-D__NEED_...'s.
 wlink op q form elf ru freebsd disa 1080 op noext op d op nored op start=_start op norelocs op exporta n luuzcaty.elf f luuzcat_32y.o f unscolzh_32y.o f uncompact_32y.o f unopack_32y.o f unpack_32y.o f undeflate_32y.o f uncompress_32y.o f unfreeze_32y.o f luuzcaty.o
 ./luuzcaty.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ibcs-us ./luuzcaty.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
+
+# `op st=1024K' is a better general default.
+dneeds="-D__NEED_G@_write -D__NEED_G@_read -D__NEED_G@isatty_ -D__NEED_G@__argc -D__NEED_G@_cstart_ -D__NEED_G@memset_ -D__NEED_G@memcpy_ -D__NEED_G@strlen_"
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES= -D__GLOBAL_G@main_=2 $dneeds -DWIN32WL -o luuzcatp.o progi386.nasm
+# We omit `op norelocs', otherwise WDOSX wouldn't be able to run it.
+# We omit `op exporta', because we don't need these symbols.
+wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 1080 op noext op d op nored op start=_start n luuzcatp.exe f luuzcatp.o f luuzcatr_32y.o f unscolzh_32y.o f uncompact_32y.o f unopack_32y.o f unpack_32y.o f undeflate_32y.o f uncompress_32y.o f unfreeze_32y.o
+# We need non-empty command-line because dosbox.nox.static incorrectly reports that stdin is a TTY.
+dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatp.exe -cd <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+# !! Add a fully functional implementation to the DOS stub.
 
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                        -o luuzcat.elf  progi386.nasm
 chmod +x luuzcat.elf

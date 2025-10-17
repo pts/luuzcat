@@ -8,29 +8,50 @@
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DMINIX2I386 -o hello.m23 progi386.nasm && printf ThereIsJunk >>hello.m23 && chmod +x hello.m23
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DV7X86 -o hello.v7x progi386.nasm && printf ThereIsJunk >>hello.v7x && chmod +x hello.v7x
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DXV6I386 -o hello.x63 progi386.nasm && printf ThereIsJunk >>hello.x63 && chmod +x hello.x63
+; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES="'hello.nasm'" -DWIN32WL -o hellop.o progi386.nasm && wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 1080 op noext op d op nored op start=_start n hellop.exe f hellop.o
 
 cpu 386
 bits 32
 
-;extern __argc
 extern _write
-extern isatty_
+;extern __argc
+%if 0
+  extern _isatty
+%else
+  extern isatty_
+%endif
 extern _exit
+extern setmode_
+
 global main_
 main_:
+%if 0
+		xor eax, eax
+		inc eax  ; EAX := STDOUT_FILENO.
+		mov dl, 4  ; O_BINARY
+		call setmode_
+%endif
 
 		push strict byte msg.size
 		push strict dword msg
 		push strict byte 1  ; STDOUT_FILENO.
 		call _write
 		add esp, 3*4  ; Clean up arguments of _write above from the stack.
+		push eax
+		call _exit
 		cmp dword [bssvar], byte 0
 		je short .ok
 		push byte 7  ; Indicate failure with exit(7) if there was junk in the file after the last .data byte in the header.
 		call _exit  ; Doesn't return.
-.ok:
+  .ok:
 		xor eax, eax  ; EAX := STDIN_FILENO == 0.
+%if 0
+		push eax
+		call _isatty
+		pop ecx  ; Clean up argument of _isatty above from the stack.
+%else
 		call isatty_  ; isatty(STDIN_FILENO).
+%endif
 		ret  ; exit(1) if stdin is a TTY, 0 otherwise.
 
 %idefine foo bar
@@ -42,7 +63,6 @@ main_:
 %error FOO1
 %endif
 
-
 section .rodata.str  ; Synonym of CONST .
 ;section CONST align=8  ; Error, not allowed to specify alignment.
 ;section  ; Error: missing argument.
@@ -51,7 +71,8 @@ section .rodata.str  ; Synonym of CONST .
 ;section _DATA_UNA
 ;section CONST2
 msg:
-		db 'Hello, World!', 10
+		db 'Hello, '  ; , 10
+		db 'World!', 10
 .size equ $-msg
 		;times ($$-$)&3 db '_'  ; Alingment padding to avoid NULs.
 

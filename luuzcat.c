@@ -114,6 +114,15 @@ main0() {
   const char *argv1 = main0_argv1();
   ub8 flags = 0;
 
+#ifdef USE_DEBUG_ARGV
+  (void)!write(STDERR_FILENO, WRITE_PTR_ARG_CAST(argv[0]), strlen(argv[0]));
+  if (argv[1] != NULL) {
+    (void)!write(STDERR_FILENO, WRITE_PTR_ARG_CAST(";"), 1);
+    (void)!write(STDERR_FILENO, WRITE_PTR_ARG_CAST(argv[1]), strlen(argv[1]));
+  }
+  (void)!write(STDERR_FILENO, WRITE_PTR_ARG_CAST(".\r\n"), 3);
+  return 0;
+#endif
   /* We display the usage message if the are command-line arguments (or the
    * first argument is empty), and stdin is a terminal (TTY).
    */
@@ -131,6 +140,7 @@ main0() {
 
 #if O_BINARY  /* For DOS, Windows (Win32 and Win64) and OS/2. */
   setmode(STDIN_FILENO, O_BINARY);
+  /* if (!isatty(STDOUT_FILENO)) -- we don't do this, because isatty(...) always returns true in some emulators. */
   setmode(STDOUT_FILENO, O_BINARY);  /* Prevent writing (in write(2)) LF as CRLF on DOS, Windows (Win32) and OS/2. */
 #endif
   /* !! Test reinitialization by decompressing the same file again, and also a different file. */

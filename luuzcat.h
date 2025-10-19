@@ -113,8 +113,13 @@
      */
     __declspec(naked) void __watcall _comstart(void) {
         __asm { xor ax, ax }
-        __asm { mov di, offset _edata } __asm { mov cx, offset _end }
-        __asm { sub cx, di } __asm { rep stosb } __asm { jmp main0 } }
+        __asm { mov di, offset _edata }
+#    ifdef _DOSCOMSTART_DISTART
+          __asm { mov ax, offset _end }  /* This code is deliberately incorrect (it should be `mov cx, ...'). It's size optimization, because `mov cx, _end-_edata' doesn't work here. shorten_to_bss.pl will fix it. */
+#    else
+          __asm { mov cx, offset _end } __asm { sub cx, di }
+#    endif
+        __asm { rep stosb } __asm { jmp main0 } }
 
     /* At the end, the `ret' instruction will exit(0) the DOS .com program. */
 #    define main0() void __watcall main0(void)
@@ -133,16 +138,16 @@
   /* Like write(...), but count must be nonzero. */
   int write_nonzero(int fd, const void *buf, unsigned int count);
 #  pragma aux write_nonzero = "mov ah, 40h"  "int 21h"  "jnc ok"  \
-      "mov ax, -1"  "ok:"  \
+      "sbb ax, ax"  "ok:"  \
       __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
 
   int write(int fd, const void *buf, unsigned count);
 #  pragma aux write = "xor ax, ax"  "jcxz ok"  "mov ah, 40h"  "int 21h" \
-      "jnc ok"  "mov ax, -1"  "ok:"  \
+      "jnc ok"  "sbb ax, ax"  "ok:"  \
       __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
 
   int read(int fd, void *buf, unsigned int count);
-#  pragma aux read = "mov ah, 3fh"  "int 21h"  "jnc ok"  "mov ax, -1"  "ok:" \
+#  pragma aux read = "mov ah, 3fh"  "int 21h"  "jnc ok"  "sbb ax, ax"  "ok:" \
       __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
 
   /* Just returns whether fd is a character device. (On Unix, there are

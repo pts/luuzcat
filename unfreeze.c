@@ -253,7 +253,13 @@ static unsigned int decode_distance(um8 freeze12_code67) {
   return (big.freeze.code[i] << freeze12_code67) | ((i << big.freeze.d_len[i]) & (freeze12_code67 == 6 ? 0x3f : 0x7f)) | GetNBits(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
 }
 
-static const um8 table1[8] = { 0, 0, 1, 3, 8, 12, 24, 16 };
+#if defined(__WATCOMC__) && defined(IS_X86_16) && (defined(_PROGX86_CSEQDS) || defined(_DOSCOMSTART) || defined(__COM__))  /* Hack to avoid alignment NUL byte before it. */
+  /* Neither `#pragma data_seg' nor `__based(__segname(...))' is able to put data a byte-aligned section (segment), so we put it to _TEXT. */
+  __declspec(naked) void __watcall table1_func(void) { __asm { db 0, 0, 1, 3, 8, 12, 24, 16 } }  /* Luckily, the disassembly of this is self-contained for 8086. */
+  #define table1 ((const um8*)table1_func)
+#else
+  static const um8 table1[8] = { 0, 0, 1, 3, 8, 12, 24, 16 };
+#endif
 
 /* Initializes static Huffman arrays.
  * With __WATCMC__, table index here is 1-based, just like in freeze-2.5.0/huf.c.

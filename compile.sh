@@ -258,7 +258,7 @@ ibcs-us ./luuzcat.coff <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 # We compile with the OpenWatcom C compiler to a DOS 8086 .com program, but we don't use the OpenWatcom libc.
-wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o luuzcat.c
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o -D_DOSCOMSTART_DISTART luuzcat.c
 wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o unscolzh.c
 wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o uncompact.c
 wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o unopack.c
@@ -267,6 +267,7 @@ wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -o
 wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o uncompress.c
 wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o unfreeze.c
 wlink op q form dos com op d op nored op start=_comstart_ n luuzcatc.com f luuzcat.o f unscolzh.o f uncompact.o f unopack.o f unpack.o f undeflate.o f uncompress.o f unfreeze.o
+"$perl" shorten_to_bss.pl luuzcatc.com
 rm -f luuzcat.o unscolzh.o uncompact.o unopack.o unpack.o undeflate.o unfreeze.o
 ./kvikdos luuzcatc.com <XFileMgro.sz >XFileMgro
     cmp XFileMgro.good XFileMgro

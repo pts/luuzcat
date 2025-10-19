@@ -76,6 +76,28 @@
      * beginning of it. Returns 0 on out-of-memory.
      */
     unsigned __watcall progx86_para_alloc(unsigned para_count);
+    /* It must not modify `bp', otherwise the OpenWatcom C compiler omits the
+     * `pop bp' between the `mov sp, bp' and the `ret'.
+     */
+#    ifdef _PROGX86_DOSPSPARGV
+      char *main0_argv1(void);
+#      pragma aux main __value [__al] __modify [__ah __bx __cx __dx __si __di __es]
+#      pragma aux main0_argv1 = "mov si, 81h"  "next:"  "lodsb"  "cmp al, 32" \
+          "je next"  "cmp al, 9"  "je next"  "dec si" \
+          __value [__si] __modify __exact [__si __al]  /* !!! This is correct for a DOS .com program, and a PSP-based, short-model DOS .exe program (rare). */
+#      define main0() unsigned char __watcall main(void)
+#      define main0_exit0() return EXIT_SUCCESS
+#      define main0_exit(exit_code) return (exit_code)
+#      define main0_is_progarg_null(arg) 0  /* Size optimization, never NULL. */
+#    else
+#      pragma aux main __value [__ax] __modify [__ah __bx __cx __dx __si __di __es]
+#    endif
+#  endif
+#  ifdef __386__
+    /* It must not modify `bp', otherwise the OpenWatcom C compiler omits the
+     * `pop bp' between the `mov sp, bp' and the `ret'.
+     */
+#    pragma aux main __value [__eax] __modify [__ebx __ecx __edx __esi __edi]
 #  endif
 #  ifdef _PROGX86_CRLF
 #    define LUUZCAT_NL "\r\n"
@@ -135,6 +157,7 @@
 #    define main0() void __watcall main0(void)
 #    define main0_exit0() do {} while (0)
 #    define main0_exit(exit_code) _exit(exit_code)
+#    define main0_is_progarg_null(arg) 0  /* Size optimization, never NULL. */
 #  endif
 
 

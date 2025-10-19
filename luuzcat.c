@@ -109,10 +109,11 @@ static const char more_msg[] = "more compressed input expected" LUUZCAT_NL;
 #  define IS_PROGARG_TERMINATOR(c) is_progarg_terminator(c)
 #endif
 
-#ifndef main0
+#ifndef main0  /* True for standard C. */
 #  define main0() int main(int argc, char **argv)
 #  define main0_exit0() return EXIT_SUCCESS
 #  define main0_argv1() ((void)argc, argv[0] ? argv[1] : NULL)
+#  define main0_is_progarg_null(arg) ((arg) == NULL)
 #endif
 
 main0() {
@@ -132,10 +133,10 @@ main0() {
   /* We display the usage message if the are command-line arguments (or the
    * first argument is empty), and stdin is a terminal (TTY).
    */
-  if ((argv1 == NULL || IS_PROGARG_TERMINATOR(*argv1)) && isatty(STDIN_FILENO)) { do_usage:
+  if ((main0_is_progarg_null(argv1) || IS_PROGARG_TERMINATOR(*argv1)) && isatty(STDIN_FILENO)) { do_usage:
     fatal_msg(usage_msg);
   }
-  if (argv1 != NULL) {
+  if (!main0_is_progarg_null(argv1)) {
     while (!IS_PROGARG_TERMINATOR(b = *(const unsigned char*)argv1++)) {
       b |= 0x20;  /* Convert uppercase A-Z to lowercase a-z. */
       if (b == 'r') flags |= MAIN_FLAG_RAW_DEFLATE;

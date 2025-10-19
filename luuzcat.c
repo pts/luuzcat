@@ -96,11 +96,12 @@ unsigned int flush_write_buffer(unsigned int size) {
 
 union big_big big;
 
-static const char usage_msg[] = "Usage: luuzcat [-r] <input.gz >output" LUUZCAT_NL "https://github.com/pts/luuzcat" LUUZCAT_NL;
-static const char more_msg[] = "more compressed input expected" LUUZCAT_NL;
+/* The more usual `static const char usage_msg[] = "...";' also works, but __WATCOMC__ would align it to 4 or 2. */
+#define USAGE_MSG ("Usage: luuzcat [-r] <input.gz >output" LUUZCAT_NL "https://github.com/pts/luuzcat" LUUZCAT_NL)
+#define MORE_MSG ("more compressed input expected" LUUZCAT_NL)
 
 #define MAIN_FLAG_RAW_DEFLATE 8
-#define MAIN_FLAG_SUBSEQUENT 5  /* This is strlen("more "), of the prefix of more_msg. */
+#define MAIN_FLAG_SUBSEQUENT 5  /* This is strlen("more "), of the prefix of MORE_MSG. */
 
 #if ' ' == 32  /* ASCII system. */
 #  define IS_PROGARG_TERMINATOR(c) ((unsigned char)(c) <= ' ')  /* ASCII only: matches '\0' (needed for Unix), '\t', '\n', '\r' (needed for DOS) and ' '. */
@@ -134,7 +135,7 @@ main0() {
    * first argument is empty), and stdin is a terminal (TTY).
    */
   if ((main0_is_progarg_null(argv1) || IS_PROGARG_TERMINATOR(*argv1)) && isatty(STDIN_FILENO)) { do_usage:
-    fatal_msg(usage_msg);
+    fatal_msg(USAGE_MSG);
   }
   if (!main0_is_progarg_null(argv1)) {
     while (!IS_PROGARG_TERMINATOR(b = *(const unsigned char*)argv1++)) {
@@ -196,7 +197,7 @@ main0() {
       }
     } else if (b == 0) {  /* Allow NUL bytes. */
     } else { bad_signature:
-      fatal_msg(more_msg + 5 - (flags & MAIN_FLAG_SUBSEQUENT));
+      fatal_msg(MORE_MSG + 5 - (flags & MAIN_FLAG_SUBSEQUENT));
     }
     flags |= MAIN_FLAG_SUBSEQUENT;
   }

@@ -48,17 +48,27 @@
 #  else
 #    define __PROGX86_IO1_CALLCONV __cdecl
 #  endif
+#  define LIBC_HAVE_WRITE_NONZERO 1
+  int __PROGX86_IO1_CALLCONV write_binary(int fd, const void *buf, unsigned count);
+  int __PROGX86_IO1_CALLCONV write_nonzero_binary(int fd, const void *buf, unsigned count);
 #  ifdef _PROGX86_ONLY_BINARY
 #    define write(fd, buf, count) write_binary(fd, buf, count)
-    int __PROGX86_IO1_CALLCONV write_binary(int fd, const void *buf, unsigned count);
+#    define write_nonzero(fd, buf, count) write_nonzero_binary(fd, buf, count)
 #  else
-#    define O_BINARY 4
+#    define O_BINARY 4  /* Any power of 2 at least 4 is fine. */
     int setmode(int fd, unsigned char mode);
     int __PROGX86_IO1_CALLCONV write(int fd, const void *buf, unsigned count);
+    int __PROGX86_IO1_CALLCONV write_nonzero(int fd, const void *buf, unsigned count);
 #  endif
   int __PROGX86_IO1_CALLCONV read(int fd, void *buf, unsigned int count);
   int isatty(int fd);
-  __declspec(noreturn) void exit(unsigned char exit_code);
+#  if IS_X86_16 && defined(_PROGX86_DOSEXIT)  /* Shorter for luuzcat. */
+    __declspec(aborts) void __libc_exit_low(unsigned int exit_code_plus_0x4c00);
+#    pragma aux __libc_exit_low = "int 21h" __parm [__ax] __modify __exact []
+#    define exit(exit_code) __libc_exit_low(0x4c00U + (unsigned char)(exit_code))
+#  else
+    __declspec(aborts) void exit(unsigned char exit_code);
+#  endif
   unsigned int strlen(const char *s);
   /* To prevent wlink: Error! E2028: strlen_ is an undefined reference */
   void *memset(void *s, int c, unsigned int n);
@@ -110,16 +120,17 @@
      */
 #    ifdef _PROGX86_DOSPSPARGV
       char *main0_argv1(void);
-#      pragma aux main __value [__al] __modify [__ah __bx __cx __dx __si __di __es]
+#      pragma aux main __modify [__ax __bx __cx __dx __si __di __es]
 #      pragma aux main0_argv1 = "mov si, 81h"  "next:"  "lodsb"  "cmp al, 32" \
           "je next"  "cmp al, 9"  "je next"  "dec si" \
           __value [__si] __modify __exact [__si __al]  /* !!! This is correct for a DOS .com program, and a PSP-based, short-model DOS .exe program (rare). */
-#      define main0() unsigned char __watcall main(void)
-#      define main0_exit0() return EXIT_SUCCESS
-#      define main0_exit(exit_code) return (exit_code)
+#      define main0() void __watcall main(void)
+#      define main0_exit0() do {} while (0)
+#      define main0_exit(exit_code) _exit(exit_code)
 #      define main0_is_progarg_null(arg) 0  /* Size optimization, never NULL. */
+#      pragma extref "progx86_main_returns_void";
 #    else
-#      pragma aux main __value [__ax] __modify [__ah __bx __cx __dx __si __di __es]
+#      pragma aux main __value [__ax] __modify [__bx __cx __dx __si __di __es]
 #    endif
 #  endif
 #  ifdef __386__
@@ -225,9 +236,14 @@
       "test dl, dl"  "jns done"  "inc ax"  "done:" \
       __value [__ax] __parm [__bx] __modify __exact [__ax __bx __dx]
 
-  __declspec(noreturn) void exit(unsigned char exit_code);
-#  pragma aux exit = "mov ah, 4ch"  "int 21h" \
-      __parm [__al] __modify __exact []
+#  if 1  /* Shorter for luuzcat. */
+    __declspec(aborts) void __libc_exit_low(unsigned int exit_code_plus_0x4c00);
+#    pragma aux __libc_exit_low = "int 21h" __parm [__ax] __modify __exact []
+#    define exit(exit_code) __libc_exit_low(0x4c00U + (unsigned char)(exit_code))
+#  else
+    __declspec(aborts) void exit(unsigned char exit_code);
+#    pragma aux exit = "mov ah, 4ch"  "int 21h" __parm [__al] __modify __exact []
+#  endif
 
   char *main0_argv1(void);
 #  pragma aux main0_argv1 = "mov si, 81h"  "next:"  "lodsb"  "cmp al, 32" \
@@ -360,22 +376,23 @@ typedef unsigned long um32;  /* At least 32 bits. */
 #ifdef __noreturn
 #else
 #  ifdef __GNUC__
-#    define __noreturn __attribute__((__noreturn__))
+#    define __noreturn  __attribute__((__noreturn__))
 #  else
 #    ifdef __WATCOMC__
-#      define __noreturn __declspec(noreturn)
+      /* __declspec(noreturn) is similar but it generates longer code: it generates `push ...' instructions at the beginning of the function code. */
+#      define __noreturn __declspec(aborts)
 #    else
 #      define __noreturn
 #    endif
 #  endif
 #endif
 
-#ifndef LIBC_HAVE_WRITE_NONZERO_VOID
-#  define write_nonzero_void(fd, buf, count) (void)!write(fd, buf, count)
-#endif
-
 #ifndef LIBC_HAVE_WRITE_NONZERO
 #  define write_nonzero(fd, buf, count) write(fd, buf, count)
+#endif
+
+#ifndef LIBC_HAVE_WRITE_NONZERO_VOID
+#  define write_nonzero_void(fd, buf, count) (void)!write_nonzero(fd, buf, count)
 #endif
 
 #if IS_DOS_16 && (defined(__WATCOMC__) || defined(__TURBOC__))
@@ -393,6 +410,9 @@ typedef char assert_sizeof_um16[sizeof(um16) >= 2 ? 1 : -1];
 
 /* --- Error reporting. */
 
+#if defined(__WATCOMC__) && IS_X86_16
+#  pragma aux fatal_msg __parm [__dx]  /* This is better argument register allocation than the default (__ax). */
+#endif
 __noreturn void fatal_msg(const char *msg);
 __noreturn void fatal_read_error(void);
 __noreturn void fatal_write_error(void);

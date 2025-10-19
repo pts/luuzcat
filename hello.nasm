@@ -9,13 +9,14 @@
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DV7X86 -o hello.v7x progx86.nasm && printf ThereIsJunk >>hello.v7x && chmod +x hello.v7x
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DXV6I386 -o hello.x63 progx86.nasm && printf ThereIsJunk >>hello.x63 && chmod +x hello.x63
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES="'hello.nasm'" -DWIN32WL -o hellop.o progx86.nasm && wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 1080 op noext op d op nored op start=_start n hellop.exe f hellop.o
-; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DDOSCOM -o hello.com progx86.nasm && printf ThereIsJunk >>hello.com && chmod +x hello.com
+; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DDOSCOM -o hello.com progx86.nasm && printf ThereIsJunk >>hello.com
+; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DDOSEXE -o hellod.exe progx86.nasm && printf ThereIsJunk >>hellod.exe
 
 __prog_default_cpu_and_bits  ; Not needed, just to check that progx86.nasm is included.
 ;cpu 386
 ;bits 32
 
-%if DOSCOM
+%if DOSCOM+DOSEXE
   extern write_
 %else
   extern _write
@@ -27,14 +28,14 @@ __prog_default_cpu_and_bits  ; Not needed, just to check that progx86.nasm is in
   extern isatty_
 %endif
 extern _exit
-%if DOSCOM
+%if DOSCOM+DOSEXE
 %elif 0
   extern setmode_
 %endif
 
 global main_
 main_:
-%if DOSCOM
+%if DOSCOM+DOSEXE
 		mov bx, msg.size
 		mov dx, msg
 		mov ax, 1  ; STDOUT_FILENO.

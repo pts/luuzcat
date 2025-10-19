@@ -46,6 +46,13 @@
 ; * prog.com (-DDOSCOM): DOS .com program. MS-DOS >=2.0 (1983-03-08), IBM PC
 ;   DOS >=2.0 (1983-03-08) and DOS emulators. Can use more than 64 KiB of
 ;   memory using far pointers.
+; * progd.exe (-DDOSEXE): DOS .exe program. MS-DOS >=2.0 (1983-03-08), IBM PC
+;   DOS >=2.0 (1983-03-08) and DOS emulators. Memory limits are the same as
+;   DOS .com (even though it could easily be 64 KiB of code + 64 KiB of
+;   data, but with that we'd lose easy PSP access), so it also uses the tiny
+;   model (code + data + stack <= 0xff00 bytes).
+;   !!! Specify -DDOSEXE_STUB to get
+;   a DOS .exe best fitted for the `wlink op stub=...` Win32 stub.
 ;
 ; High priority TODOs:
 ;
@@ -121,16 +128,21 @@
 %else
   %define DOSCOM 0
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL+DOSCOM==0
+%ifdef DOSEXE
+  %define DOSEXE 1
+%else
+  %define DOSEXE 0
+%endif
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE==0
   %define ELF 1  ; Default.
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL+DOSCOM>1
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE>1
   %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED
   times -1 nop
 %endif
 
 %macro __prog_default_cpu_and_bits 0
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     bits 16
     cpu 8086
   %else
@@ -149,7 +161,7 @@ __prog_default_cpu_and_bits
 %else
   %define __PROG_IS_OBJ_OR_ELF 0
 %endif
-%if DOSCOM
+%if DOSCOM+DOSEXE
   __prog_general_alignment equ 2
 %else
   __prog_general_alignment equ 4
@@ -469,10 +481,60 @@ __prog_default_cpu_and_bits
   %elif DOSCOM
     %define __SECTIONNAME_.startsec STARTSEC
     %define __FILESECTIONNAME_STARTSEC .startsec  ; Only DOSCOM has it, to prevent the need for `jmp _start' at the beginning of the DOS .com program file.
+    __prog_para_count_from_psp equ 0x1000  ; 64 KiB == 0x1000 16-byte paragraphs.
     ; No header for DOS .com programs, everything is implicit.
     section .startsec align=0x10000 valign=0x100 start=0 vstart=0x100
     _startsec_start:
     section .text align=1 valign=1 follows=.startsec vfollows=.startsec
+    _text_start:
+    section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Same PT_LOAD as .text.
+    _rodatastr_start:
+    section .rodata align=2 valign=2 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text.
+    _rodata_start:
+    section .data align=2 valign=2 follows=.rodata vfollows=.rodata  ; There is no alignment at EOF if .rodata and .data are empty.
+    _data_start:
+    section .bss align=2 follows=.data nobits  ; align=4 is also important for the clearing with `rep stosd'.
+    _bss_start:
+    section .text
+  %elif DOSEXE
+    ;__prog_para_count_from_psp equ ... ; Populated in f_end.
+    %ifdef DOSEXE_STACK_SIZE
+      %assign DOSEXE_STACK_SIZE DOSEXE_STACK_SIZE
+    %else
+      %assign DOSEXE_STACK_SIZE 0xc0+0x100  ; 0xc0 is the minimum (see below), 0x100 is actual stack usage of the program.
+    %endif
+    %if DOSEXE_STACK_SIZE<0xc0  ; Minimum safe value to be reserved for the stack, based on https://retrocomputing.stackexchange.com/a/31813
+      %assign DOSEXE_STACK_SIZE 0xc0
+    %endif
+    __prog_dosexe_hdrsize equ 1
+    section .header
+    %if __prog_dosexe_hdrsize==0
+      section .text align=0x10 valign=0x100 follows=.header vstart=0x100
+    %endif
+    dos_exe_header:  ; DOS .exe header of the compressor: http://justsolve.archiveteam.org/wiki/MS-DOS_EXE
+    .signature:	db 'MZ'
+    .lastsize:	dw (__prog_dosexe_file_image_size+(__prog_dosexe_hdrsize<<4))&0x1ff  ; Length of load module mod 200H.
+    .nblocks:	dw (__prog_dosexe_file_image_size+(__prog_dosexe_hdrsize<<4)+0x1ff)>>9  ; Number of 200H pages in load module.
+    .nreloc:	dw 0  ; Number of relocation items; no relocations.
+    .hdrsize:	dw __prog_dosexe_hdrsize  ; Size of header in paragraphs.
+    .minalloc:	dw __prog_dosexe_minalloc  ; Minimum number of paragraphs required above load mod.
+    .maxalloc:	dw 0xffff  ; Maximum number of paragraphs required above load mod.
+    .ss:	dw 0xfff0  ;  Offset of stack segment in load module. Initial CS == DS == ES == PSP segment.
+    %if __prog_dosexe_hdrsize==1
+      section .text align=0x10 valign=0x100 follows=.header vstart=0x100
+      dos_exe_header_continued:
+    %endif
+    .sp:	dw __prog_dosexe_offset_limit&0xffff  ; Initial value of SP.
+    .checksum:	dw 0  ; Checksum. We don't compute it.
+    .ip:	dw _start  ; Initial value of IP.
+    .cs:	dw 0xfff0  ; Offset of code segment within load module (segment). Initial SS == DS == ES == PSP segment.
+    %if 0  ; Unused header fields.
+      .relocpos: dw 0  ; File offset of first relocation item. Unused because of nreloc == 0.
+      .noverlay: dw 0  ; Overlay number. Unused.
+    %endif
+    %if __prog_dosexe_hdrsize>1
+      section .text align=0x10 valign=0x100 start=(__prog_dosexe_hdrsize<<4) vstart=0x100
+    %endif
     _text_start:
     section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Same PT_LOAD as .text.
     _rodatastr_start:
@@ -489,7 +551,7 @@ __prog_default_cpu_and_bits
   %endif
   section .text
 
-  %macro f_end 0
+  %macro f_end 0  ; !! Rename this to prog_end or something longer.
     ERROR_MISSING_F_END equ 0  ; If you are getting ERROR_MISSING_F_END errors, then add `f_end' to the end of your .nasm source file.
 
     %if DOSCOM
@@ -566,7 +628,11 @@ __prog_default_cpu_and_bits
         _rodata_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start))&3
       %endif
       _data_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_data_endu-_data_start))&3
-    %elif DOSCOM
+    %elif DOSCOM+DOSEXE
+      %if DOSEXE
+        _startsec_start equ 0  ; Fake.
+        _startsec_endu  equ 0  ; Fake.
+      %endif
       %if _rodata_endu==_rodata_start
         _rodatastr_endalign equ 0
       %else
@@ -609,7 +675,7 @@ __prog_default_cpu_and_bits
     section .rodata
     times _rodata_endalign db 0
     _rodata_end:
-    _rodata_size equ $-$$  ; _rodata_size is a multiple of 4.
+    _rodata_size equ $-$$  ; _rodata_size is a multiple of 4 or 2.
     %if ELF
       section .data.una
       times _datauna_endalign db 0
@@ -626,7 +692,7 @@ __prog_default_cpu_and_bits
       _data_endalign_extra equ _data_endalign
     %endif
     _data_end:
-    _data_size equ $-$$  ; _data_size is a multiple of 4.
+    _data_size equ $-$$  ; _data_size is a multiple of 4 or 2.
     section .bss
     %if ELF && IS_OSCOMPAT_ADDED==0
       %define IS_OSCOMPAT_ADDED 1
@@ -640,8 +706,29 @@ __prog_default_cpu_and_bits
     %endif
     resb ($$-$)&(__prog_general_alignment-1)  ; Align end of section to a multiple of 2 or 4.
     _bss_end:
-    _bss_size equ $-$$  ; _bss_size is a multiple of 4.
+    _bss_size equ $-$$  ; _bss_size is a multiple of 4 or 2.
     section .text
+    %if DOSEXE
+      __prog_dosexe_file_image_size equ _text_size+_rodatastr_size+_rodata_size+_data_size
+      __prog_para_count_from_psp equ (0x100+_text_size+_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+DOSEXE_STACK_SIZE+0xf)>>4
+      __prog_dosexe_offset_limit equ 0x100+_text_size+_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+DOSEXE_STACK_SIZE
+      ; This based on the formula used by MS-DOS 6.22, FreeDOS 1.2, DOSBox 0.74-4 and kvikdos. The .lastsize (modulo 0x1ff) value doesn't matter.
+      __prog_dosexe_minalloc0 equ ((_text_size+_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+DOSEXE_STACK_SIZE+0xf)>>4)-((__prog_dosexe_file_image_size+(__prog_dosexe_hdrsize<<4)+0x1ff)>>9<<5)+__prog_dosexe_hdrsize
+      %if __prog_dosexe_minalloc0<1  ; The values 0 and -1 == 0xffff are special. Just use 1 instead of them.
+        __prog_dosexe_minalloc equ 1
+      %else
+        __prog_dosexe_minalloc equ __prog_dosexe_minalloc0
+      %endif
+      %if __prog_dosexe_offset_limit>0x10000
+        %error ERROR_DOSEXE_MEMORY_USAGE_TOO_LARGE
+        times -1 nop
+      %endif
+    %elif DOSCOM
+      %if 0x100+_text_size+_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+0xc0>0x10000  ; 0x100 is the size of the PSP, 0xc0 is reserved for the stack, based on https://retrocomputing.stackexchange.com/a/31813
+        %error ERROR_DOSCOM_MEMORY_USAGE_TOO_LARGE
+        times -1 nop
+      %endif
+    %endif
     %if MINIX2I386
       _data_start_pagemod equ _rodatastr_size+_rodata_size
     %elif S386BSD+V7X86
@@ -945,30 +1032,28 @@ __prog_libc_declare progx86_para_alloc_
 __prog_libc_declare progx86_para_reuse_
 __prog_libc_declare progx86_main_returns_void
 
-%if DOSCOM
+%if DOSCOM+DOSEXE
   __prog_depend _exit, exit_
   __prog_depend __exit, _exit_
-  __prog_depend write_, write_binary_
-  __prog_depend write_nonzero_, write_nonzero_binary_
 %else
   %define __NEED_exit_   ; After main(...) returns.
   %define __NEED__exit   ; After main(...) returns.
 %endif
 __prog_depend _exit, __exit
 __prog_depend exit_, _exit_
-%if XV6I386+WIN32WL+DOSCOM==0
+%if XV6I386+WIN32WL+DOSCOM+DOSEXE==0
   __prog_depend _isatty, @ioctl_wrapper
   __prog_depend isatty_, @ioctl_wrapper
 %endif
 __prog_depend _write, _write_binary
 __prog_depend _write_nonzero, _write_nonzero_binary
-__prog_depend write, write_binary_
+__prog_depend write_, write_binary_
 __prog_depend write_nonzero_, write_nonzero_binary_
-%if DOSCOM==0
+%if DOSCOM+DOSEXE==0
   __prog_depend _write_nonzero_binary, _write_binary
   __prog_depend write_nonzero_, write_
 %endif
-%if DOSCOM+WIN32WL==0
+%if DOSCOM+DOSEXE+WIN32WL==0
   __prog_depend _write_nonzero, _write
   __prog_depend write_nonzero_binary_, write_binary_
 %endif
@@ -1158,15 +1243,16 @@ IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
 %endif
 
 %define __PROG_JMP_MAIN 0
-%if DOSCOM
+%if DOSCOM+DOSEXE
   @cmdline: equ 0x81  ; PSP-relative offset of the CR-terminated command-line string.
-  DOSCOM_PARA_COUNT_FROM_PSP equ 0x1000  ; 64 KiB == 0x1000 16-byte paragraphs.
   @prog_mem_end_seg: equ 2  ; Offset within the DOS Program Segment Prefix (PSP): https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html
   %ifdef __NEED_progx86_para_alloc_
     @first_empty_seg: equ 0x7e  ; An otherwise unused part of the DOS Program Segment Prefix (PSP): https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html
   %endif
   %ifdef __NEED_progx86_main_returns_void
-    %define __PROG_JMP_MAIN 1
+    %if DOSCOM
+      %define __PROG_JMP_MAIN 1  ; When main(...) returns, its `ret' will pop the `0' from the stack, and jumping there does an exit(0).
+    %endif
   %endif
 %endif
 
@@ -1182,7 +1268,7 @@ __prog_section _TEXT
 %endif
 global _start  ; Program entry point. This is a libc implementation detail, we only but still making it global to aid debugging.
 _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
-		; Now the stack looks like (from top to bottom) for XV6I386+WIN32WL+DOSCOM==0:
+		; Now the stack looks like (from top to bottom) for XV6I386+WIN32WL+DOSCOM+DOSEXE==0:
 		;   dword [esp]: argc
 		;   dword [esp+4]: argv[0] pointer
 		;   esp+8...: argv[1..] pointers
@@ -1199,7 +1285,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		;   (Nothing useful pushed.)
 		; Now the stack looks like (from top to bottom) for DOSCOM:
 		;   word [sp]: 0
-%if DOSCOM==0
+		; Now the stack looks like (from top to bottom) for DOSEXE (nothing particular).
+%if DOSCOM+DOSEXE==0
 		cld  ; Not all systems set DF := 0, so we play it safe.
 %endif
 %if ELF  ; Auto-detect the operating system (OSCOMPAT) for ELF.
@@ -1300,14 +1387,14 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push byte OSCOMPAT.SYSV
   .detected:
 %endif  ; Of %if ELF
-%if DOSCOM  ; Clear BSS. DOS doesn't do it for us.
+%if DOSCOM+DOSEXE  ; Clear BSS. DOS doesn't do it for us.
 		xor ax, ax
 		mov di, _bss_start  ; Already aligned to 2.
 		mov cx, (_bss_end-_bss_start+1)>>1
 		rep stosw
   %ifdef __NEED_progx86_para_alloc_
 		mov ax, cs
-		add ax, DOSCOM_PARA_COUNT_FROM_PSP
+		add ax, __prog_para_count_from_psp
 		mov [@first_empty_seg], ax
   %endif
 %endif
@@ -1434,7 +1521,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push edx  ; argv[0]. For simplicity, it contains the double quotes ("), if any.
 		mov edx, esp  ; argv.
 		xchg eax, ecx  ; EAX (argc) := ECX (argc); ECX := junk.
-  %elif DOSCOM
+  %elif DOSCOM+DOSEXE
 		; This is argc--argv--envp initilization code is very
 		; limited: it fakes an empty environment, it fakes an empty
 		; argv[0], and it puts all command-line arguments to argv[1]
@@ -1477,7 +1564,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		lea ebx, [esp+eax*4+4]  ; EBX := envp.
   %endif
   %ifdef __GLOBAL__main  ; int __cdecl main(int argc, char **argv, char **envp).
-    %if DOSCOM
+    %if DOSCOM+DOSEXE
 		push bx  ; envp for _main.
 		push dx  ; argv for _main.
 		push ax  ; argc for _main.
@@ -1514,6 +1601,15 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %error ERROR_MISSING_MAIN_FUNCTION
   times -1 nop
 %endif
+%ifdef __NEED_progx86_main_returns_void
+  %if __PROG_JMP_MAIN
+  %elif DOSEXE
+		int 0x20  ; exit(0) if CS == PSP segment. That's true for DOSEXE.
+  %else
+    %error ERROR_UNEXPECTED_MAIN_RETURNS_VOID
+    times -1 nop
+  %endif
+%endif
 		; Fall through to __watcall exit(...). We already have the return value of main(...) in EAX.
 
 %ifdef __NEED_exit_
@@ -1522,7 +1618,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 %ifdef __NEED_exit_
   _exit_: __prog_libc_export '__noreturn void __watcall _exit(int exit_code);'
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
 		mov ah, 0x4c  ; DOS syscall for _exit(2).
 		int 0x21  ; DOS syscall. Doesn't return.
   %else
@@ -1549,7 +1645,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %elif WIN32WL
 		pop eax  ; Discard return address.
 		call _ExitProcess@4  ; Doesn't return.
-  %elif DOSCOM
+  %elif DOSCOM+DOSEXE
 		pop ax  ; Discard return address.
 		pop ax  ; AX := exit_code.
 		jmp short _exit_  ; Doesn't return.
@@ -1558,7 +1654,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		; Fall through to @simple_syscall3_pop
   %endif
 %endif
-%if DOSCOM
+%if DOSCOM+DOSEXE
   section .text  ; Back from .startsec to .text.
 %endif
 
@@ -1582,7 +1678,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		; Now we could get errno from the negative of EAX.
 		; Fall through to .error.
 %elif WIN32WL
-%elif DOSCOM
+%elif DOSCOM+DOSEXE
 %else
   ; Calls a single systcall of 0, 1, 2 or 3. arguments.
   ;
@@ -1641,7 +1737,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     times -1 nop
   %endif
 %endif
-%if DOSCOM==0
+%if DOSCOM+DOSEXE==0
   %if XV6I386==0
   .error:
 		;neg eax  ; Negation needed only for Linux and Minix 2.x.
@@ -1663,7 +1759,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 ; --- Syscall wrappers (except for SYS.exit, which has been done above).
 
 %ifdef __NEED_read_
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     read_: __prog_libc_export 'int __watcall read(int fd, void *buf, unsigned count);'
 		push cx  ; Save.
 		xchg ax, bx  ; AX := count; BX := fd.
@@ -1680,7 +1776,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED__read
-  %if DOSCOM==0
+  %if DOSCOM+DOSEXE==0
     _read: __prog_libc_export 'int __cdecl read(int fd, void *buf, unsigned count);'
     %if MINIX2I386
 		push ebx  ; Save.
@@ -1741,13 +1837,13 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED_write_
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     write_: __prog_libc_export 'int __watcall write(int fd, const void *buf, unsigned count);'
   %endif
   ; Fall through to write_binary_.
 %endif
 %ifdef __NEED_write_binary_
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     write_binary_: __prog_libc_export 'int __watcall write_binary(int fd, const void *buf, unsigned count);'
 		push cx  ; Save.
 		xchg ax, bx  ; AX := count; BX := fd.
@@ -1771,7 +1867,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED_write_nonzero_
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     %ifdef __NEED_write_
       write_nonzero_: __prog_libc_export_alias write_
     %else
@@ -1782,7 +1878,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   ; Fall through to write_binary_.
 %endif
 %ifdef __NEED_write_nonzero_binary_
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     %ifdef __NEED_write_binary_
       write_nonzero_binary_: __prog_libc_export_alias write_binary_
     %else:
@@ -1807,7 +1903,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED_write_nonzero_binary_DOSREG
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     write_nonzero_binary_DOSREG: __prog_libc_export 'int __usercall write_nonzero_binary_DOSREG [AX](int fd [BX], const void *buf [DX], unsigned count [CX]);'
 		mov ah, 0x40  ; DOS syscall for write(2).
     %ifdef __NEED_read_DOSREG
@@ -1824,7 +1920,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED_read_DOSREG
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     %ifdef __NEED_write_nonzero_binary_DOSREG
       %if $!=write_nonzero_binary_DOSREG.end
         %error ERROR_READ_DOSREG_MUST_START_AFTER_WRITE
@@ -1848,14 +1944,14 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED__write
-  %if WIN32WL+DOSCOM==0
+  %if WIN32WL+DOSCOM+DOSEXE==0
     _write: __prog_libc_export 'int __cdecl write(int fd, const void *buf, unsigned count);'
     _write_nonzero: __prog_libc_export 'int __cdecl write_nonzero(int fd, const void *buf, unsigned count);'
   %endif
   ; Fall through to _write_binary.
 %endif
 %ifdef __NEED__write_binary
-  %if DOSCOM==0
+  %if DOSCOM+DOSEXE==0
     _write_binary: __prog_libc_export 'int __cdecl write_binary(int fd, const void *buf, unsigned count);'
     _write_nonzero_binary: __prog_libc_export 'int __cdecl write_nonzero_binary(int fd, const void *buf, unsigned count);'
     %if MINIX2I386
@@ -2014,7 +2110,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 ; --- System-specific libc functions.
 
 %ifdef __NEED__isatty
-  %if DOSCOM==0
+  %if DOSCOM+DOSEXE==0
     _isatty: __prog_libc_export 'int __cdecl isatty(int fd);'
   %endif
   %if COFF
@@ -2055,7 +2151,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		xor eax, eax  ; EAX := 0.
 		cmp edx, byte FILE_TYPE_CHAR
 		sete al
-  %eilf DOSCOM
+  %eilf DOSCOM+DOSEXE
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -2068,7 +2164,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     .freenetbsd:
 		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
-  %if XV6I386+WIN32WL+DOSCOM==0
+  %if XV6I386+WIN32WL+DOSCOM+DOSEXE==0
     .ioctl_number_pushed:
 		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
 		call @ioctl_wrapper
@@ -2085,14 +2181,14 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     .have_retval:
     %endif
   %endif
-  %if DOSCOM==0
+  %if DOSCOM+DOSEXE==0
 		ret
   %endif
 %endif
 
 %ifdef __NEED_isatty_
   isatty_: __prog_libc_export 'int __watcall isatty(int fd);'
-  %if XV6I386+DOSCOM==0
+  %if XV6I386+DOSCOM+DOSEXE==0
 		push ecx  ; Save.
 		push edx  ; Save.
   %endif
@@ -2134,7 +2230,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		xor eax, eax  ; EAX := 0.
 		cmp edx, byte FILE_TYPE_CHAR
 		sete al
-  %elif DOSCOM
+  %elif DOSCOM+DOSEXE
     ; Just returns whether fd is a character device. (On Unix, there are
     ; non-TTY character devices, but this implementation pretends that they
     ; don't exist.) It works correctly on
@@ -2166,7 +2262,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     .freenetbsd:
 		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
-  %if XV6I386+WIN32WL+DOSCOM==0
+  %if XV6I386+WIN32WL+DOSCOM+DOSEXE==0
     .ioctl_number_pushed:
 		push eax  ; Argument fd of this isatty(...).
 		call @ioctl_wrapper
@@ -2183,7 +2279,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
       .have_retval:
     %endif
   %endif
-  %if XV6I386+DOSCOM==0
+  %if XV6I386+DOSCOM+DOSEXE==0
 		pop edx  ; Restore.
 		pop ecx  ; Restore.
   %endif
@@ -2191,7 +2287,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED_isatty_DOSREG
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     isatty_DOSREG: __prog_libc_export 'int __usercall isatty_DOSREG [AX](int fd [BX]);'
     ; Just returns whether fd is a character device. (On Unix, there are
     ; non-TTY character devices, but this implementation pretends that they
@@ -2214,7 +2310,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED_progx86_para_alloc_
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     ; Allocates para_count << 4 bytes of memory, aligned to 16 (paragraph)
     ; boundary, and returns the segment register value pointing to the
     ; beginning of it. Returns 0 on out-of-memory.
@@ -2237,7 +2333,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED_progx86_para_reuse_
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     ; Finds para_count << 4 bytes of memory, aligned to 16 (paragraph)
     ; boundary, and returns the segment register value pointing to the
     ; beginning of it. Returns 0 on out-of-memory. Subsequent calls will
@@ -2252,7 +2348,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push dx
 		xchg dx, ax  ; DX := para_count; AX := junk.
 		mov ax, cs
-		add ax, strict word DOSCOM_PARA_COUNT_FROM_PSP
+		add ax, strict word __prog_para_count_from_psp
 		add dx, ax
 		jc short .out_of_memory
 		cmp dx, [@prog_mem_end_seg]
@@ -2271,7 +2367,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 ; --- System-independent libc functions.
 
 %ifdef __NEED__strlen  ; Longer code than strlen_.
-  %if DOSCOM==0
+  %if DOSCOM+DOSEXE==0
     _strlen: __prog_libc_export 'size_t __cdecl strlen(const char *s);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
@@ -2288,7 +2384,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 
 %ifdef __NEED_strlen_
   strlen_: __prog_libc_export 'size_t __watcall strlen(const char *s);'
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
     %if 0  ; This is 1 byte shorter (or 1+2 byte shorter with `pop es') than the alternative, but slower.
 		push si
 		xchg si, ax  ; SI := AX, AX := junk.
@@ -2327,7 +2423,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED__memset  ; Longer code than memset_.
-  %if DOSCOM==0
+  %if DOSCOM+DOSEXE==0
     _memset: __prog_libc_export 'void * __cdecl memset(void *s, int c, size_t n);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
@@ -2343,7 +2439,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 
 %ifdef __NEED_memset_
   memset_: __prog_libc_export 'void * __watcall memset(void *s, int c, size_t n);'
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
 		push ds
 		pop es  ; This code is needed, unless ES == DS is guaranteed.
 		push di  ; Save.
@@ -2370,7 +2466,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED__memcpy  ; Longer code than memcpy_.
-  %if DOSCOM==0
+  %if DOSCOM+DOSEXE==0
     _memcpy: __prog_libc_export 'void * __cdecl memcpy(void *dest, const void *src, size_t n);'
 		push edi
 		push esi
@@ -2388,7 +2484,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 
 %ifdef __NEED_memcpy_
   memcpy_: __prog_libc_export 'void * __watcall memcpy(void *dest, const void *src, size_t n);'
-  %if DOSCOM
+  %if DOSCOM+DOSEXE
 		push ds
 		pop es  ; This code is needed, unless ES == DS is guaranteed.
 		push di

@@ -211,22 +211,32 @@ wlink op q form elf ru freebsd disa 1080 op noext op d op nored op start=_start 
 ibcs-us ./luuzcaty.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
-# `op st=1024K' is a better general default.
-dneeds="-D__NEED_G@_write -D__NEED_G@_read -D__NEED_G@isatty_ -D__NEED_G@__argc -D__NEED_G@_cstart_ -D__NEED_G@memset_ -D__NEED_G@memcpy_ -D__NEED_G@strlen_"
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES= -D__GLOBAL_G@main_=2 $dneeds -DWIN32WL -o luuzcatp.o progx86.nasm
-# We omit `op norelocs', otherwise WDOSX wouldn't be able to run it.
-# We omit `op exporta', because we don't need these symbols.
-wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 1080 op noext op d op nored op start=_start n luuzcatp.exe f luuzcatp.o f luuzcatr_32y.o f unscolzh_32y.o f uncompact_32y.o f unopack_32y.o f unpack_32y.o f undeflate_32y.o f uncompress_32y.o f unfreeze_32y.o
-# We need non-empty command-line because dosbox.nox.static incorrectly reports that stdin is a TTY.
-dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatp.exe -cd <test_C1_new9.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-# !! Add a fully functional implementation to the DOS stub.
-
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm','unscolzh_16.nasm','uncompact_16.nasm','unopack_16.nasm','unpack_16.nasm','undeflate_16.nasm','uncompressd_16.nasm','unfreeze_16.nasm'" -DDOSCOM                             -o luuzcat.com   progx86.nasm
 "$perl" shorten_to_bss.pl luuzcat.com
 ./kvikdos luuzcat.com <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcat.com r <test_C1.advdef.deflate >test_C1.bin
+    cmp test_C1.good test_C1.bin
+
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm','unscolzh_16.nasm','uncompact_16.nasm','unopack_16.nasm','unpack_16.nasm','undeflate_16.nasm','uncompressd_16.nasm','unfreeze_16.nasm'" -DDOSEXE                             -o luuzcatd.exe  progx86.nasm
+./kvikdos luuzcatd.exe <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcatd.exe r <test_C1.advdef.deflate >test_C1.bin
+    cmp test_C1.good test_C1.bin
+
+# `op st=1024K' is a better general default.
+dneeds="-D__NEED_G@_write -D__NEED_G@_read -D__NEED_G@isatty_ -D__NEED_G@__argc -D__NEED_G@_cstart_ -D__NEED_G@memset_ -D__NEED_G@memcpy_ -D__NEED_G@strlen_"
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES= -D__GLOBAL_G@main_=2 $dneeds -DWIN32WL -o luuzcatp.o progx86.nasm
+# We omit `op norelocs', otherwise WDOSX wouldn't be able to run it.
+# We omit `op exporta', because we don't need these symbols.
+wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 1080 op noext op d op nored op start=_start op stub=luuzcatd.exe n luuzcatp.exe f luuzcatp.o f luuzcatr_32y.o f unscolzh_32y.o f uncompact_32y.o f unopack_32y.o f unpack_32y.o f undeflate_32y.o f uncompress_32y.o f unfreeze_32y.o
+"$perl" -0777 -pi -e 'substr($_, 0xa, 2) = pack("v", unpack("v", substr($_, 0xa, 2)) + 3)' luuzcatp.exe  # Hotfix: Add 3 to .minalloc. wlink(1) has kept it intact, incorrecrtly. !! Come up with a safer hotfix, reading both files.
+# We need non-empty command-line because dosbox.nox.static incorrectly reports that stdin is a TTY.
+dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatp.exe -cd <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+dosbox.nox.static --cmd luuzcatp.exe -cd <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcatp.exe <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                        -o luuzcat.elf   progx86.nasm
@@ -318,10 +328,10 @@ rm -f luuzcat.o unscolzh.o uncompact.o unopack.o unpack.o undeflate.o unfreeze.o
 # used in production instead.
 #
 # The default is the small model (`owcc -mcmodel=s').
-owcc -bdos -s -Os -fno-stack-check -march=i86 -W -Wall -Wextra -Werror -Wno-n201 -std=c89 -o luuzcatd.exe luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
-./kvikdos luuzcatd.exe <test_C1_new9.Z >test_C1.bin
+owcc -bdos -s -Os -fno-stack-check -march=i86 -W -Wall -Wextra -Werror -Wno-n201 -std=c89 -o luuzcatl.exe luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
+./kvikdos luuzcatl.exe <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
-./kvikdos luuzcatd.exe -r <test_C1.advdef.deflate >test_C1.bin
+./kvikdos luuzcatl.exe -r <test_C1.advdef.deflate >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 # Compile with OpenWatcom to a Win32 .exe program using the mmlibc386 libc.

@@ -135,20 +135,21 @@ wcc386 $wcc32args $common_wccargs -fo=unfreeze_32.o unfreeze.c
 #
 wcc    $wcc16args $common_wccargs -fo=luuzcat_16.o -D_PROGX86_ONLY_BINARY luuzcat.c
 wcc    $wcc16args $common_wccargs -fo=luuzcatt_16.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
-wcc    $wcc16args $common_wccargs -fo=luuzcatr_16.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF luuzcat.c  # Always prints \r\n (CRLF) to stderr.
+wcc    $wcc16args $common_wccargs -fo=luuzcatd_16.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG luuzcat.c  # Always prints \r\n (CRLF) to stderr, gets argv from the DOS PSP.
 wcc    $wcc16args $common_wccargs -fo=unscolzh_16.o unscolzh.c
 wcc    $wcc16args $common_wccargs -fo=uncompact_16.o uncompact.c
 wcc    $wcc16args $common_wccargs -fo=unopack_16.o unopack.c
 wcc    $wcc16args $common_wccargs -fo=unpack_16.o unpack.c
 wcc    $wcc16args $common_wccargs -fo=undeflate_16.o undeflate.c
 wcc    $wcc16args $common_wccargs -fo=uncompress_16.o uncompress.c
-wcc    $wcc16args $common_wccargs -fo=unfreeze_16.o unfreeze.c
+wcc    $wcc16args $common_wccargs -fo=uncompressd_16.o -D_PROGX86_REUSE -D_PROGX86_DOSMEM uncompress.c
+wcc    $wcc16args $common_wccargs -fo=unfreeze_16.o -D_PROGX86_CSEQDS unfreeze.c
 
 perl=tools/miniperl-5.004.04.upx
 "$perl" -e0 || perl=perl  # Use the system perl(1) if tools is not available.
 fi=0
-for f in luuzcat_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o uncompact_32.o unopack_32.o unpack_32.o undeflate_32.o uncompress_32.o unfreeze_32.o \
-         luuzcat_16.o luuzcatt_16.o luuzcatr_16.o unscolzh_16.o uncompact_16.o unopack_16.o unpack_16.o undeflate_16.o uncompress_16.o unfreeze_16.o; do
+for f in luuzcat_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o uncompact_32.o unopack_32.o unpack_32.o undeflate_32.o uncompress_32.o                  unfreeze_32.o \
+         luuzcat_16.o luuzcatt_16.o luuzcatd_16.o unscolzh_16.o uncompact_16.o unopack_16.o unpack_16.o undeflate_16.o uncompress_16.o uncompressd_16.o unfreeze_16.o; do
   fi=$((fi+1))  # For local variables.
   wdis -a -fi -fu -i=@ "$f" >"${f%.*}.wasm"
   "$perl" wasm2nasm.pl "$fi" <"${f%.*}.wasm" >"${f%.*}.nasm"
@@ -180,7 +181,7 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unfreeze_32y.o unfreeze_32.n
 
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcat_16y.o luuzcat_16.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatt_16y.o luuzcatt_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatr_16y.o luuzcatr_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatd_16y.o luuzcatd_16.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unscolzh_16y.o unscolzh_16.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompact_16y.o uncompact_16.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unopack_16y.o unopack_16.nasm
@@ -220,6 +221,13 @@ wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 108
 dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatp.exe -cd <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 # !! Add a fully functional implementation to the DOS stub.
+
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm','unscolzh_16.nasm','uncompact_16.nasm','unopack_16.nasm','unpack_16.nasm','undeflate_16.nasm','uncompressd_16.nasm','unfreeze_16.nasm'" -DDOSCOM                             -o luuzcat.com   progx86.nasm
+"$perl" shorten_to_bss.pl luuzcat.com
+./kvikdos luuzcat.com <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com r <test_C1.advdef.deflate >test_C1.bin
+    cmp test_C1.good test_C1.bin
 
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                        -o luuzcat.elf   progx86.nasm
 chmod +x luuzcat.elf

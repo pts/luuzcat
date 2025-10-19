@@ -51,6 +51,9 @@
 #  define LIBC_HAVE_WRITE_NONZERO 1
   int __PROGX86_IO1_CALLCONV write_binary(int fd, const void *buf, unsigned count);
   int __PROGX86_IO1_CALLCONV write_nonzero_binary(int fd, const void *buf, unsigned count);
+#  if defined(_PROGX86_WRITEDOSREG) && IS_X86_16  /* _PROGX86_READDOSREG and _PROGX86_WRITEDOSREG together would make luuzcat.com 3 bytes longer. */
+#    pragma aux write_nonzero_binary "write_nonzero_binary_DOSREG" __parm [__bx] [__dx] [__cx] __value [__ax] __modify __exact []
+#  endif
 #  ifdef _PROGX86_ONLY_BINARY
 #    define write(fd, buf, count) write_binary(fd, buf, count)
 #    define write_nonzero(fd, buf, count) write_nonzero_binary(fd, buf, count)
@@ -61,7 +64,13 @@
     int __PROGX86_IO1_CALLCONV write_nonzero(int fd, const void *buf, unsigned count);
 #  endif
   int __PROGX86_IO1_CALLCONV read(int fd, void *buf, unsigned int count);
+#  if defined(_PROGX86_READDOSREG) && IS_X86_16  /* _PROGX86_READDOSREG and _PROGX86_WRITEDOSREG together would make luuzcat.com 3 bytes longer. */
+#    pragma aux read "read_DOSREG" __parm [__bx] [__dx] [__cx] __value [__ax] __modify __exact []
+#  endif
   int isatty(int fd);
+#  if defined(_PROGX86_ISATTYDOSREG) && IS_X86_16  /* _ISATTY_READDOSREG makes luuzcat.com 4 bytes shorter, so it's beneficial to enable it. */
+#    pragma aux isatty "isatty_DOSREG" __parm [__bx] __value [__ax] __modify __exact []
+#  endif
 #  if IS_X86_16 && defined(_PROGX86_DOSEXIT)  /* Shorter for luuzcat. */
     __declspec(aborts) void __libc_exit_low(unsigned int exit_code_plus_0x4c00);
 #    pragma aux __libc_exit_low = "int 21h" __parm [__ax] __modify __exact []
@@ -99,7 +108,7 @@
        * progx86_para_reuse(...) is 6 bytes shorter.
        */
       unsigned __watcall progx86_para_reuse(unsigned para_count);
-#      ifdef _PROGX86_DOS  /* Shorter implementations of progx86_para_reuse(...), and even shorter implementation: progx86_is_para_less_than(...)+progx86_para_reuse_start(). */
+#      ifdef _PROGX86_DOSMEM  /* Shorter implementations of progx86_para_reuse(...), and even shorter implementation: progx86_is_para_less_than(...)+progx86_para_reuse_start(). */
 #        pragma aux progx86_para_reuse = "mov ax, cs"  "add ax, 1000h"  "add dx, ax"  "jc short oom"  "cmp dx, word ptr ds:[2]"  "ja short oom" \
             "db 0xa9"  /* Skips over the `xor ax, ax' below. */  \
             "oom: xor ax, ax"  __parm [__dx] __value [__ax] __modify __exact [__dx]  /* 8 bytes shorter than the libc function. */
@@ -123,7 +132,7 @@
 #      pragma aux main __modify [__ax __bx __cx __dx __si __di __es]
 #      pragma aux main0_argv1 = "mov si, 81h"  "next:"  "lodsb"  "cmp al, 32" \
           "je next"  "cmp al, 9"  "je next"  "dec si" \
-          __value [__si] __modify __exact [__si __al]  /* !!! This is correct for a DOS .com program, and a PSP-based, short-model DOS .exe program (rare). */
+          __value [__si] __modify __exact [__si __al]  /* This is correct for a DOS .com program, and a PSP-based, short-model DOS .exe program (rare). */
 #      define main0() void __watcall main(void)
 #      define main0_exit0() do {} while (0)
 #      define main0_exit(exit_code) _exit(exit_code)

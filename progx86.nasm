@@ -40,15 +40,35 @@
 ;   doesn't work on Win32s, because Win32s can't run Win32 console
 ;   applications.
 ;
+; Executable binary compatibility with x86 16-bit real mode (8086 and later)
+; x86 16-bit protected mode (286 and later) targets:
+;
+; * prog.com (-DDOSCOM): DOS .com program. MS-DOS >=2.0 (1983-03-08), IBM PC
+;   DOS >=2.0 (1983-03-08) and DOS emulators. Can use more than 64 KiB of
+;   memory using far pointers.
+;
+; High priority TODOs:
+;
+; * Minix 1.x and 2.x 8086 (16-bit).
+; * ELKS.
+; * Combined DOS 8086 + Win32 i386 in the same .exe file.
+;
+; Some low priority TODOs:
+;
+; * x.out 32-bit for older Xenix/386 (e.g. 2.2.2c). (Xenix 2.3 already supportes
+;   COFF.)
+; * x.out 16-bit for older Xenix. Does it support segment arithmetic?
+; * OS/2 1.x NE 16-bit. Does it support segment arithmetic?
+;
 ; These programs don't run on Xenix 2.2 (but the COFF variant runs on Xenix
 ; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
 ; Docker or WSL).
 ;
-; !! Add x.out binary release for older Xenix/386 (e.g. 2.2.2c).
-; !! Test on FreeBSD 3.5 (1995-05-28).
-; !! For FreeBSD, try alternative of ELF_OSABI.FreeBSD (i.e. at EI_ABIVERSION == EI_BRAND == 8). NetBSD 10.1 also allows it.
-; !! Test on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
+; !! Test it on FreeBSD 3.5 (1995-05-28).
+; !! Test it on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
+; !! For FreeBSD, try alternative of ELF_OSABI.FreeBSD (i.e. at EI_ABIVERSION == EI_BRAND == 8). NetBSD 10.1 also allows it.
+; !! For 16-bit targets with ES == DS (such as MINIX2I8086), remove the `mov ax, ds' ++ `mov es, ax' and `push ds ++ pop es' instructions from *_16.nasm, and also from the libc, because they are useless.
 ;
 ; Please note that this file implements a minialistic and simplified libc
 ; for console applications (i.e. no GUI). Especially argv and envp
@@ -96,16 +116,29 @@
 %else
   %define WIN32WL 0
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL==0
+%ifdef DOSCOM
+  %define DOSCOM 1
+%else
+  %define DOSCOM 0
+%endif
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL+DOSCOM==0
   %define ELF 1  ; Default.
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL>1
+%if COFF+ELF+S386BSD+MINIX2I386+V7X86+XV6I386+WIN32WL+DOSCOM>1
   %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED
   times -1 nop
 %endif
 
-cpu 386
-bits 32
+%macro __prog_default_cpu_and_bits 0
+  %if DOSCOM
+    bits 16
+    cpu 8086
+  %else
+    cpu 386
+    bits 32
+  %endif
+%endm
+__prog_default_cpu_and_bits
 
 ; --- Executable program file header generation.
 
@@ -115,6 +148,11 @@ bits 32
   %define __PROG_IS_OBJ_OR_ELF 1
 %else
   %define __PROG_IS_OBJ_OR_ELF 0
+%endif
+%if DOSCOM
+  __prog_general_alignment equ 2
+%else
+  __prog_general_alignment equ 4
 %endif
 
 ; This header generation aims for maximum compatibility with existing
@@ -428,6 +466,23 @@ bits 32
     Elf32_Phdr.end:
     Elf32_header.end:
     ;times ($$-$)&0xf db 0  ; Not needed, `section .text align=0x10' will take care of it.
+  %elif DOSCOM
+    %define __SECTIONNAME_.startsec STARTSEC
+    %define __FILESECTIONNAME_STARTSEC .startsec  ; Only DOSCOM has it, to prevent the need for `jmp _start' at the beginning of the DOS .com program file.
+    ; No header for DOS .com programs, everything is implicit.
+    section .startsec align=0x10000 valign=0x100 start=0 vstart=0x100
+    _startsec_start:
+    section .text align=1 valign=1 follows=.startsec vfollows=.startsec
+    _text_start:
+    section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Same PT_LOAD as .text.
+    _rodatastr_start:
+    section .rodata align=2 valign=2 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text.
+    _rodata_start:
+    section .data align=2 valign=2 follows=.rodata vfollows=.rodata  ; There is no alignment at EOF if .rodata and .data are empty.
+    _data_start:
+    section .bss align=2 follows=.data nobits  ; align=4 is also important for the clearing with `rep stosd'.
+    _bss_start:
+    section .text
   %else
     %error ERROR_ASSERT_UNKNOWN_EXECUTABLE_FORMAT
     times -1 nop
@@ -437,6 +492,10 @@ bits 32
   %macro f_end 0
     ERROR_MISSING_F_END equ 0  ; If you are getting ERROR_MISSING_F_END errors, then add `f_end' to the end of your .nasm source file.
 
+    %if DOSCOM
+      section .startsec
+      _startsec_endu:
+    %endif
     section .text
     _text_endu:
     section .rodata.str
@@ -507,6 +566,18 @@ bits 32
         _rodata_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start))&3
       %endif
       _data_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_data_endu-_data_start))&3
+    %elif DOSCOM
+      %if _rodata_endu==_rodata_start
+        _rodatastr_endalign equ 0
+      %else
+        _rodatastr_endalign equ (-(_startsec_endu-_startsec_start+_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&1
+      %endif
+      %if _data_endu==_data_start
+        _rodata_endalign equ 0
+      %else
+        _rodata_endalign equ (-(_startsec_endu-_startsec_start+_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start))&1
+      %endif
+      _data_endalign equ (-(_startsec_endu-_startsec_start+_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_data_endu-_data_start))&1
     %elif ELF
       %if _rodata_endu==_rodata_start
         _rodatastr_endalign equ 0
@@ -520,6 +591,13 @@ bits 32
         _datauna_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_datauna_endu-_datauna_start))&3
       %endif
       _data_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_datauna_endu+_datauna_endalign-_datauna_start)-(_data_endu-_data_start))&3
+    %endif
+    %if DOSCOM
+      section .startsec
+      _startsec_end:
+      _startsec_size equ $-$$
+    %else
+      _startsec_size equ 0
     %endif
     section .text
     _text_end:
@@ -560,7 +638,7 @@ bits 32
         resb 0x1000-(_text_size+_rodatastr_size+_rodata_size+_data_size+($-$$))  ; Workaround to avoid the `<3>mm->brk does not lie within mmap' warning in ibcs-us 4.1.6.
       %endif
     %endif
-    resb ($$-$)&3  ; Align end of section to a multiple of 4.
+    resb ($$-$)&(__prog_general_alignment-1)  ; Align end of section to a multiple of 2 or 4.
     _bss_end:
     _bss_size equ $-$$  ; _bss_size is a multiple of 4.
     section .text
@@ -569,15 +647,15 @@ bits 32
     %elif S386BSD+V7X86
       _data_start_pagemod equ 0
     %else
-      _data_start_pagemod equ _text_size+_rodatastr_size+_rodata_size
+      _data_start_pagemod equ _startsec_size+_text_size+_rodatastr_size+_rodata_size
     %endif
-    %if (_data_start_pagemod&3) && _data_size
-      %error ERROR_DATA_NOT_DWORD_ALIGNED
+    %if (_data_start_pagemod&(__prog_general_alignment-1)) && _data_size
+      %error ERROR_DATA_NOT_ALIGNED
       times -1 nop
     %endif
     _bss_start_pagemod equ _data_start_pagemod+_datauna_size+_data_size+_data_endalign_extra
-    %if _bss_start_pagemod&3
-      %error ERROR_BSS_NOT_DWORD_ALIGNED
+    %if _bss_start_pagemod&(__prog_general_alignment-1)
+      %error ERROR_BSS_NOT_ALIGNED
       times -1 nop
     %endif
     %if COFF
@@ -787,25 +865,29 @@ __prog_section _TEXT
   %endm
   %idefine extern __prog_extern  ; Like the NASM default `extern', but with different functionality.
 %endif
-%macro _do_includes 0-*
+%macro __prog_do_includes 0-*
   %rep %0
     %ifnidn (%1), ()  ; This also does some of the `%define __NEED_...'.
-      cpu 386
-      bits 32
+      __prog_default_cpu_and_bits
       __prog_section CONST2
-      times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+      times ($$-$)&(__prog_general_alignment-1) db 0  ; Align to a multiple of 2 or 4. We do this to provide proper alingment for the %included() .nasm files.
       __prog_section _DATA
-      times ($$-$)&3 db 0  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+      times ($$-$)&(__prog_general_alignment-1) db 0  ; Align to a multiple of 2 or 4. We do this to provide proper alingment for the %included() .nasm files.
       __prog_section _BSS
-      resb ($$-$)&3  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
+      resb ($$-$)&(__prog_general_alignment-1)  ; Align to a multiple of 4. We do this to provide proper alingment for the %included() .nasm files.
       __prog_section _TEXT
       %include %1
     %endif
     %rotate 1
   %endrep
 %endmacro
-_do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
+__prog_default_cpu_and_bits
+__prog_do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
+__prog_default_cpu_and_bits
 __prog_section _TEXT
+
+; --- Function and global variable dependency analysis.
+
 %macro __prog_libc_declare 1
   %ifdef __NEED_G@%1
     %define __NEED_%1
@@ -817,13 +899,17 @@ __prog_section _TEXT
   global %00  ; Use the label in front of the macro.
   %00:
 %endm
+%macro __prog_libc_export_alias 1+  ; Usage: myfunc: __prog_libc_export myfunc_orig, 'int myfunc(void);'
+  global G@%00
+  G@%00: equ %1  ; Do this first, so that the .sub labels inherit from those without G@.
+  global %00  ; Use the label in front of the macro.
+  %00: equ %1
+%endm
 %macro __prog_depend 2
   %ifdef __NEED_%1
     %define __NEED_%2
   %endif
 %endm
-
-; --- Function dependency analysis.
 
 ; For each `%ifdef __NEED_...' below, we need `__prog_libc_declare ...' here.
 __prog_libc_declare _cstart_
@@ -833,10 +919,20 @@ __prog_libc_declare _exit
 __prog_libc_declare _exit_
 __prog_libc_declare __exit
 __prog_libc_declare _read
+__prog_libc_declare read_
+__prog_libc_declare read_DOSREG
 __prog_libc_declare _write
 __prog_libc_declare _write_binary
+__prog_libc_declare _write_nonzero
+__prog_libc_declare _write_nonzero_binary
+__prog_libc_declare write_
+__prog_libc_declare write_binary_
+__prog_libc_declare write_nonzero_
+__prog_libc_declare write_nonzero_binary_
+__prog_libc_declare write_nonzero_binary_DOSREG
 __prog_libc_declare _isatty
 __prog_libc_declare isatty_
+__prog_libc_declare isatty_DOSREG
 __prog_libc_declare _setmode
 __prog_libc_declare setmode_
 __prog_libc_declare _strlen
@@ -845,14 +941,37 @@ __prog_libc_declare _memset
 __prog_libc_declare memset_
 __prog_libc_declare _memcpy
 __prog_libc_declare memcpy_
+__prog_libc_declare progx86_para_alloc_
+__prog_libc_declare progx86_para_reuse_
+__prog_libc_declare progx86_main_returns_void
 
-%define __NEED__exit_  ; After main(...) returns.
-%define __NEED___exit  ; After main(...) returns.
-%if XV6I386+WIN32WL==0
+%if DOSCOM
+  __prog_depend _exit, exit_
+  __prog_depend __exit, _exit_
+  __prog_depend write_, write_binary_
+  __prog_depend write_nonzero_, write_nonzero_binary_
+%else
+  %define __NEED_exit_   ; After main(...) returns.
+  %define __NEED__exit   ; After main(...) returns.
+%endif
+__prog_depend _exit, __exit
+__prog_depend exit_, _exit_
+%if XV6I386+WIN32WL+DOSCOM==0
   __prog_depend _isatty, @ioctl_wrapper
   __prog_depend isatty_, @ioctl_wrapper
 %endif
 __prog_depend _write, _write_binary
+__prog_depend _write_nonzero, _write_nonzero_binary
+__prog_depend write, write_binary_
+__prog_depend write_nonzero_, write_nonzero_binary_
+%if DOSCOM==0
+  __prog_depend _write_nonzero_binary, _write_binary
+  __prog_depend write_nonzero_, write_
+%endif
+%if DOSCOM+WIN32WL==0
+  __prog_depend _write_nonzero, _write
+  __prog_depend write_nonzero_binary_, write_binary_
+%endif
 %if WIN32WL
   %macro __prog_kimport 3
     %ifdef __NEED_%1
@@ -884,6 +1003,12 @@ __prog_depend _write, _write_binary
   __prog_kimport _write, WriteFile, 20
   __prog_kimport _isatty, GetFileType, 4
   __prog_kimport isatty_, GetFileType, 4
+%endif
+%ifdef __NEED_progx86_para_alloc_
+  %ifdef __NEED_progx86_para_alloc_
+    %error ERROR_CONFLICTING_PARA_REUSE_AND_ALLOC
+    times -1 nop
+  %endif
 %endif
 
 ; --- Defines specific to the operating system.
@@ -1026,10 +1151,23 @@ IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
   STD_OUTPUT_HANDLE equ -11
   STD_ERROR_HANDLE equ -12
 
-  INVALID_HANDLE_VALUE equ -1
-  NULL equ 0
+  ;INVALID_HANDLE_VALUE equ -1
+  ;NULL equ 0
 
   FILE_TYPE_CHAR equ 2  ; For _GetFileType@4.
+%endif
+
+%define __PROG_JMP_MAIN 0
+%if DOSCOM
+  @cmdline: equ 0x81  ; PSP-relative offset of the CR-terminated command-line string.
+  DOSCOM_PARA_COUNT_FROM_PSP equ 0x1000  ; 64 KiB == 0x1000 16-byte paragraphs.
+  @prog_mem_end_seg: equ 2  ; Offset within the DOS Program Segment Prefix (PSP): https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html
+  %ifdef __NEED_progx86_para_alloc_
+    @first_empty_seg: equ 0x7e  ; An otherwise unused part of the DOS Program Segment Prefix (PSP): https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html
+  %endif
+  %ifdef __NEED_progx86_main_returns_void
+    %define __PROG_JMP_MAIN 1
+  %endif
 %endif
 
 __prog_section _TEXT
@@ -1039,14 +1177,12 @@ __prog_section _TEXT
 %ifdef __NEED__cstart_  ; If there is a main function, the OpenWatcom C compiler generates this symbol.
   _cstart_: __prog_libc_export '__noreturn __no_return_address void __cdecl cstart_(int argc, ...);'
 %endif
-; Program entry point.
-global _start  ; This is a libc implementation detail, we only but still making it global to aid debugging.
+%if DOSCOM
+  section .startsec  ; We use .startsec to make sure that the code below starts at the beginning of the DOS .com program file, exactly where DOS starts running the program.
+%endif
+global _start  ; Program entry point. This is a libc implementation detail, we only but still making it global to aid debugging.
 _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
-		; Now the stack looks like (frop top to bottom) for XV6I386:
-		;   dword [esp]: exit(...) return address from main
-		;   dword [esp+4]: argc
-		;   dword [esp+8}: argv
-		; Now the stack looks like (from top to bottom) for XV6I386==0:
+		; Now the stack looks like (from top to bottom) for XV6I386+WIN32WL+DOSCOM==0:
 		;   dword [esp]: argc
 		;   dword [esp+4]: argv[0] pointer
 		;   esp+8...: argv[1..] pointers
@@ -1055,7 +1191,17 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		;   NULL that ends envp[]
 		;   ELF Auxiliary Table (auxv): key-value pairs ending with (AT_NULL (== 0), NULL).
 		;   argv strings, environment strings, program name etc.
+		; Now the stack looks like (frop top to bottom) for XV6I386:
+		;   dword [esp]: exit(...) return address from main
+		;   dword [esp+4]: argc
+		;   dword [esp+8}: argv
+		; Now the stack looks like (from top to bottom) for WIN32WL:
+		;   (Nothing useful pushed.)
+		; Now the stack looks like (from top to bottom) for DOSCOM:
+		;   word [sp]: 0
+%if DOSCOM==0
 		cld  ; Not all systems set DF := 0, so we play it safe.
+%endif
 %if ELF  ; Auto-detect the operating system (OSCOMPAT) for ELF.
 		; Linux >=1.0 and FreeBSD >=3.5 both set up a non-empty
 		; auxv, even for statically linked executable. SVR4 2.1
@@ -1154,6 +1300,17 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push byte OSCOMPAT.SYSV
   .detected:
 %endif  ; Of %if ELF
+%if DOSCOM  ; Clear BSS. DOS doesn't do it for us.
+		xor ax, ax
+		mov di, _bss_start  ; Already aligned to 2.
+		mov cx, (_bss_end-_bss_start+1)>>1
+		rep stosw
+  %ifdef __NEED_progx86_para_alloc_
+		mov ax, cs
+		add ax, DOSCOM_PARA_COUNT_FROM_PSP
+		mov [@first_empty_seg], ax
+  %endif
+%endif
 %if ELF+S386BSD  ; Not needed for COFF+MINIX2I386+V7X86+XV6I386, because they don't do page-aligned mapping of the executable program file.
 		; Now we clear the .bss part of the last page of .data.
 		; 386BSD 1.0 and some early Linux kernels put junk there if
@@ -1217,6 +1374,12 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
                 pop edx  ; argv.
                 lea ebx, [edx+eax*4-4]  ; Address of NULL pointer argv[argc-1]. We'll use it as a fake envp for main(...).
   %elif WIN32WL
+		; This is argc--argv--envp initilization code is very
+		; limited: it fakes an empty environment, it fakes an empty
+		; argv[0], and it puts all command-line arguments to argv[1]
+		; (no splitting on whitespace), it keeps double quotes (")
+		; and backslashes (\) in argv[1], it keeps double quotes in
+		; argv[0].
 		call _GetCommandLineA@0
 		; Parse the _GetCommandLineA@0 string to argv[0] and
 		; possibly argv[1]. It is simple and limited compared to
@@ -1224,8 +1387,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		;
 		; * Even if there is whitespace for separating arguments,
 		;   all aguments end up in argv[1].
-		; * Double quotes (") and whitespace in argv[1] are kept.
-		; * Double quotes (") and backslashes (\) in argv[0] are kept.
+		; * Double quotes (") and backslashes and whitespace in argv[1] are kept.
+		; * Double quotes (") in argv[0] are kept.
 		;
 		; See also https://nullprogram.com/blog/2022/02/18/
 		mov edx, eax  ; EDX := address of start of argv[0]. We'll NUL-terminate it below.
@@ -1252,7 +1415,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     .next_separator_byte:
 		lodsb
     %if $-.next_separator_byte!=1
-      %error ERROR_ASSERT_LODSB_MUST_BE_1_BYTE  ; for the `test al, ...' above to work.
+      %error ERROR_ASSERT_LODSB_MUST_BE_1_BYTE  ; For the `test al, ...' above to work.
     %endif
 		cmp al, ' '
 		je short .next_separator_byte
@@ -1262,26 +1425,72 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push byte 0  ; NULL: terminator of argv and fake envp.
 		mov ebx, esp  ; envp: fake empty environment.
 		xor ecx, ecx
-		inc ecx  ; ECX := 1.
-		cmp al, 0
+		inc ecx  ; ECX (argc) := 1.
+		cmp al, 0  ; '\0' == NUL.
 		je short .argv1_done
 		push esi  ; argv[1].
-		inc ecx
+		inc ecx  ; ECX (argc) := 2.
     .argv1_done:
 		push edx  ; argv[0]. For simplicity, it contains the double quotes ("), if any.
 		mov edx, esp  ; argv.
-		xchg eax, ecx  ; EAX := argc; ECX := junk.
+		xchg eax, ecx  ; EAX (argc) := ECX (argc); ECX := junk.
+  %elif DOSCOM
+		; This is argc--argv--envp initilization code is very
+		; limited: it fakes an empty environment, it fakes an empty
+		; argv[0], and it puts all command-line arguments to argv[1]
+		; (no splitting on whitespace).
+		;
+		; There is a shorter, but system-specific implementation
+		; with the same limitations: compile your C program with
+		; -D_PROGX86_DOSPSPARGV.
+		xor ax, ax
+		push ax  ; NULL: terminator of argv and fake envp.
+		mov bx, sp  ; envp: fake empty environment.
+		mov si, @cmdline
+    .next_separator_byte:
+		lodsb
+		cmp al, ' '
+		je .next_separator_byte
+		cmp al, 9  ; '\t'.
+		je short .next_separator_byte
+		dec si
+		xor cx, cx
+		inc cx  ; CX (argc) := 1.
+		cmp al, 0  ; '\0' == NUL.
+		je short .argv1_done
+		push si  ; argv[1].
+		inc cx  ; CX (argc) := 2.
+    .argv1_done:
+		mov dx, sp  ; argv.
+    .next_argv1_byte:
+		cmp byte [si], 13  ; '\r' == CR.
+		je short .end_of_argv1
+		inc si
+		jmp short .next_argv1_byte
+    .end_of_argv1:
+		mov [si], ch  ; Change the terminating CR to a terminating NUL. CH is 0 now.
+		push si  ; Fake argv[0]: empty string. We could get the real one after the environment as a far copy.
+		xchg ax, cx  ; AX (argc) := CX (argc); CX := junk.
   %else
 		pop eax  ; EAX := argc.
 		mov edx, esp  ; EDX := argv.
 		lea ebx, [esp+eax*4+4]  ; EBX := envp.
   %endif
   %ifdef __GLOBAL__main  ; int __cdecl main(int argc, char **argv, char **envp).
+    %if DOSCOM
+		push bx  ; envp for _main.
+		push dx  ; argv for _main.
+		push ax  ; argc for _main.
+    %else
 		push ebx  ; envp for _main.
 		push edx  ; argv for _main.
 		push eax  ; argc for _main.
+    %endif
   %elifdef __GLOBAL_main_  ; int __watcall main(int argc, char **argv, char **envp).
   %endif
+%endif
+%ifdef __NEED___argc
+  __argc: __prog_libc_export ''  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this symbol.
 %endif
 %ifdef __GLOBAL__main  ; int __cdecl main(...).
   %ifdef __GLOBAL_main_  ; int __watcall main(...).
@@ -1289,25 +1498,47 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     times -1 nop
   %endif
 		__prog_extern_in_text _main  ; Make it work even if we don't %include the other .nasm source files.
+  %if __PROG_JMP_MAIN
+		jmp  _main
+  %else
 		call _main
+  %endif
 %elifdef __GLOBAL_main_  ; int __watcall main(...).
 		__prog_extern_in_text main_  ; Make it work even if we don't %include the other .nasm source files.
-		call main_  ; According the __watcall, argc is in EAX, argv is in EDX and envp is in EBX at call time.
+  %if __PROG_JMP_MAIN
+		jmp  main_  ; According the __watcall, argc is in EAX, argv is in EDX and envp is in EBX at call time.
+  %else
+		call main_   ; According the __watcall, argc is in EAX, argv is in EDX and envp is in EBX at call time.
+  %endif
 %else
   %error ERROR_MISSING_MAIN_FUNCTION
   times -1 nop
 %endif
-		; Fall through to __watcall _exit(...). We already have the return value of main(...) in EAX.
+		; Fall through to __watcall exit(...). We already have the return value of main(...) in EAX.
 
-_exit_: __prog_libc_export '__noreturn void __watcall _exit(int exit_code);'
-exit_:  __prog_libc_export '__noreturn void __watcall  exit(int exit_code);'
+%ifdef __NEED_exit_
+  exit_:  __prog_libc_export '__noreturn void __watcall  exit(int exit_code);'
+		; Fall through to __watcall _exit(...).
+%endif
+%ifdef __NEED_exit_
+  _exit_: __prog_libc_export '__noreturn void __watcall _exit(int exit_code);'
+  %if DOSCOM
+		mov ah, 0x4c  ; DOS syscall for _exit(2).
+		int 0x21  ; DOS syscall. Doesn't return.
+  %else
 		push eax  ; exit_code argument of __cdecl _exit(...) below.
 		push eax  ; Fake return address.
-		; Fall through to __cdecl  _exit(...).
+		; Fall through to __cdecl _exit(...).
+  %endif
+%endif
 
-__exit: __prog_libc_export '__noreturn void __cdecl _exit(int exit_code);'
-_exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
-%if MINIX2I386
+%ifdef __NEED__exit
+  _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
+		; Fall through to __cdecl _exit(...).
+%endif
+%ifdef __NEED___exit
+  __exit: __prog_libc_export '__noreturn void __cdecl _exit(int exit_code);'
+  %if MINIX2I386
 		push ebx  ; Save.
 		sub esp, byte 36-3*4  ; Message struct.
 		push dword [esp+36-3*4+2*4]  ; .m1_i1, at offset 8 of the struct. Set it to exit_code.
@@ -1315,12 +1546,20 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		push byte MINIX_WHO.MM  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
 		mov ebx, esp
 		; Fall through to @minix_syscall_cont.
-%elif WIN32WL
+  %elif WIN32WL
 		pop eax  ; Discard return address.
 		call _ExitProcess@4  ; Doesn't return.
-%else
+  %elif DOSCOM
+		pop ax  ; Discard return address.
+		pop ax  ; AX := exit_code.
+		jmp short _exit_  ; Doesn't return.
+  %else
 		push byte SYS.exit
 		; Fall through to @simple_syscall3_pop
+  %endif
+%endif
+%if DOSCOM
+  section .text  ; Back from .startsec to .text.
 %endif
 
 %if MINIX2I386
@@ -1343,6 +1582,7 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		; Now we could get errno from the negative of EAX.
 		; Fall through to .error.
 %elif WIN32WL
+%elif DOSCOM
 %else
   ; Calls a single systcall of 0, 1, 2 or 3. arguments.
   ;
@@ -1353,11 +1593,12 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
   ; Output: EAX is -1 on error, otherwise EAX contains the result. The syscall
   ; number and the return address have been popped from the stack, the caller
   ; is responsible for cleaning up the rest.
+  global @simple_syscall3_pop
   @simple_syscall3_pop:
 		pop eax
-		; Fall through to simple_syscall3_eax.
+		; Fall through to @simple_syscall3_eax.
 
-  simple_syscall3_eax:
+  @simple_syscall3_eax:
   ; TOSO(pts): Size optimization: Don't generate the return value porcessing if the program uses only exit(...).
   %if COFF+S386BSD
 		call 7:dword 0  ; SysV syscall.
@@ -1400,37 +1641,54 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
     times -1 nop
   %endif
 %endif
-%if XV6I386==0
-.error:
+%if DOSCOM==0
+  %if XV6I386==0
+  .error:
 		;neg eax  ; Negation needed only for Linux and Minix 2.x.
 		;mov [errno], eax  ; errno is unused in this program.
 		or eax, byte -1  ; Return -1 to indicate error.
-.ret:
-%endif
-%ifdef __NEED___argc
-  __argc: __prog_libc_export ''  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this symbol.
-%endif
-%if WIN32WL==0
-  %ifdef __NEED_setmode_
-    setmode_: __prog_libc_export 'void __watcall setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
+  .ret:
   %endif
-  %ifdef __NEED__setmode
-    _setmode: __prog_libc_export 'void __cdecl setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
+  %if WIN32WL==0
+    %ifdef __NEED_setmode_
+      setmode_: __prog_libc_export 'void __watcall setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
+    %endif
+    %ifdef __NEED__setmode
+      _setmode: __prog_libc_export 'void __cdecl setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
+    %endif
   %endif
-%endif
 		ret
+%endif
 
 ; --- Syscall wrappers (except for SYS.exit, which has been done above).
 
+%ifdef __NEED_read_
+  %if DOSCOM
+    read_: __prog_libc_export 'int __watcall read(int fd, void *buf, unsigned count);'
+		push cx  ; Save.
+		xchg ax, bx  ; AX := count; BX := fd.
+		xchg ax, cx  ; CX := count; AX := junk.
+		mov ah, 0x3f  ; DOS syscall for read(2).
+    .common:
+		int 0x21  ; DOS syscall.
+		jnc short .ok
+		sbb ax, ax  ; AX := -1.
+    .ok:
+		pop cx  ; Restor.
+		ret
+  %endif
+%endif
+
 %ifdef __NEED__read
-  _read: __prog_libc_export 'int __cdecl read(int fd, void *buf, unsigned count);'
-  %if MINIX2I386
+  %if DOSCOM==0
+    _read: __prog_libc_export 'int __cdecl read(int fd, void *buf, unsigned count);'
+    %if MINIX2I386
 		push ebx  ; Save.
 		sub esp, byte 36-2*4  ; Message struct.
 		push byte SYS.read  ; .m_type, at offset 4 of the struct.
-    %ifdef __NEED__write
+      %ifdef __NEED__write
 		jmp short _write.common
-    %else
+      %else
 		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
 		mov ebx, esp
 		mov eax, [ebx+36+2*4]  ; fd.
@@ -1440,13 +1698,14 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		mov eax, [ebx+36+4*4]  ; count.
 		mov [ebx+12], eax  ; ; .m1_i2.
 		jmp short @minix_syscall_cont
-    %endif
-  %elif WIN32WL
+      %endif
+    %elif WIN32WL
 		mov edx, _ReadFile@20
 		jmp short @read_write_helper
-  %else
+    %else
 		push byte SYS.read
 		jmp short @simple_syscall3_pop
+    %endif
   %endif
 %endif
 
@@ -1455,7 +1714,7 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
   @read_write_helper:  ; Inputs: dword [esp] is function return address; dword [esp+4] is fd; dword [esp+8] is buf; dword [esp+12] is count; EDX is function pointer to _ReadFile@20 or _WriteFile@20. Outputs: result in EAX.
 		push eax  ; Make room for numberOfBytesWritten. The pushed value doesn't matter.
 		mov eax, esp
-		push byte NULL  ; lpOverlapped.
+		push byte 0  ; lpOverlapped. NULL.
 		push eax  ; lpNumberOfBytesWritten.
 		push dword [esp+6*4]  ; nNumberOfBytesToWrite.
 		push dword [esp+6*4]  ; lpBuffer.
@@ -1481,19 +1740,129 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		ret
 %endif
 
+%ifdef __NEED_write_
+  %if DOSCOM
+    write_: __prog_libc_export 'int __watcall write(int fd, const void *buf, unsigned count);'
+  %endif
+  ; Fall through to write_binary_.
+%endif
+%ifdef __NEED_write_binary_
+  %if DOSCOM
+    write_binary_: __prog_libc_export 'int __watcall write_binary(int fd, const void *buf, unsigned count);'
+		push cx  ; Save.
+		xchg ax, bx  ; AX := count; BX := fd.
+		xchg ax, cx  ; CX := count; AX := junk.
+		xor ax, ax  ; AX := 0.
+    %ifdef __NEED_read_
+		jcxz read_.ok  ; We skip the call if count == 0, because that would truncate the file at the current position.
+		mov ah, 0x40  ; DOS syscall for write(2).
+		jmp short read_.common
+    %else
+		jcxz .ok  ; We skip the call if count == 0, because that would truncate the file at the current position.
+		mov ah, 0x40  ; DOS syscall for write(2).
+		int 0x21  ; DOS syscall.
+		jnc short .ok
+		sbb ax, ax  ; AX := -1.
+    .ok:
+		pop cx  ; Restore.
+		ret
+    %endif
+  %endif
+%endif
+
+%ifdef __NEED_write_nonzero_
+  %if DOSCOM
+    %ifdef __NEED_write_
+      write_nonzero_: __prog_libc_export_alias write_
+    %else
+      ; This function will misbehave (by truncating the file at the current poisition) when called with count == 0, so don't do it: call write(...) instead.
+      write_nonzero_: __prog_libc_export 'int __watcall write_nonzero(int fd, const void *buf, unsigned count);'
+    %endif
+  %endif
+  ; Fall through to write_binary_.
+%endif
+%ifdef __NEED_write_nonzero_binary_
+  %if DOSCOM
+    %ifdef __NEED_write_binary_
+      write_nonzero_binary_: __prog_libc_export_alias write_binary_
+    %else:
+      ; This function will misbehave (by truncating the file at the current poisition) when called with count == 0, so don't do it: call write(...) instead.
+      write_nonzero_binary_: __prog_libc_export 'int __watcall write_nonzero_binary(int fd, const void *buf, unsigned count);'
+		push cx  ; Save.
+		xchg ax, bx  ; AX := count; BX := fd.
+		xchg ax, cx  ; CX := count; AX := junk.
+		mov ah, 0x40  ; DOS syscall for write(2).
+      %ifdef __NEED_read_
+		jmp short read_.common
+      %else
+		int 0x21  ; DOS syscall.
+		jnc short .ok
+		sbb ax, ax  ; AX := -1.
+      .ok:
+		pop cx  ; Restore.
+		ret
+      %endif
+    %endif
+  %endif
+%endif
+
+%ifdef __NEED_write_nonzero_binary_DOSREG
+  %if DOSCOM
+    write_nonzero_binary_DOSREG: __prog_libc_export 'int __usercall write_nonzero_binary_DOSREG [AX](int fd [BX], const void *buf [DX], unsigned count [CX]);'
+		mov ah, 0x40  ; DOS syscall for write(2).
+    %ifdef __NEED_read_DOSREG
+		db 0xa9  ; Opode byte for `test ax, ...'. Fall through to read_DOSREG, and skip its leading `mov ah, 0x3f'.
+		.end:
+    %else
+		int 0x21  ; DOS syscall.
+		jnc short .ok
+		sbb ax, ax  ; AX := -1.
+      .ok:
+		ret
+    %endif
+  %endif
+%endif
+
+%ifdef __NEED_read_DOSREG
+  %if DOSCOM
+    %ifdef __NEED_write_nonzero_binary_DOSREG
+      %if $!=write_nonzero_binary_DOSREG.end
+        %error ERROR_READ_DOSREG_MUST_START_AFTER_WRITE
+        times -1 nop
+      %endif
+    %endif
+    read_DOSREG: __prog_libc_export 'int __usercall read_DOSREG [AX](int fd [BX], void *buf [DX], unsigned count [CX]);'
+		mov ah, 0x3f  ; DOS syscall for read(2).
+    %ifdef __NEED_write_nonzero_binary_DOSREG
+      %if $!=write_nonzero_binary_DOSREG.end+2
+        %error ERROR_READ_DOSREG_MUST_END_AFTER_WRITE
+        times -1 nop
+      %endif
+    %endif
+		int 0x21  ; DOS syscall.
+		jnc short .ok
+		sbb ax, ax  ; AX := -1.
+      .ok:
+		ret
+  %endif
+%endif
+
 %ifdef __NEED__write
-  %if WIN32WL==0
+  %if WIN32WL+DOSCOM==0
     _write: __prog_libc_export 'int __cdecl write(int fd, const void *buf, unsigned count);'
+    _write_nonzero: __prog_libc_export 'int __cdecl write_nonzero(int fd, const void *buf, unsigned count);'
   %endif
   ; Fall through to _write_binary.
 %endif
 %ifdef __NEED__write_binary
-  _write_binary: __prog_libc_export 'int __cdecl write_binary(int fd, const void *buf, unsigned count);'
-  %if MINIX2I386
+  %if DOSCOM==0
+    _write_binary: __prog_libc_export 'int __cdecl write_binary(int fd, const void *buf, unsigned count);'
+    _write_nonzero_binary: __prog_libc_export 'int __cdecl write_nonzero_binary(int fd, const void *buf, unsigned count);'
+    %if MINIX2I386
 		push ebx  ; Save.
 		sub esp, byte 36-2*4  ; Message struct.
 		push byte SYS.write
-    .common:
+      .common:
 		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
 		mov ebx, esp
 		mov eax, [ebx+36+2*4]  ; fd.
@@ -1503,17 +1872,19 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		mov eax, [ebx+36+4*4]  ; count.
 		mov [ebx+12], eax  ; ; .m1_i2.
 		jmp short @minix_syscall_cont
-  %elif WIN32WL
+    %elif WIN32WL
 		mov edx, _WriteFile@20
 		jmp short @read_write_helper
-  %else
+    %else
 		push byte SYS.write
 		jmp short @simple_syscall3_pop
+    %endif
   %endif
 %endif
 
 %ifdef __NEED__write
   %if WIN32WL
+    _write_nonzero: __prog_libc_export 'int __cdecl write_nonzero(int fd, const void *buf, unsigned count);'
     _write: __prog_libc_export 'int __cdecl write(int fd, const void *buf, unsigned count);'
 		mov eax, [esp+1*4]  ; fd.
 		cmp eax, byte 3
@@ -1643,7 +2014,9 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 ; --- System-specific libc functions.
 
 %ifdef __NEED__isatty
-  _isatty: __prog_libc_export 'int __cdecl isatty(int fd);'
+  %if DOSCOM==0
+    _isatty: __prog_libc_export 'int __cdecl isatty(int fd);'
+  %endif
   %if COFF
     ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2 (we round it up to 20, to dword bounadry).
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -1682,6 +2055,7 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		xor eax, eax  ; EAX := 0.
 		cmp edx, byte FILE_TYPE_CHAR
 		sete al
+  %eilf DOSCOM
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -1694,7 +2068,7 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
     .freenetbsd:
 		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
-  %if XV6I386+WIN32WL==0
+  %if XV6I386+WIN32WL+DOSCOM==0
     .ioctl_number_pushed:
 		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
 		call @ioctl_wrapper
@@ -1711,12 +2085,14 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
     .have_retval:
     %endif
   %endif
+  %if DOSCOM==0
 		ret
+  %endif
 %endif
 
 %ifdef __NEED_isatty_
   isatty_: __prog_libc_export 'int __watcall isatty(int fd);'
-  %if XV6I386==0
+  %if XV6I386+DOSCOM==0
 		push ecx  ; Save.
 		push edx  ; Save.
   %endif
@@ -1758,6 +2134,26 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		xor eax, eax  ; EAX := 0.
 		cmp edx, byte FILE_TYPE_CHAR
 		sete al
+  %elif DOSCOM
+    ; Just returns whether fd is a character device. (On Unix, there are
+    ; non-TTY character devices, but this implementation pretends that they
+    ; don't exist.) It works correctly on
+    ; [kvikdos](https://github.com/pts/kvikdos), emu2 and (windowed) DOSBox.
+    ; OpenWatcom lib does the same (
+    ; https://github.com/open-watcom/open-watcom-v2/blob/2d1ea451c2dbde4f1efd26e14c6dea3b15a1b42b/bld/clib/environ/c/isatt.c#L58C10-L59 )
+		push bx  ; Save.
+		push dx  ; Save.
+		xchg bx, ax  ; BX := fd; AX := junk.
+		mov ax, 0x4400  ; DOS syscall ioctl(2), get device information.
+		int 0x21  ; DOS syscall.
+		mov ax, 0
+		jc .done  ; Jumpp if I/O error. In this case, return 0 (not a TTY).
+		test dl, dl
+		jns .done
+		inc ax
+    .done:
+		pop dx  ; Restore.
+		pop bx  ; Restore.
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -1770,7 +2166,7 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
     .freenetbsd:
 		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
   %endif
-  %if XV6I386+WIN32WL==0
+  %if XV6I386+WIN32WL+DOSCOM==0
     .ioctl_number_pushed:
 		push eax  ; Argument fd of this isatty(...).
 		call @ioctl_wrapper
@@ -1787,17 +2183,96 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
       .have_retval:
     %endif
   %endif
-  %if XV6I386==0
+  %if XV6I386+DOSCOM==0
 		pop edx  ; Restore.
 		pop ecx  ; Restore.
   %endif
 		ret
 %endif
 
+%ifdef __NEED_isatty_DOSREG
+  %if DOSCOM
+    isatty_DOSREG: __prog_libc_export 'int __usercall isatty_DOSREG [AX](int fd [BX]);'
+    ; Just returns whether fd is a character device. (On Unix, there are
+    ; non-TTY character devices, but this implementation pretends that they
+    ; don't exist.) It works correctly on
+    ; [kvikdos](https://github.com/pts/kvikdos), emu2 and (windowed) DOSBox.
+    ; OpenWatcom lib does the same (
+    ; https://github.com/open-watcom/open-watcom-v2/blob/2d1ea451c2dbde4f1efd26e14c6dea3b15a1b42b/bld/clib/environ/c/isatt.c#L58C10-L59 )
+		push dx  ; Save.
+		mov ax, 0x4400  ; DOS syscall ioctl(2), get device information.
+		int 0x21  ; DOS syscall.
+		mov ax, 0
+		jc .done  ; Jumpp if I/O error. In this case, return 0 (not a TTY).
+		test dl, dl
+		jns .done
+		inc ax
+    .done:
+		pop dx  ; Restore.
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_progx86_para_alloc_
+  %if DOSCOM
+    ; Allocates para_count << 4 bytes of memory, aligned to 16 (paragraph)
+    ; boundary, and returns the segment register value pointing to the
+    ; beginning of it. Returns 0 on out-of-memory.
+    ;
+    ; For shorter code, consider using progx86_para_reuse(...) instead. For
+    ; even shorter code, try
+    ; progx86_is_para_less_than(...)+progx86_para_reuse_start().
+    progx86_para_alloc_: __prog_libc_export 'unsigned __watcall progx86_para_alloc(unsigned para_count);'
+		add ax, [@first_empty_seg]
+		jc short .out_of_memory  ; Jump iff verflow.
+		cmp ax, [@prog_mem_end_seg]
+		ja short .out_of_memory
+		xchg [@first_empty_seg], ax
+		; db 0xa9  ; Opcode of `test ax, ...'. Skips over the `xor ax, ax' below.
+		ret
+    .out_of_memory:
+		xor ax, ax
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_progx86_para_reuse_
+  %if DOSCOM
+    ; Finds para_count << 4 bytes of memory, aligned to 16 (paragraph)
+    ; boundary, and returns the segment register value pointing to the
+    ; beginning of it. Returns 0 on out-of-memory. Subsequent calls will
+    ; return the same address (so the memory is reused), also the same
+    ; address as progx86_para_alloc(...) returns first. So don't use this
+    ; function if you need memory which no unrelated program code is allowed
+    ; to overwrite.
+    ;
+    ; For shorter code, try
+    ; progx86_is_para_less_than(...)+progx86_para_reuse_start().
+    progx86_para_reuse_: __prog_libc_export 'unsigned __watcall progx86_para_reuse(unsigned para_count);'
+		push dx
+		xchg dx, ax  ; DX := para_count; AX := junk.
+		mov ax, cs
+		add ax, strict word DOSCOM_PARA_COUNT_FROM_PSP
+		add dx, ax
+		jc short .out_of_memory
+		cmp dx, [@prog_mem_end_seg]
+		ja short .out_of_memory
+		db 0xa9  ; Opcode of `test ax, ...'. Skips over the `xor ax, ax' below.
+    .out_of_memory:
+		xor ax, ax
+    %if $-.out_of_memory!=1
+      %error ERROR_ASSERT_XOR_AX_AX_MUST_BE_1_BYTE  ; For the `test ax, ...' above to work.
+    %endif
+		pop dx
+		ret
+  %endif
+%endif
+
 ; --- System-independent libc functions.
 
 %ifdef __NEED__strlen  ; Longer code than strlen_.
-  _strlen: __prog_libc_export 'size_t __cdecl strlen(const char *s);'
+  %if DOSCOM==0
+    _strlen: __prog_libc_export 'size_t __cdecl strlen(const char *s);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
 		xor eax, eax
@@ -1808,10 +2283,36 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		dec eax
 		pop edi
 		ret
+  %endif
 %endif
 
 %ifdef __NEED_strlen_
   strlen_: __prog_libc_export 'size_t __watcall strlen(const char *s);'
+  %if DOSCOM
+    %if 0  ; This is 1 byte shorter (or 1+2 byte shorter with `pop es') than the alternative, but slower.
+		push si
+		xchg si, ax  ; SI := AX, AX := junk.
+		mov ax, -1
+      .next:
+		cmp byte ptr [si], 1
+		inc si
+		inc ax
+		jnc short .next
+		pop si
+    %else
+		push ds
+		pop es  ; This code is needed, unless ES == DS is guaranteed.
+		push di  ; Save.
+		xchg di, ax  ; EDI := argument s; EAX : = junk.
+		xor ax, ax
+		mov cx, -1
+		repne scasb
+		sub ax, cx
+		dec ax
+		dec ax
+		pop di  ; Restore.
+    %endif
+  %else
 		push edi  ; Save.
 		xchg edi, eax  ; EDI := argument s; EAX : = junk.
 		xor eax, eax
@@ -1821,11 +2322,13 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		dec eax
 		dec eax
 		pop edi  ; Restore.
+  %endif
 		ret
 %endif
 
 %ifdef __NEED__memset  ; Longer code than memset_.
-  _memset: __prog_libc_export 'void * __cdecl memset(void *s, int c, size_t n);'
+  %if DOSCOM==0
+    _memset: __prog_libc_export 'void * __cdecl memset(void *s, int c, size_t n);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
 		mov al, [esp+0xc]  ; Argument c.
@@ -1835,10 +2338,24 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		pop eax  ; Result is argument s.
 		pop edi
 		ret
+  %endif
 %endif
 
 %ifdef __NEED_memset_
   memset_: __prog_libc_export 'void * __watcall memset(void *s, int c, size_t n);'
+  %if DOSCOM
+		push ds
+		pop es  ; This code is needed, unless ES == DS is guaranteed.
+		push di  ; Save.
+		xchg di, ax  ; DI := AX (argument s); EAX := junk.
+		xchg ax, dx  ; AX := DX (argument c); EDX := junk.
+		xchg cx, bx  ; CX := BX (argument n); EBX := saved CX.
+		push di
+		rep stosb
+		pop ax  ; Result is argument s.
+		xchg cx, bx  ; CX := saved CX; BX := 0 (unused).
+		pop di  ; Restore.
+  %else
 		push edi  ; Save.
 		xchg edi, eax  ; EDI := EAX (argument s); EAX := junk.
 		xchg eax, edx  ; EAX := EDX (argument c); EDX := junk.
@@ -1848,11 +2365,13 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		pop eax  ; Result is argument s.
 		xchg ecx, ebx  ; ECX := saved ECX; EBX := 0 (unused).
 		pop edi  ; Restore.
+  %endif
 		ret
 %endif
 
 %ifdef __NEED__memcpy  ; Longer code than memcpy_.
-  _memcpy: __prog_libc_export 'void * __cdecl memcpy(void *dest, const void *src, size_t n);'
+  %if DOSCOM==0
+    _memcpy: __prog_libc_export 'void * __cdecl memcpy(void *dest, const void *src, size_t n);'
 		push edi
 		push esi
 		mov ecx, [esp+0x14]
@@ -1864,10 +2383,25 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		pop esi
 		pop edi
 		ret
+  %endif
 %endif
 
 %ifdef __NEED_memcpy_
   memcpy_: __prog_libc_export 'void * __watcall memcpy(void *dest, const void *src, size_t n);'
+  %if DOSCOM
+		push ds
+		pop es  ; This code is needed, unless ES == DS is guaranteed.
+		push di
+		xchg si, dx
+		xchg di, ax  ; EDI := dest; EAX := junk.
+		xchg cx, bx
+		push di
+		rep movsb
+		pop ax  ; Will return dest.
+		xchg cx, bx  ; Restore CX from BX; BX := junk. And BX is scratch, we don't care what we put there.
+		xchg si, dx  ; Restore SI.
+		pop di
+  %else
 		push edi
 		xchg esi, edx
 		xchg edi, eax  ; EDI := dest; EAX := junk.
@@ -1875,9 +2409,10 @@ _exit:  __prog_libc_export '__noreturn void __cdecl  exit(int exit_code);'
 		push edi
 		rep movsb
 		pop eax  ; Will return dest.
-		xchg ecx, ebx  ; Restore ECX from REGARG3. And REGARG3 is scratch, we don't care what we put there.
+		xchg ecx, ebx  ; Restore ECX from BX; BX := junk. Ans BX is scratch, we don't care what we put there.
 		xchg esi, edx  ; Restore ESI.
 		pop edi
+  %endif
 		ret
 %endif
 

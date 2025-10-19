@@ -172,9 +172,8 @@ typedef unsigned int uint;
 #  define tab_prefixof(code) (tab_prefix_ary - 256)[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffixof(code) (tab_suffix_ary - 256)[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init() do {} while (0)
 #endif
 #if IS_DOS_16 && defined(__WATCOMC__) && !defined(__TURBOC__)
@@ -185,20 +184,17 @@ typedef unsigned int uint;
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
 #  if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
     static um16 tab_prefix_get(um16 code) { return *((const um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))); }  /* Indexes 0 <= code < 256 are invalid and unused. */
-    static void tab_prefix_set(um16 code, um16 value) {  *((um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))) = value; }  /* Indexes 0 <= code < 256 are invalid and unused. */
     static uc8  tab_suffix_get(um16 code) { return *((const uc8 __far*)((tab_suffix_seg :> code))); }  /* Indexes 0 <= code < 256 are invalid and unused. */
-    static void tab_suffix_set(um16 code, uc8 value) {  *((uc8 __far*)((tab_suffix_seg :> code))) = value; }  /* Indexes 0 <= code < 256 are invalid and unused. */
+    static void tab_prefix_suffix_set(um16 code, um16 prefix, uc8 suffix) { *((uc8 __far*)((tab_suffix_seg :> code))) = suffix; *((um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))) = prefix; }  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  else  /* This is the optimized alternative in __WATCOMC__ 8086 assembly. */
     static um16 tab_prefix_get(um16 code);
     /* tab_prefix_get(...) works with __modify [__es] and __modify [__es __bx], but it doesn't work with __modify __exact [es __bx] */
     /* The manual register allocation of __value [__bx] __parm [__bx] is useful for the code = tab_prefix_get(code) below. */
 #    pragma aux tab_prefix_get = "shr bx, 1"  "jc odd"  "mov es, tab_prefix0_seg"  "jmp have"  "odd: mov es, tab_prefix1_seg"  "have: add bx, bx"  "mov bx, es:[bx]" __value [__bx] __parm [__bx] __modify [__es __bx]
-    static void tab_prefix_set(um16 code, um16 value);
-#    pragma aux tab_prefix_set = "shr bx, 1"  "jc odd"  "mov es, tab_prefix0_seg"  "jmp have"  "odd: mov es, tab_prefix1_seg"  "have: add bx, bx"  "mov es:[bx], ax" __parm [__bx] [__ax] __modify __exact [__es __bx]
     static uc8 tab_suffix_get(um16 code);
 #    pragma aux tab_suffix_get = "mov es, tab_suffix_seg"  "mov al, es:[bx]" __value [__al] __parm [__bx] __modify __exact [__es]
-    static void tab_suffix_set(um16 code, uc8 value);
-#    pragma aux tab_suffix_set = "mov es, tab_suffix_seg"  "mov es:[bx], al" __parm [__bx] [__al] __modify __exact [__es]
+    static void tab_prefix_suffix_set(um16 code, um16 prefix, uc8 suffix);
+#    pragma aux tab_prefix_suffix_set = "mov es, tab_suffix_seg"  "mov es:[bx], al"  "shr bx, 1"  "jc odd"  "mov es, tab_prefix0_seg"  "jmp have"  "odd: mov es, tab_prefix1_seg"  "have: add bx, bx"  "mov es:[bx], dx" __parm [__bx] [__dx] [__al] __modify __exact [__es __bx]
 #  endif
 #  if !defined(_DOSCOMSTART) && !defined(_PROGX86)
 #    include <malloc.h>  /* For OpenWatcom __DOS__ halloc(...). */
@@ -265,10 +261,9 @@ typedef unsigned int uint;
   um16 __far *tab_prefix_fptr_ary[2];
 #  define tab_prefixof(code) tab_prefix_fptr_ary[(code) & 1][((code) - 256U) >> 1]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffixof(code) tab_suffix_ary[(code) - 256U]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init() do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
 #endif
 #if IS_DOS_16 && !defined(__WATCOMC__) && defined(__TURBOC__)
@@ -286,10 +281,9 @@ typedef unsigned int uint;
   um16 far *tab_prefix_fptr_ary[2];  /* [((1UL << BITS) - 256U) >> 1]. [0] is prefix for even codes, [1] is prefix for odd codes. */
 #  define tab_prefixof(code) tab_prefix_fptr_ary[(code) & 1][(code) >> 1]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffixof(code) tab_suffix_fptr[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  ifndef LUUZCAT_MALLOC_OK
 #    error Change luuzcat.h to allow malloc.
 #  endif
@@ -323,10 +317,9 @@ typedef unsigned int uint;
   um16 far *tab_prefix_fptr_ary[2];
 #  define tab_prefixof(code) tab_prefix_fptr_ary[(code) & 1][((code) - 256U) >> 1]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_prefix_set(code, value) (tab_prefixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffixof(code) tab_suffix_ary[(code) - 256U]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_suffix_set(code, value) (tab_suffixof(code) = (value))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init() do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
 #endif
 
@@ -674,8 +667,7 @@ void decompress_compress_nohdr(void) {
     }
     if (free_ent1 < maxmaxcode1) {  /* Generate the new entry. */
       ++free_ent1;  /* Never overflows 0xffffU. */
-      tab_prefix_set(free_ent1, oldcode);
-      tab_suffix_set(free_ent1, finchar);
+      tab_prefix_suffix_set(free_ent1, oldcode, finchar);
 #ifdef USE_DEBUG
       if (0) fprintf(stderr, "free_ent1=%lu ", (unsigned long)free_ent1);
 #endif

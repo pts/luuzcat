@@ -217,13 +217,20 @@ typedef unsigned int uint;
     unsigned short segment;
     if (tab_suffix_seg) return;  /* Prevent subsequent initialization. */
 #  ifdef _DOSCOMSTART
-#    define DOS_COM_PROG_PARA_COUNT 0x1000U  /* 64 KiB == 0x1000 16-byte paragraphs. */
-    /* *((unsigned short)2) fetches top program segment from the PSP (https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html) of the DOS .com program. */
-    if (TAB_PARA_COUNT + DOS_COM_PROG_PARA_COUNT > get_prog_mem_end_seg() - get_psp_seg()) fatal_out_of_memory();
-    segment = get_psp_seg() + (TAB_PARA_COUNT + DOS_COM_PROG_PARA_COUNT);
+#    if 1  /* Shorter than para_reuse(...) */
+      if (is_para_less_than(TAB_PARA_COUNT)) fatal_out_of_memory();
+      segment = para_reuse_start() + TAB_PARA_COUNT;
+#    else
+      if ((segment = para_reuse(TAB_PARA_COUNT)) == 0U) fatal_out_of_memory();
+#    endif
 #  else
 #    ifdef _PROGX86
-      if ((segment = progx86_para_alloc(TAB_PARA_COUNT)) == 0U)  fatal_out_of_memory();
+#      if _PROGX86_HAVE_PARA_REUSE_START  /* Shorter than the progx86_para_reuse_or_alloc call. */
+        if (progx86_is_para_less_than(TAB_PARA_COUNT)) fatal_out_of_memory();
+        segment = progx86_para_reuse_start() + TAB_PARA_COUNT;
+#      else
+        if ((segment = progx86_para_reuse_or_alloc(TAB_PARA_COUNT)) == 0U) fatal_out_of_memory();
+#      endif
 #    else
       a = halloc(((unsigned long)TAB_PARA_COUNT) << 4, 1);  /* Always returns offset = 0. */  /* !! Reuse this between different decompressors (hfree(...)?). Currently none of the others need it. */
       segment = (unsigned long)a >> 16;

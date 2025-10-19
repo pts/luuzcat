@@ -79,6 +79,7 @@ for $_ (@lines) {
   if (s@^\t(?!\t)@@) {  # Assembly instructions in _TEXT.
     die("bad quote: $_\n") if m@["\x27]@;
     s@\s+@ @g; s@\b(?:FLAT|DGROUP):@@g; s@\@\$(\d+)\b@L\x40$fi\x40$1@g; s@,(?! )@, @g;
+    s@\b(byte|d?word) ptr ds:\[@\U$1\E [@g;  # A small ds: can be omitted, it's the default.
     s@\b(byte|d?word) ptr ([CDEFGS]S:)\[@\U$1\E [$2@g;
     s@\b(byte|d?word) ptr (\w[^,]*)@\U$1\E [$2]@g;
     s@\b(byte|d?word) ptr (?=\[)@\U$1\E @g;

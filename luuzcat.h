@@ -76,6 +76,35 @@
      * beginning of it. Returns 0 on out-of-memory.
      */
     unsigned __watcall progx86_para_alloc(unsigned para_count);
+#    ifdef _PROGX86_REUSE
+      /* Finds para_count << 4 bytes of memory, aligned to 16 (paragraph)
+       * boundary, and returns the segment register value pointing to the
+       * beginning of it. Returns 0 on out-of-memory. Subsequent calls will
+       * return the same address (so the memory is reused), also the same
+       * address as progx86_para_alloc(...) returns first. So don't use this
+       * function if you need memory which no unrelated program code is allowed
+       * to overwrite.
+       *
+       * For most uses, progx86_para_alloc(...) is safer, but
+       * progx86_para_reuse(...) is 6 bytes shorter.
+       */
+      unsigned __watcall progx86_para_reuse(unsigned para_count);
+#      ifdef _PROGX86_DOS  /* Shorter implementations of progx86_para_reuse(...), and even shorter implementation: progx86_is_para_less_than(...)+progx86_para_reuse_start(). */
+#        pragma aux progx86_para_reuse = "mov ax, cs"  "add ax, 1000h"  "add dx, ax"  "jc short oom"  "cmp dx, word ptr ds:[2]"  "ja short oom" \
+            "db 0xa9"  /* Skips over the `xor ax, ax' below. */  \
+            "oom: xor ax, ax"  __parm [__dx] __value [__ax] __modify __exact [__dx]  /* 8 bytes shorter than the libc function. */
+#        define _PROGX86_HAVE_PARA_REUSE_START 1
+#        define __LIBC_PROG_PARA_COUNT 0x1000U  /* 64 KiB == 0x1000 16-byte paragraphs. */
+#        define __libc_get_prog_mem_end_seg() (*(const unsigned*)2)  /* Fetch it from the DOS Program Segment Prefix (PSP): https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html */
+        unsigned __libc_get_psp_seg(void);
+#        pragma aux __libc_get_psp_seg = "mov ax, cs" __value [__ax] __modify []  /* This is correct for a DOS .com program, but not for an .exe. */
+#        define progx86_is_para_less_than(para_count) ((para_count) + __LIBC_PROG_PARA_COUNT > __libc_get_prog_mem_end_seg() - __libc_get_psp_seg())  /* Thus works only for para_count < 0xf000. */
+#        define progx86_para_reuse_start() (__libc_get_psp_seg() + __LIBC_PROG_PARA_COUNT)
+#      endif
+#      define progx86_para_reuse_or_alloc(para_count) progx86_para_reuse(para_count)
+#    else
+#      define progx86_para_reuse_or_alloc(para_count) progx86_para_alloc(para_count)
+#    endif
     /* It must not modify `bp', otherwise the OpenWatcom C compiler omits the
      * `pop bp' between the `mov sp, bp' and the `ret'.
      */
@@ -221,9 +250,27 @@
 #  endif
 #  pragma intrinsic(memcpy)  /* Not used in luuzcat with IS_X86_16. */
 
-#  define get_prog_mem_end_seg() (*(const unsigned*)2)  /* Fetch it from the DOS Program Segment Prefix (PSP): https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html */
-  unsigned get_psp_seg(void);
-#  pragma aux get_psp_seg = "mov ax, cs" __value [__ax] __modify []  /* This is correct for a DOS .com program, but not for an .exe. */
+  /* Finds para_count << 4 bytes of memory, aligned to 16 (paragraph)
+   * boundary, and returns the segment register value pointing to the
+   * beginning of it. Returns 0 on out-of-memory. Subsequent calls will
+   * return the same address (so the memory is reused), also the same
+   * address as progx86_para_alloc(...) returns first. So don't use this
+   * function if you need memory which no unrelated program code is allowed
+   * to overwrite.
+   *
+   * For most uses, progx86_para_alloc(...) is safer, but
+   * progx86_para_reuse(...) is 6 bytes shorter.
+   */
+  unsigned para_reuse(unsigned para_count);
+#  pragma aux para_reuse = "mov ax, cs"  "add ax, 1000h"  "add dx, ax"  "jc short oom"  "cmp dx, word ptr ds:[2]"  "ja short oom" \
+      "db 0xa9"  /* Skips over the `xor ax, ax' below. */  \
+      "oom: xor ax, ax"  __parm [__dx] __value [__ax] __modify __exact [__dx]  /* 8 bytes shorter than the libc function. */
+#  define __LIBC_PROG_PARA_COUNT 0x1000U  /* 64 KiB == 0x1000 16-byte paragraphs. */
+#  define __libc_get_prog_mem_end_seg() (*(const unsigned*)2)  /* Fetch it from the DOS Program Segment Prefix (PSP): https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html */
+  unsigned __libc_get_psp_seg(void);
+#  pragma aux __libc_get_psp_seg = "mov ax, cs" __value [__ax] __modify []  /* This is correct for a DOS .com program, but not for an .exe. */
+#  define is_para_less_than(para_count) ((para_count) + __LIBC_PROG_PARA_COUNT > __libc_get_prog_mem_end_seg() - __libc_get_psp_seg())  /* Thus works only for para_count < 0xf000. */
+#  define para_reuse_start() (__libc_get_psp_seg() + __LIBC_PROG_PARA_COUNT)
 
 #  define LUUZCAT_NL "\r\n"  /* Line ending for error messages on stderr. */
 #endif

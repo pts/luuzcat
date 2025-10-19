@@ -127,8 +127,7 @@ main0() {
    * first argument is empty), and stdin is a terminal (TTY).
    */
   if ((argv1 == NULL || *argv1 == main0_argv_endchar()) && isatty(STDIN_FILENO)) { do_usage:
-    (void)!write(STDERR_FILENO, WRITE_PTR_ARG_CAST(usage_msg), sizeof(usage_msg) - 1);
-    exit(EXIT_FAILURE);
+    fatal_msg(usage_msg);
   }
   if (argv1 != NULL) {
     while ((b = *(const unsigned char*)argv1++) != main0_argv_endchar()) {

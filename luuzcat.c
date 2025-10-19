@@ -102,11 +102,17 @@ static const char more_msg[] = "more compressed input expected" LUUZCAT_NL;
 #define MAIN_FLAG_RAW_DEFLATE 8
 #define MAIN_FLAG_SUBSEQUENT 5  /* This is strlen("more "), of the prefix of more_msg. */
 
+#if ' ' == 32  /* ASCII system. */
+#  define IS_PROGARG_TERMINATOR(c) ((unsigned char)(c) <= ' ')  /* ASCII only: matches '\0' (needed for Unix), '\t', '\n', '\r' (needed for DOS) and ' '. */
+#else  /* Non-ASCII system. */
+  static ub8 is_progarg_terminator(char c) { return c == '\0' || c == '\t' || c == '\n' || c == '\r' || c == ' '; }
+#  define IS_PROGARG_TERMINATOR(c) is_progarg_terminator(c)
+#endif
+
 #ifndef main0
 #  define main0() int main(int argc, char **argv)
 #  define main0_exit0() return EXIT_SUCCESS
 #  define main0_argv1() ((void)argc, argv[0] ? argv[1] : NULL)
-#  define main0_argv_endchar() '\0'
 #endif
 
 main0() {
@@ -126,11 +132,11 @@ main0() {
   /* We display the usage message if the are command-line arguments (or the
    * first argument is empty), and stdin is a terminal (TTY).
    */
-  if ((argv1 == NULL || *argv1 == main0_argv_endchar()) && isatty(STDIN_FILENO)) { do_usage:
+  if ((argv1 == NULL || IS_PROGARG_TERMINATOR(*argv1)) && isatty(STDIN_FILENO)) { do_usage:
     fatal_msg(usage_msg);
   }
   if (argv1 != NULL) {
-    while ((b = *(const unsigned char*)argv1++) != main0_argv_endchar()) {
+    while (!IS_PROGARG_TERMINATOR(b = *(const unsigned char*)argv1++)) {
       b |= 0x20;  /* Convert uppercase A-Z to lowercase a-z. */
       if (b == 'r') flags |= MAIN_FLAG_RAW_DEFLATE;
       if (b == 'h') goto do_usage;  /* --help. */

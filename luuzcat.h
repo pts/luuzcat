@@ -181,7 +181,6 @@
 #  pragma aux main0_argv1 = "mov si, 81h"  "next:"  "lodsb"  "cmp al, 32" \
       "je next"  "cmp al, 9"  "je next"  "dec si" \
       __value [__si] __modify __exact [__si __al]  /* This is correct for a DOS .com program, but not for an .exe. */
-#  define main0_argv_endchar() '\r'
 
   unsigned int strlen(const char *s);
   void *memset(void *s, int c, unsigned int n);  /* Not used in luuzcat with IS_X86_16, memset_void(...) is used instead. */

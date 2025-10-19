@@ -313,7 +313,7 @@ static void decompress_freeze_common(unsigned int match_distance_limit, um8 free
    * number of spaces (' '). This a quirk of the Freeze format. In other
    * formats, match_distance limit is 0 here.
    */
-  memset(global_write_buffer + WRITE_BUFFER_SIZE - match_distance_limit, ' ', match_distance_limit);
+  memset_void(global_write_buffer + WRITE_BUFFER_SIZE - match_distance_limit, ' ', match_distance_limit);
   InitIO();
   write_idx = 0;
   for (;;) {

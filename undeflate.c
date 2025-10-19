@@ -256,7 +256,7 @@ static void build_huffman_tree(const deflate_huffman_bit_count_t *bit_count_ary_
   unsigned int total_g;
   unsigned int node_idx;
   um16 code, code_mask_i;
-  memset(bit_count_histogram_and_g_ary, 0, sizeof(bit_count_histogram_and_g_ary));
+  memset_void(bit_count_histogram_and_g_ary, 0, sizeof(bit_count_histogram_and_g_ary));
   for (size_i = size; size_i-- != 0; ) {
     ++bit_count_histogram_and_g_ary[bit_count_ary_ptr[size_i]];
   }
@@ -345,7 +345,7 @@ static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rf
       distance_size = read_bits_max_8(5) + 1;
       if (distance_size > 30) goto corrupted_input;
       tmp_size = read_bits_max_8(4) + 4;
-      memset(tmp_bit_count_ary, 0, sizeof(tmp_bit_count_ary));
+      memset_void(tmp_bit_count_ary, 0, sizeof(tmp_bit_count_ary));
       for (size_i = 0; size_i < tmp_size; ++size_i) {
         tmp_bit_count_ary[(size_i < 3 ? size_i + 16 : size_i == 3 ? 0 : ((size_i & 1) != 0 ? 19 - size_i : size_i + 12) >> 1)] = read_bits_max_8(3);
       }

@@ -114,7 +114,7 @@ static void build_huffman_table(unsigned int size, um8 bit_count_ary_ptr[], unsi
   um16 *p;
   unsigned int i, len, ch, jutbits, avail, nextcode;
 
-  memset(histogram, '\0', sizeof(histogram));
+  memset_void(histogram, '\0', sizeof(histogram));
 #ifdef USE_DEBUG
   for (i = 0; i < size; i++) {
     if (bit_count_ary_ptr[i] > 16) abort();  /* Can be 16 but not more. */

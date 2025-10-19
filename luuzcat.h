@@ -43,29 +43,39 @@
 #    error x86 CPU (16-bit or 32-bit) is needed by _PROGX86.
 #  endif
 #  define LIBC_PREINCLUDED 1
+#  if IS_X86_16
+#    define __PROGX86_IO1_CALLCONV __watcall
+#  else
+#    define __PROGX86_IO1_CALLCONV __cdecl
+#  endif
 #  ifdef _PROGX86_ONLY_BINARY
 #    define write(fd, buf, count) write_binary(fd, buf, count)
-    int __cdecl write_binary(int fd, const void *buf, unsigned count);
+    int __PROGX86_IO1_CALLCONV write_binary(int fd, const void *buf, unsigned count);
 #  else
 #    define O_BINARY 4
     int setmode(int fd, unsigned char mode);
-    int __cdecl write(int fd, const void *buf, unsigned count);
+    int __PROGX86_IO1_CALLCONV write(int fd, const void *buf, unsigned count);
 #  endif
-  int __cdecl read(int fd, void *buf, unsigned int count);
+  int __PROGX86_IO1_CALLCONV read(int fd, void *buf, unsigned int count);
   int isatty(int fd);
   __declspec(noreturn) void exit(unsigned char exit_code);
   unsigned int strlen(const char *s);
   /* To prevent wlink: Error! E2028: strlen_ is an undefined reference */
-/*#  pragma intrinsic(strlen)*/  /* !! Add shorter `#pragma aux' or static. */
   void *memset(void *s, int c, unsigned int n);
-/*#  pragma intrinsic(memset)*/  /* !! Add shorter `#pragma aux' or static. */
   void *memcpy(void *dest, const void *src, unsigned n);
-/*#  pragma intrinsic(memcpy)*/  /* !! Add shorter `#pragma aux' or static. */
 #  if IS_X86_16
-    /* Allocates size_para << 16 bytes of memory, aligned to 16 (paragraph),
-     * and returns the segment register value pointing to the beginning of it.
+#    if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
+#      pragma intrinsic(strlen)  /* This generates shorter code than the libc implementation. */
+#    else
+#      pragma aux strlen = "push ds"  "pop es"  "mov cx, -1"  "xor ax, ax"  "repne scasb"  "not cx"  "dec cx"  __parm [__di] __value [__cx] __modify __exact [__es __di __ax]  /* 2 bytes shorter than the `#pragma intrinsic', because `push ds ++ pop es' is shorter than 2 movs. */
+#    endif
+#    pragma intrinsic(memset)  /* This generates shorter code than the libc implementation. */
+#    pragma intrinsic(memcpy)  /* This generates shorter code than the libc implementation. */
+    /* Allocates para_count << 4 bytes of memory, aligned to 16 (paragraph)
+     * boundary, and returns the segment register value pointing to the
+     * beginning of it. Returns 0 on out-of-memory.
      */
-    unsigned short progx86_para_alloc(unsigned short size_para);
+    unsigned __watcall progx86_para_alloc(unsigned para_count);
 #  endif
 #  ifdef _PROGX86_CRLF
 #    define LUUZCAT_NL "\r\n"
@@ -174,12 +184,20 @@
 #  define main0_argv_endchar() '\r'
 
   unsigned int strlen(const char *s);
+  void *memset(void *s, int c, unsigned int n);  /* Not used in luuzcat with IS_X86_16, memset_void(...) is used instead. */
+  void *memcpy(void *dest, const void *src, unsigned n);  /* Not used in luuzcat with IS_X86_16. */
   /* To prevent wlink: Error! E2028: strlen_ is an undefined reference */
-#  pragma intrinsic(strlen)  /* !! Add shorter `#pragma aux' or static. */
-  void *memset(void *s, int c, unsigned int n);
-#  pragma intrinsic(memset)  /* !! Add shorter `#pragma aux' or static. */
-  void *memcpy(void *dest, const void *src, unsigned n);
-#  pragma intrinsic(memcpy)  /* !! Add shorter `#pragma aux' or static. */
+#  if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
+#    pragma intrinsic(strlen)
+#  else
+#    pragma aux strlen = "push ds"  "pop es"  "mov cx, -1"  "xor ax, ax"  "repne scasb"  "not cx"  "dec cx"  __parm [__di] __value [__cx] __modify __exact [__es __di __ax]  /* 2 bytes shorter than the `#pragma intrinsic', because `push ds ++ pop es' is shorter than 2 movs. */
+#  endif
+#  if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
+#    pragma intrinsic(memset)  /* Not used in luuzcat with IS_X86_16, memset_void(...) is used instead. */
+#  else
+#    pragma aux memset = "push ds"  "pop es"  "push di"  "rep stosb"  "pop di" __parm [__di] [__al] [__cx] __value [__di] __modify __exact [__es __cx]  /* Shorter than the `#pragma intrinsic', because `push ds ++ pop es' is shorter than 2 movs. */
+#  endif
+#  pragma intrinsic(memcpy)  /* Not used in luuzcat with IS_X86_16. */
 
 #  define get_prog_mem_end_seg() (*(const unsigned*)2)  /* Fetch it from the DOS Program Segment Prefix (PSP): https://fd.lod.bz/rbil/interrup/dos_kernel/2126.html */
   unsigned get_psp_seg(void);
@@ -207,6 +225,22 @@
 #      include <stdio.h>  /* fprintf(stderr, ...); */
 #    endif
 #    define LUUZCAT_NL "\n"  /* On DOS etc. write(STDERR_FILENO, ..., ...) will append an "\r" because the lack of O_BINARY. */
+#  endif
+#endif
+
+#ifndef memset_void
+#  if defined(__WATCOMC__) && defined(__386__)
+    void *memset_void(void *s, char c, unsigned int n);
+#    pragma aux memset_void = "rep stosb" __parm [__edi] [__al] [__ecx] __modify __exact [__edi __ecx]  /* Shorter than the `#pragma intrinsic', because `push di ++ ... ++ pop di' is omitted. */
+#    define memset_void(s, c, n) memset_void(s, c, n)
+#  else
+#    if defined(__WATCOMC__) && IS_X86_16 && (defined(__SMALL__) || defined(__MEDIUM__))
+      void *memset_void(void *s, char c, unsigned int n);
+#      pragma aux memset_void = "push ds"  "pop es"  "rep stosb" __parm [__di] [__al] [__cx] __modify __exact [__es __di __cx]  /* Shorter than the `#pragma intrinsic', because `push ds ++ pop es' is shorter than 2 movs, and `push di ++ ... ++ pop di' is omitted. */
+#      define memset_void(s, c, n) memset_void(s, c, n)
+#    else
+#      define memset_void(s, c, n) memset(s, c, n)
+#    endif
 #  endif
 #endif
 

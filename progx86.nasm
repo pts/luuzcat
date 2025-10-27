@@ -28,6 +28,14 @@
 ;   386BSD >=1.0 (tested on 386BSD 1.0 (1994-10-27)).
 ; * prog.m23 (-DMINIX2I386):
 ;   Minix 2.x i386 (tested on Minix 2.0.4 (2003-11-09)).
+;   !! Minix-386vm (built on Minix 1.6.25.1) uses a different a.out executable
+;      format: db 1, 3, 0x23, 0x10 instead of
+;      db 1, 3, 0x20, 0x10. 1 is A_UZP (unmapped zero page),
+;      2 is A_PAL (page-aligned executable).
+;   !! It runs, but write(2) doesn't write anything on Minix 1.5. The
+;      syscall ABI seems to be different. Add runtime detection.
+;   !! On Minix 1.7.0 it displays `read error' no matter what. Does it
+;      ignore the argv?
 ; * prog.v7x (-DV7X86):
 ;   [v7x86](https://www.nordier.com/) (tested on v7x86 0.8a (2007-10-04)).
 ; * prog.x63 (-DXV6I386):

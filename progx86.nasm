@@ -27,15 +27,13 @@
 ; * prog.3b (-DS386BSD):
 ;   386BSD >=1.0 (tested on 386BSD 1.0 (1994-10-27)).
 ; * prog.m23 (-DMINIX2I386):
-;   Minix 2.x i386 (tested on Minix 2.0.4 (2003-11-09)).
-;   !! Minix-386vm (built on Minix 1.6.25.1) uses a different a.out executable
-;      format: db 1, 3, 0x23, 0x10 instead of
-;      db 1, 3, 0x20, 0x10. 1 is A_UZP (unmapped zero page),
-;      2 is A_PAL (page-aligned executable).
-;   !! It runs, but write(2) doesn't write anything on Minix 1.5. The
-;      syscall ABI seems to be different. Add runtime detection.
-;   !! On Minix 1.7.0 it displays `read error' no matter what. Does it
-;      ignore the argv?
+;   Minix 2.x i386 and Minix 1.7 i386
+;   (tested on Minix 1.7.0 (1995-05-30),
+;   Minix 2.0.0 (1996-10-01), Minix 2.0.4 i386 (2003-11-09)).
+;   [Minix-386vm](https://ftp.funet.fi/pub/minix/Minix-386vm/1.6.25.1/)
+;   1.6.25.1 (based on Minix 1.6.25) uses a different a.out executable
+;   format (indicated in struct.exec.a_flags), and it can't run this.
+;   It crashes on Minix i386 1.5.
 ; * prog.v7x (-DV7X86):
 ;   [v7x86](https://www.nordier.com/) (tested on v7x86 0.8a (2007-10-04)).
 ; * prog.x63 (-DXV6I386):
@@ -79,6 +77,8 @@
 ; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
 ; Docker or WSL).
 ;
+; !! Add Minix-386vm 1.6.25.1 support. Different .a_flags, see below.
+; !! Add Minix i386 1.5 support. exit(...) worked (but write(...) didn't write anything) in fatal_read_error(...). main(...) crashes with Floating point exception. Add support, preferably with runtime detection with write(...).
 ; !! Test it on FreeBSD 3.5 (1995-05-28).
 ; !! Test it on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
@@ -393,9 +393,9 @@ __prog_default_cpu_and_bits
     %if MINIX2I386_STACK<0x1000  ; Must include argv and environ strings.
       %define MINIX2I386_STACK 0x1000
     %endif
-    section .header align=1 valign=1 start=0 vstart=0
-    section .text align=1 valign=0x1000 follows=.header vstart=0
-    _text_start:
+    section .header align=1 valign=1 start=0 vstart=-0x20  ; -0x20 to make the relative jmp correct in __prog_j_start blow.
+    section .text align=1 valign=1 follows=.header vstart=5  ; 5 bytes for the jmp at __prog_j_start below.
+    _text_start: equ $-5  ; -5 to include the jmp at __prog_j_start below.
     ; It would be more traditional to group .rodata.str and .rodata together
     ; with .text (rather than .data), just like Linux does it, but that
     ; wouldn't work, because for that we'd have to generate the `cs;' prefix
@@ -414,7 +414,7 @@ __prog_default_cpu_and_bits
     section .header
     MINIX2I386_exec:  ; `struct exec' in usr/include/a.out.h
     .a_magic: db 1, 3  ; Signature (magic number).
-    .a_flags: db 0x20  ; A_SEP == 0x20. Flags.
+    .a_flags: db 0x20  ; A_SEP == 0x20. Flags. Minix-386vm has additionals flags set here: 0x23 == A_SEP | A_UZP (== 1, unmapped zero page) | A_PAL (== 2, page-aligned executable).
     .a_cpu: db 0x10  ; CPU ID.
     .a_hdrlen: db .size  ; Length of header.
     .a_unused: db 0  ; Reserved for future use.
@@ -422,10 +422,12 @@ __prog_default_cpu_and_bits
     .a_text: dd _text_size  ; Size of text segement in bytes.
     .a_data: dd _rodatastr_size+_rodata_size+_data_size  ; Size of data segment in bytes.
     .a_bss: dd _data_endalign_extra+_bss_size  ; Size of bss segment in bytes.
-    .a_entry: dd _start  ; Virtual address (vaddr) of entry point.
+    .a_entry: dd 0  ; Virtual address (vaddr) of entry point. It will start at __prog_j_start below. Minix 1.7.0 i386 ignores this value, and always uses 0.
     .a_total: dd _data_size+_bss_size+MINIX2I386_STACK  ; Total memory allocated for a_data, a_bss and stack, including argv and environ strings.
     .a_syms: dd 0  ; Size of symbol table.
     .size: equ $-MINIX2I386_exec
+    __prog_j_start:
+    jmp strict near _start  ; Minix 1.7.0 i386 always uses vaddr 0 as the entry point, ignoring .a_start below. To work it around, add a jump here.
   %elif V7X86
     ; V7X86 supports two a.out executable formats, which only differ in the
     ; memory layout of a_data: NMAGIC uses up to 0xfff bytes more of virtual
@@ -675,7 +677,7 @@ __prog_default_cpu_and_bits
     %endif
     section .text
     _text_end:
-    _text_size equ $-$$
+    _text_size equ $-_text_start  ; $$ is different from _text_start for MINIX2I386. _text_start has the correct value.
     section .rodata.str
     times _rodatastr_endalign db 0
     _rodatastr_end:

@@ -27,13 +27,14 @@
 ; * prog.3b (-DS386BSD):
 ;   386BSD >=1.0 (tested on 386BSD 1.0 (1994-10-27)).
 ; * prog.m23 (-DMINIX2I386):
-;   Minix 2.x i386 and Minix 1.7 i386
-;   (tested on Minix 1.7.0 (1995-05-30),
-;   Minix 2.0.0 (1996-10-01), Minix 2.0.4 i386 (2003-11-09)).
+;   Minix 1.5--2.0.4 i386 (tested on Minix 1.5 i386 (~1990),
+;   Minix 1.7.0 i386 (1995-05-30),
+;   [Minix 1.7.0 i386 vmd](https://web.archive.org/web/20240914234222/https://www.minix-vmd.org/pub/Minix-vmd/1.7.0/)
+;   (1996-11-06),
+;   Minix 2.0.0 i386 (1996-10-01), Minix 2.0.4 i386 (2003-11-09)).
 ;   [Minix-386vm](https://ftp.funet.fi/pub/minix/Minix-386vm/1.6.25.1/)
 ;   1.6.25.1 (based on Minix 1.6.25) uses a different a.out executable
 ;   format (indicated in struct.exec.a_flags), and it can't run this.
-;   It crashes on Minix i386 1.5.
 ; * prog.v7x (-DV7X86):
 ;   [v7x86](https://www.nordier.com/) (tested on v7x86 0.8a (2007-10-04)).
 ; * prog.x63 (-DXV6I386):
@@ -57,7 +58,7 @@
 ;   DOS .com (even though it could easily be 64 KiB of code + 64 KiB of
 ;   data, but with that we'd lose easy PSP access), so it also uses the tiny
 ;   model (code + data + stack <= 0xff00 bytes).
-;   !!! Specify -DDOSEXE_STUB to get
+;   !! Specify -DDOSEXE_STUB to get
 ;   a DOS .exe best fitted for the `wlink op stub=...` Win32 stub.
 ;
 ; High priority TODOs:
@@ -78,7 +79,7 @@
 ; Docker or WSL).
 ;
 ; !! Add Minix-386vm 1.6.25.1 support. Different .a_flags, see below.
-; !! Add Minix i386 1.5 support. exit(...) worked (but write(...) didn't write anything) in fatal_read_error(...). main(...) crashes with Floating point exception. Add support, preferably with runtime detection with write(...).
+; !! Add Minix 3.1.0 support. Maybe it works out-of-the-box. Just check. After this, which version of Minix has dropped a.out support?
 ; !! Test it on FreeBSD 3.5 (1995-05-28).
 ; !! Test it on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
@@ -388,14 +389,13 @@ __prog_default_cpu_and_bits
     .a_drsize:	dd 0  ; Data relocation size.
   %elif MINIX2I386
     %ifndef MINIX2I386_STACK
-      %define MINIX2I386_STACK 0x4000  ; 16 KiB. Minix i386 programs (such as cat(1)) use this value.
+      %define MINIX2I386_STACK 0x4000  ; 16 KiB. Minix i386 programs (such as cat(1)) use this value. This is just a hint, the actual stack usage will be smaller. TODO(pts): Make this configurable per program.
     %endif
     %if MINIX2I386_STACK<0x1000  ; Must include argv and environ strings.
       %define MINIX2I386_STACK 0x1000
     %endif
     section .header align=1 valign=1 start=0 vstart=-0x20  ; -0x20 to make the relative jmp correct in __prog_j_start blow.
-    section .text align=1 valign=1 follows=.header vstart=5  ; 5 bytes for the jmp at __prog_j_start below.
-    _text_start: equ $-5  ; -5 to include the jmp at __prog_j_start below.
+    section .text align=1 valign=1 follows=.header vstart=(__prog_j_start.end-__prog_j_start)
     ; It would be more traditional to group .rodata.str and .rodata together
     ; with .text (rather than .data), just like Linux does it, but that
     ; wouldn't work, because for that we'd have to generate the `cs;' prefix
@@ -423,11 +423,14 @@ __prog_default_cpu_and_bits
     .a_data: dd _rodatastr_size+_rodata_size+_data_size  ; Size of data segment in bytes.
     .a_bss: dd _data_endalign_extra+_bss_size  ; Size of bss segment in bytes.
     .a_entry: dd 0  ; Virtual address (vaddr) of entry point. It will start at __prog_j_start below. Minix 1.7.0 i386 ignores this value, and always uses 0.
-    .a_total: dd _data_size+_bss_size+MINIX2I386_STACK  ; Total memory allocated for a_data, a_bss and stack, including argv and environ strings.
+    .a_total: dd _data_size+_bss_size+MINIX2I386_STACK  ; Total memory allocated for a_data, a_bss and stack, including argv and environ strings. text is not included because of A_SEP.
     .a_syms: dd 0  ; Size of symbol table.
     .size: equ $-MINIX2I386_exec
     __prog_j_start:
     jmp strict near _start  ; Minix 1.7.0 i386 always uses vaddr 0 as the entry point, ignoring .a_start below. To work it around, add a jump here.
+    .end:
+    section .text
+    _text_start: equ $-(__prog_j_start.end-__prog_j_start)
   %elif V7X86
     ; V7X86 supports two a.out executable formats, which only differ in the
     ; memory layout of a_data: NMAGIC uses up to 0xfff bytes more of virtual
@@ -1042,15 +1045,16 @@ __prog_libc_declare progx86_para_alloc_
 __prog_libc_declare progx86_para_reuse_
 __prog_libc_declare progx86_main_returns_void
 
+__prog_depend _exit, __exit  ; Will be repeated below to get more dependencies.
+__prog_depend exit_, _exit_  ; Will be repeated below to get more dependencies.
 %if DOSCOM+DOSEXE
   __prog_depend _exit, exit_
   __prog_depend __exit, _exit_
 %else
   %define __NEED_exit_   ; After main(...) returns.
-  %define __NEED__exit   ; After main(...) returns.
 %endif
-__prog_depend _exit, __exit
-__prog_depend exit_, _exit_
+__prog_depend _exit, __exit  ; Repeat it.
+__prog_depend exit_, _exit_  ; Repeat it.
 %if XV6I386+WIN32WL+DOSCOM+DOSEXE==0
   __prog_depend _isatty, @ioctl_wrapper
   __prog_depend isatty_, @ioctl_wrapper
@@ -1197,12 +1201,18 @@ IOCTL_Coherent4:  ; Coherent 4.x i386. Similar to SysV SVR3.
 .TIOCGWINSZ equ 0x5468  ; Get window size. sizeof(struct winsize) == 8.
 .TIOCGETC   equ 0x7412  ; Get characters. sizeof(struct tchars) == 6. SVR3 doesn't have it.
 
-IOCTL_Minix2:  ; Minix 2.0.4 i386. Minix for 8086 has the low 16 bits only.
+IOCTL_Minix2:  ; Minix 2.0.4 i386, also Minix 1.6 i386. Minix for 8086 has the low 16 bits only.
 .TCGETS     equ 0x80245408  ; _IOR('T',  8, struct termios). sizeof(struct termios) == 36 == 0x24. isatty(3) uses TCGETS.
 .TIOCGWINSZ equ 0x80085410  ; _IOR('T', 16, struct winsize). sizeof(struct sinsize) == 8.
 .TIOCGPGRP  equ 0x40045412  ; _IOW('T', 18, int). There is a bug, it should be _IOR. sizeof(int) == 4.
 .TIOCGETP   equ 0x80087401  ; _IOR('t',  1, struct sgttyb). sizeof(struct sgttyb) == 8.
 .TIOCGETC   equ 0x80067403  ; _IOR('t',  3, struct tchars). sizeof(struct tchars) == 6.
+
+IOCTL_Minix1.5:  ; Minix 1.5 i386.
+.TCGETS     equ 0x7408  ; There is no struct pointer passed in Minix 1.5. isatty(3) uses TCGETS.
+
+IOCTL_Minix1.7:  ; Minix 1.7.0 i386.
+.TIOCGETP   equ 0x7408  ; There is no struct pointer passed in Minix 1.7. isatty(3) uses TIOCGETP.
 
 IOCTL_v7x86:  ; v7x86 0.8a in usr/include/sgtty.h
 .TIOCGETP equ 0x7408  ; (('t'<<8)|8).  sizeof(struct sgttyb) == 8. There is no `struct termio' or `struct termios' in Unix V7.
@@ -1631,10 +1641,23 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %if DOSCOM+DOSEXE
 		mov ah, 0x4c  ; DOS syscall for _exit(2).
 		int 0x21  ; DOS syscall. Doesn't return.
-  %else
+  %elifdef __NEED___exit
 		push eax  ; exit_code argument of __cdecl _exit(...) below.
 		push eax  ; Fake return address.
 		; Fall through to __cdecl _exit(...).
+  %elif MINIX2I386
+		;mov [@minix_syscall_msg+8], eax  ; .m1_i1, at offset 8 of the struct. Set it to exit_code. This is automatic in @minix_syscall_cont.
+		push byte SYS.exit  ; .m_type, at offset 4 of the struct.
+		push byte MINIX_WHO.MM
+		; Fall through to @minix_syscall_cont.
+  %elif WIN32WL
+		push eax  ; exit_code.
+		call _ExitProcess@4  ; Doesn't return.
+  %else
+		push eax  ; Fake return address.
+		push eax  ; exit_code.
+		push byte SYS.exit
+		; Fall through to @simple_syscall3_pop.
   %endif
 %endif
 
@@ -1645,12 +1668,11 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %ifdef __NEED___exit
   __exit: __prog_libc_export '__noreturn void __cdecl _exit(int exit_code);'
   %if MINIX2I386
-		push ebx  ; Save.
-		sub esp, byte 36-3*4  ; Message struct.
-		push dword [esp+36-3*4+2*4]  ; .m1_i1, at offset 8 of the struct. Set it to exit_code.
+		pop eax  ; Discard return address.
+		pop eax  ; EAX := exit_code.
+		;mov [@minix_syscall_msg+8], eax  ; .m1_i1, at offset 8 of the struct. Set it to exit_code. This is automatic in @minix_syscall_cont.
 		push byte SYS.exit  ; .m_type, at offset 4 of the struct.
-		push byte MINIX_WHO.MM  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
-		mov ebx, esp
+		push byte MINIX_WHO.MM
 		; Fall through to @minix_syscall_cont.
   %elif WIN32WL
 		pop eax  ; Discard return address.
@@ -1669,21 +1691,30 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %if MINIX2I386
+  section .bss
+  resb ($$-$)&3
+  @minix_syscall_msg: resb 36  ; In Minix 1.5 i386, passing syscall arguments doesn't work on the stack. So we use this global variable instead.
+  section .text
   global @minix_syscall_cont
   @minix_syscall_cont:
+		; Minix 1.5 i386 receives incorrect syscall arguments if
+		; they are passed on the stack (e.g. `mov ebx, esp' here).
+		; So we use a global variable, just like the Minix 1.5 libc
+		; exit(...), callm1(...) and callx(...) functions do. This
+		; works in Minix i386 1.5--2.0.4. It is not thread-safe, but
+		; Minix doesn't support threads anyway.
+		mov ebx, @minix_syscall_msg  ; Needed by `int 0x21' below.
+		mov [ebx+8], eax  ; Populate the dword at offset 8 of the struct. This is to make the overall program code shorter.
 		pop eax  ; MINIX_WHO.FS or MINIX_WHO.MM.
-		push eax  ; Put it back to .m_source, at offset 0. We do it just to manage the balance of the stack.
-		push byte 3  ; sendrec.
+		pop dword [ebx+4]  ; Save the syscall number to .m_type (offset 4).
+		push byte 3  ; SENDREC.
 		pop ecx
-		int 0x21  ; Minix 2.x i386 syscall. Inputs: EAX, EBX and ECX; returns EAX.
-		pop ecx  ; Discard .m_source, at offset 0.
-		pop ecx  ; ECX := .m_type, at offset 4. Also discards it.
-		add esp, byte 36-2*4  ; Clean up message struct from stack.
-		pop ebx  ; Restore.
+		int 0x21  ; Minix 2.x i386 syscall. Inputs: EAX, EBX and ECX; returns EAX. Ruins EBX (on both Minix 1.5 i386 and Minix 1.7.0 i386).
 		test eax, eax
 		jnz short .have_status_tested
-		or eax, ecx  ; EAX := ECX. Also sets SF for `jns' below.
+		or eax, [@minix_syscall_msg+4]  ; We can't do `or eax, [ebx+4]' here, because int 0x21' has already ruined EBX (in Minix 1.5 i386 and Minix 1.7.0 i386).
   .have_status_tested:
+		pop ebx  ; Restore.
 		jns short .ret
 		; Now we could get errno from the negative of EAX.
 		; Fall through to .error.
@@ -1788,21 +1819,21 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %ifdef __NEED__read
   %if DOSCOM+DOSEXE==0
     _read: __prog_libc_export 'int __cdecl read(int fd, void *buf, unsigned count);'
-    %if MINIX2I386
+    %if MINIX2I386  ; This seems to be correct for Minix 1.5 i386 as well.
 		push ebx  ; Save.
-		sub esp, byte 36-2*4  ; Message struct.
 		push byte SYS.read  ; .m_type, at offset 4 of the struct.
       %ifdef __NEED__write
 		jmp short _write.common
       %else
-		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
-		mov ebx, esp
-		mov eax, [ebx+36+2*4]  ; fd.
-		mov [ebx+8], eax  ; .m1_i1.
-		mov eax, [ebx+36+3*4]  ; buf.
-		mov [ebx+20], eax  ; .m1_p1.
-		mov eax, [ebx+36+4*4]  ; count.
-		mov [ebx+12], eax  ; ; .m1_i2.
+		push byte MINIX_WHO.FS
+		mov ebx, @minix_syscall_msg+12
+		mov ecx, esp  ; Make the mov()s below shorter.
+		mov eax, [ecx+5*4]  ; buf.
+		mov [ebx-12+20], eax  ; .m1_p1.
+		mov eax, [ecx+6*4]  ; count.
+		mov [ebx-12+12], eax  ; ; .m1_i2.
+		mov eax, [ecx+4*4]  ; fd.
+		;mov [ebx-12+8], eax  ; .m1_i1. This is automatic in @minix_syscall_cont.
 		jmp short @minix_syscall_cont
       %endif
     %elif WIN32WL
@@ -1964,19 +1995,19 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %if DOSCOM+DOSEXE==0
     _write_binary: __prog_libc_export 'int __cdecl write_binary(int fd, const void *buf, unsigned count);'
     _write_nonzero_binary: __prog_libc_export 'int __cdecl write_nonzero_binary(int fd, const void *buf, unsigned count);'
-    %if MINIX2I386
+    %if MINIX2I386  ; This seems to be correct for Minix 1.5 i386 as well.
 		push ebx  ; Save.
-		sub esp, byte 36-2*4  ; Message struct.
 		push byte SYS.write
-      .common:
-		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
-		mov ebx, esp
-		mov eax, [ebx+36+2*4]  ; fd.
-		mov [ebx+8], eax  ; .m1_i1.
-		mov eax, [ebx+36+3*4]  ; buf.
-		mov [ebx+20], eax  ; .m1_p1.
-		mov eax, [ebx+36+4*4]  ; count.
-		mov [ebx+12], eax  ; ; .m1_i2.
+      _write.common: equ $0
+		push byte MINIX_WHO.FS
+		mov ebx, @minix_syscall_msg+12
+		mov ecx, esp  ; Make the mov()s below shorter.
+		mov eax, [ecx+5*4]  ; buf.
+		mov [ebx-12+20], eax  ; .m1_p1.
+		mov eax, [ecx+6*4]  ; count.
+		mov [ebx-12+12], eax  ; ; .m1_i2.
+		mov eax, [ecx+4*4]  ; fd.
+		;mov [ebx-12+8], eax  ; .m1_i1. This is automatic in @minix_syscall_cont.
 		jmp short @minix_syscall_cont
     %elif WIN32WL
 		mov edx, _WriteFile@20
@@ -2092,17 +2123,18 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %ifdef __NEED_@ioctl_wrapper
   global @ioctl_wrapper  ; The `request' and `arg' is not system-independent, but still making it global to aid debugging.
   @ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
-  %if MINIX2I386
+  %if MINIX2I386  ; This is correct for Minix 1.5--2.0.4 i386. Please note that the TCGETS constant is different for Minix 1.5 from the rest, also in Minix 1.5 don't have to set the pointer to the message struct.
 		push ebx  ; Save.
-		sub esp, byte 36-5*4  ; Message struct.
-		push dword [esp+36-5*4+3*4]  ; .m2_i3, at offset 16 of the struct (TTY_REQUEST == COUNT == m2_i3 == m_u.m_m2.m2i3 == 16). Set it to request.
-		push eax  ; Put dummy value at offset 12 of the struct.
-		push dword [esp+36-3*4+2*4]  ; .m2_i1, at offset 8 of the struct (TTY_LINE == DEVICE == m2_i1 == m_u.m_m2.m2i1 == 8). Set it to fd.
-		push byte SYS.ioctl  ; .m_type, at offset 4 of the struct.
-		push byte MINIX_WHO.FS  ; .m_source, at offset 0 of the struct. Ignored by sendrec in the Minix kernel.
-		mov ebx, esp
-		mov eax, [ebx+36+4*4]  ; arg.
-		mov [ebx+28], eax  ; .m2_p1, at offset 28 of the struct (ADDRESS == m2_p1 == m_u.m_m2.m2p1 == 28).
+		push byte SYS.ioctl
+		push byte MINIX_WHO.FS
+		mov ebx, @minix_syscall_msg+16
+		mov ecx, esp  ; Make the mov()s below shorter.
+		mov eax, [ecx+5*4]  ; request.
+		mov [ebx-16+16], eax  ; .m2_i3, at offset 16 of the struct (TTY_REQUEST == COUNT == m2_i3 == m_u.m_m2.m2i3 == 16 == 0x10). Set it to request.
+		mov eax, [ecx+6*4]  ; arg.
+		mov [ebx-16+28], eax  ; .m2_p1, at offset 28 of the struct (ADDRESS == m2_p1 == m_u.m_m2.m2p1 == 28).
+		mov eax, [ecx+4*4]  ; fd.
+		;mov [ebx-16+8], eax  ;  ; .m2_i1, at offset 8 of the struct (TTY_LINE == DEVICE == m2_i1 == m_u.m_m2.m2i1 == 8). Set it to fd. This is automatic in @minix_syscall_cont.
 		jmp short @minix_syscall_cont
   %elif XV6I386
     %error ERROR_ASSERT_NO_IOCTL_WRAPPER_FOR_XV6I386  ; This is fine, isatty(2) below is a dummy for xv6-i386.
@@ -2120,6 +2152,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 ; --- System-specific libc functions.
 
 %ifdef __NEED__isatty
+  ; This function is implemented twice: also at __NEED_isatty_.
   %if DOSCOM+DOSEXE==0
     _isatty: __prog_libc_export 'int __cdecl isatty(int fd);'
   %endif
@@ -2136,8 +2169,15 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %elif MINIX2I386
     ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386.
 		sub esp, byte ISATTY_TERMIOS_SIZE
+		; Minix 2.0 has a different ioctl from Minix 1.5--1.7, so we try both, and if any of them returns nonnegative, then it's a TTY.
 		push esp  ; Argument 3 arg of @ioctl_wrapper.
-		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
+		push strict dword IOCTL_Minix1.5.TCGETS  ; Same as IOCTL_Minix1.7.TIOCGETP.
+		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
+		call @ioctl_wrapper
+		cmp eax, byte -1
+		jne short .return  ; Found a TTY.
+		times 2 pop eax  ; Clean up the argument fd and request of @ioctl_wrapper above from the stack. We don't clean up argument arg, because we reuise it below. @ioctl_wrapper doesn't modify it on the stack.
+		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP (Minix 2.0 only) with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
   %elif V7X86
     ISATTY_TERMIOS_SIZE equ 8  ; sizeof(struct agttyb) == 8 on V7X86.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -2178,17 +2218,18 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     .ioctl_number_pushed:
 		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
 		call @ioctl_wrapper
+    .return:
 		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of @ioctl_wrapper above from the stack, and also clean up the arg struct.
 		; Now convert result EAX: -1 to 0, everything else to 1.
 		inc eax
-    %if 0  ; Faster (because it avoids the jump) but 1 byte longer.
+    %if 0  ; Faster (because it avoids the jump), but 1 byte longer.
 		setnz al
 		movzx eax, al
     %else
 		jz short .have_retval
 		xor eax, eax
 		inc eax  ; EAX := 1.
-    .have_retval:
+     .have_retval:
     %endif
   %endif
   %if DOSCOM+DOSEXE==0
@@ -2215,8 +2256,16 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %elif MINIX2I386
     ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386.
 		sub esp, byte ISATTY_TERMIOS_SIZE
+		; Minix 2.0 has a different ioctl from Minix 1.5--1.7, so we try both, and if any of them returns nonnegative, then it's a TTY.
 		push esp  ; Argument 3 arg of @ioctl_wrapper.
-		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
+		push strict dword IOCTL_Minix1.5.TCGETS  ; Same as IOCTL_Minix1.7.TIOCGETP.
+		push eax  ; Argument fd of this isatty(...).
+		call @ioctl_wrapper
+		cmp eax, byte -1
+		jne short .return  ; Found a TTY.
+		pop eax  ; Restore EAX := argument fd. That works, because @ioctl_wrapper doesn't modify its arguments on the stack.
+		lea esp, [esp+4]  ; Clean up the argument request of @ioctl_wrapper above from the stack, without modifying the flags.
+		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP (Minix 2.0 only) with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
   %elif V7X86
     ISATTY_TERMIOS_SIZE equ 8  ; sizeof(struct agttyb) == 8 on V7X86.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -2276,6 +2325,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     .ioctl_number_pushed:
 		push eax  ; Argument fd of this isatty(...).
 		call @ioctl_wrapper
+    .return:
 		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of @ioctl_wrapper above from the stack, and also clean up the arg struct.
 		; Now convert result EAX: -1 to 0, everything else to 1.
 		inc eax

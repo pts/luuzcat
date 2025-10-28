@@ -27,13 +27,16 @@
 ; * prog.3b (-DS386BSD):
 ;   386BSD >=1.0 (tested on 386BSD 1.0 (1994-10-27)).
 ; * prog.m23 (-DMINIX2I386):
-;   Minix 1.5--2.0.4 i386 (tested on Minix 1.5 i386 (~1990),
+;   Minix 1.5--3.2.x i386 (tested on Minix 1.5 i386 (~1990),
 ;   Minix 1.7.0 i386 (1995-05-30),
 ;   [Minix 1.7.0 i386 vmd](https://web.archive.org/web/20240914234222/https://www.minix-vmd.org/pub/Minix-vmd/1.7.0/)
 ;   (1996-11-06),
-;   Minix 2.0.0 i386 (1996-10-01), Minix 2.0.4 i386 (2003-11-09)).
+;   Minix 2.0.0 i386 (1996-10-01), Minix 2.0.4 i386 (2003-11-09),
+;   Minix 3.1.0 i386 (2005-10-18), Minix 3.2.0 i386 (2012-02-28).
 ;   For [Minix-386vm](https://ftp.funet.fi/pub/minix/Minix-386vm/1.6.25.1/)
-;   1.6.25.1, use -DMINIX386VM instead.
+;   1.6.25.1, use -DMINIX386VM instead. Minix 3.3.0 has dropped a.out
+;   support, it supports now ELF-32 executables only, so this doesn't work
+;   anymore.
 ; * prog.m3vm (-DMINIX386VM):
 ;   [Minix-386vm](https://ftp.funet.fi/pub/minix/Minix-386vm/1.6.25.1/)
 ;   1.6.25.1 (1994-03-10, based on Minix 1.6.25). Also tested with Minix
@@ -84,7 +87,7 @@
 ; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
 ; Docker or WSL).
 ;
-; !! Add Minix 3.1.0 support. Maybe it works out-of-the-box. Just check. After this, which version of Minix has dropped a.out support?
+; !! Add Minix 3.2.0 (2012-02-28) and 3.3.0 i386 support (2014-09-14) for ELF. They ELF-32 programs. 3.2.0 also supports a.out, but 3.3.0 not anymore.
 ; !! Test it on FreeBSD 3.5 (1995-05-28).
 ; !! Test it on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x

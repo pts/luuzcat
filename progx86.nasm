@@ -11,6 +11,8 @@
 ;   (tested on FreeBSD 9.3 (2014-07-11)),
 ;   NetBSD >=1.5.2 i386 and possibly earlier
 ;   (tested on NetBSD 1.5.2 (2001-09-10) and 10.1 (2024-11-17)),
+;   OpenBSD >=3.4 i386 and possibly a bit earlier
+;   (tested on OpenBSD 3.4 (2003-09-27) and 7.8 (2025-10-12)).
 ;   Minix >=3.2 i386
 ;   (tested on 3.2.0 (2012-02-28) and 3.3.0 (2014-09-14)),
 ;   AT&T Unix System V/386 Release 4 (SVR4) i386
@@ -329,10 +331,13 @@ __prog_default_cpu_and_bits
     coff_scnhdr_end:
     coff_filehdr_end:
   %elif ELF
+    ; !! OpenBSD support is incomplete here, because write(2) in OpenBSD >=7.3 treats .rodata as execute-only, and returns EFAULT. Currently it needs application-specific workaround, but we could just have 2 PT_LOADs. See https://stackoverflow.com/q/79806755 for more.
     %define __FILESECTIONNAME__DATAUNA .data.una  ; Like _DATA, but unaligned. ELF implements it, other executable file formats don't.
     _base_org equ 0x8048000  ; Standard Linux i386, FreeBSD i386 and SysV SVR4 i386 value.
-    section .text align=1 valign=1 start=0 vstart=_base_org
-    _text_start:
+    section .header align=1 valign=1 start=0 vstart=_base_org
+    _header_start:
+    section .text align=1 valign=1 follows=.header vfollows=.header
+    ;_text_start:  ; Will be defined in f_end.
     section .rodata.str align=1 valign=1 follows=.text vfollows=.text  ; CONST. Same PT_LOAD as .text.
     _rodatastr_start:
     section .rodata align=4 valign=4 follows=.rodata.str vfollows=.rodata.str  ; CONST2. Same PT_LOAD as .text.
@@ -353,8 +358,9 @@ __prog_default_cpu_and_bits
     ELF_PT:  ; ELF PHDR type constants.
     .LOAD equ 1
     .NOTE equ 4
-
-    ; We use ELF_OSABI.FreeBSD, because newer FreeBSD checks it. Linux, NetBSD and SysV SVR4 don't check it.
+    .OPENBSD_SYSCALLS equ 0x65a3dbe9
+    section .header
+    ; We use ELF_OSABI.FreeBSD, because newer FreeBSD checks it. Linux, NetBSD, OpenBSD and SysV SVR4 don't check it.
     Elf32_Ehdr:
 		db 0x7F, 'ELF', 1, 1, 1, ELF_OSABI.FreeBSD, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, ERROR_MISSING_F_END
 		dd 1, _start, Elf32_Phdr0-Elf32_Ehdr, 0, 0
@@ -365,8 +371,10 @@ __prog_default_cpu_and_bits
 		dd ELF_PT.LOAD, _text_size+_rodatastr_size+_rodata_size, _datauna_start, 0, _datauna_size+_data_size, _datauna_size+_data_size+_data_endalign_extra+_bss_size, 6, 1<<12
     Elf32_Phdr2:
 		dd ELF_PT.NOTE, Elf32_note-Elf32_Ehdr, Elf32_note, 0, Elf32_note.end-Elf32_note, Elf32_note.end-Elf32_note, 4, 1<<2
+    Elf32_Phdr3:
+		dd ELF_PT.OPENBSD_SYSCALLS, Elf32_openbsd_syscalls-Elf32_Ehdr, 0, 0, Elf32_openbsd_syscalls.end-Elf32_openbsd_syscalls, Elf32_openbsd_syscalls.end-Elf32_openbsd_syscalls, 4, 1<<2
     Elf32_Phdr.end:
-    Elf32_note:  ; NetBSD checks it. Actual value is same as in /bin/echo in NetBSD 1.5.2 (2001-08-18). It also works with NetBSD 10.1 (2024-11-17).
+    Elf32_note:  ; NetBSD checks it. Actual value is same as in /bin/echo in NetBSD 1.5.2 (2001-08-18). It also works with NetBSD 10.1 (2024-11-17). Minix 3.2.0 and 3.3.0 don't check it.
 		dd 7, 4, 1  ; Size of the name, size of the value, node type.
 		db 'NetBSD', 0  ; 7-byte name.
 		db 0  ; Alignment padding to 4.
@@ -376,8 +384,12 @@ __prog_default_cpu_and_bits
 		db 0  ; Alignment padding to 4.
 		db 'netbsd', 0
 		db 0  ; Alignment padding to 4.
-    Elf32_note.end:
-    Elf32_header.end:
+		dd 8, 4, 1  ; Size of the name, size of the value, node type.
+		db 'OpenBSD', 0  ; 8-byte name.
+		dd 0  ; Version number.
+    .end:
+    ; Elf32_openbsd_syscalls will be added in f_end.
+    section .text
   %elif S386BSD
     ; The minimum size for a 386BSD a.out executable (tried, it works) is
     ; 0x2001 bytes: 0x1000 bytes for the header, 0x1000 bytes for total text
@@ -604,6 +616,12 @@ __prog_default_cpu_and_bits
   %endif
   section .text
 
+  %macro __prog_pin_syscall_if_needed 2
+    %ifdef __NEED_@%2
+      dd %1, %2
+    %endif
+  %endm
+
   %macro f_end 0  ; !! Rename this to prog_end or something longer.
     ERROR_MISSING_F_END equ 0  ; If you are getting ERROR_MISSING_F_END errors, then add `f_end' to the end of your .nasm source file.
 
@@ -618,6 +636,22 @@ __prog_default_cpu_and_bits
     section .rodata
     _rodata_endu:
     %if ELF
+      %undef section  ; So that the `section ...' directive below does the NASM default.
+      section .header
+      %idefine section __prog_section
+      Elf32_openbsd_syscalls:  ; ELF section .openbsd.syscalls for syscall pinning introduced in OpenBSD 7.5 (2024-04-05).
+      ; Read more (search for pinsyscalls): https://www.openbsd.org/75.html
+      ; Read more (assembly example): https://nullprogram.com/blog/2025/03/06/
+      ; Read more: https://man.openbsd.org/pinsyscalls.2
+      __prog_pin_syscall_if_needed @syscall_location_write, SYS.write
+      __prog_pin_syscall_if_needed @syscall_location_any, SYS.read
+      __prog_pin_syscall_if_needed @syscall_location_any, SYS.write
+      __prog_pin_syscall_if_needed @syscall_location_any, SYS.ioctl
+      __prog_pin_syscall_if_needed @syscall_location_any, SYS.exit
+      .end:
+      Elf32_header.end:
+      section .text
+      _text_start: equ $$-(Elf32_header.end-Elf32_Ehdr)
       section .data
       _data_size_before_oscompat equ $-$$
       section .data.una
@@ -1159,6 +1193,18 @@ __prog_depend write_nonzero_, write_nonzero_binary_
     times -1 nop
   %endif
 %endif
+%if ELF  ; For OpenBSD syscall pinning.
+  __prog_depend _exit, @SYS.exit
+  __prog_depend _read, @SYS.read
+  __prog_depend _write, @SYS.write
+  __prog_depend _write_binary, @SYS.write
+  __prog_depend _isatty, @SYS.ioctl
+  __prog_depend exit_, @SYS.exit
+  __prog_depend read_, @SYS.read
+  __prog_depend write_, @SYS.write
+  __prog_depend write_binary_, @SYS.write
+  __prog_depend isatty_, @SYS.ioctl
+%endif
 
 ; --- Defines specific to the operating system.
 
@@ -1167,11 +1213,11 @@ SYS:
 .exit equ 2
 .read equ 5
 .write equ 16
-%else  ; Linux i386, FreeBSD i386, NetBSD i386, v7x86, SysV SVR3 i386, SysV SVR4 i386, iBCS2, 386BSD, Minix 2.x, Minix 3.2.x syscall numbers.
-.exit equ 1
-.read equ 3
-.write equ 4
-.ioctl equ 54  ; Linux i386, FreeBSD i386, NetBSD i386, v7x86, SysV SVR3 i386, SysV SVR4 i386, iBCS2, 386BSD, Minix 2.x i386 (in FS).
+%else  ; Linux i386, FreeBSD i386, NetBSD i386, OpenBSD i386, v7x86, SysV SVR3 i386, SysV SVR4 i386, iBCS2, 386BSD, Minix 1.5--3.2.x (but not Minix 3.2.x) syscall numbers.
+.exit equ 1  ; MM in Minix.
+.read equ 3  ; FS in Minix.
+.write equ 4  ; FS in Minix.
+.ioctl equ 54  ; FS in Minix.
 %endif
 
 %if MINIX2I386+MINIX386VM
@@ -1306,17 +1352,17 @@ IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
   OSCOMPAT:  ; Our platform flags. @oscompat is a bitmask of these.
   .LINUX equ 0  ; (All ELF.) Linux i386 native; Linux i386 running on Linux amd64; Linux (any architecture) qemu-i386; Linux i386 ibcs-us ELF.
   .SYSV equ 1  ; AT&T Unix System V/386 (SysV) Release 3 (SVR3) COFF; AT&T Unix System V/386 (SysV) Release 4 (SVR4) ELF; Coherent 4.x COFF; iBCS2 COFF; Linux i386 ibcs-us COFF.
-  .FREENETBSD equ 2  ; (All ELF.) FreeBSD or NetBSD i386. !! Will it work on OpenBSD (probably not, needs extra sections to describe syscall addresses) or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
+  .MANYBSD equ 2  ; (All ELF.) FreeBSD, NetBSD or OpenBSD i386.
   .MINIX32 equ 4  ; Minix 3.2.0.
   .MINIX33 equ 6  ; Minix 3.3.0.
   .MINIX3_MASK equ 4  ; Bit set for both .MINIX32 and .MINIX33.
-  .MINIX33_FREENETBSD_MASK equ 2  ; Bit set for both .FREENETBSD and .MINIX33.
+  .MINIX33_MANYBSD_MASK equ 2  ; Bit set for both .MANYBSD and .MINIX33.
 
   ; Initial Unix process state:
   ; * The GPRs (general-purpose registers) are EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI.
   ; * From top of stack (ESP): argc, argv[0], ..., argv[argc-1], NULL, envp[0], ... envp[envc-1], NULL, afterenv.
   ; * .LINUX: afterenv is auxt[0] (non-NULL) since Linux 1.0; EDX == 0; ESP is set as above; other GPRs are either arbitrary (for Linux <2.2) or 0 (for Linux >=2.2) (https://asm.sourceforge.net/articles/startup.html and https://stackoverflow.com/q/9147455)
-  ; * .FREENETBSD: afterenv is auxt[0] (non-NULL); ESP is set as above; treat other GPRs as arbitrary; distinguish it from Linux by: if write(-1, "", 0) returns a negative errno value, then it's Linux, otherwise it's FreeBSD or NetBSD; don't chck CF, earlier versions of Linux may also set it to 1
+  ; * .MANYBSD: afterenv is auxt[0] (non-NULL); ESP is set as above; treat other GPRs as arbitrary; distinguish it from Linux by: if write(-1, "", 0) returns a negative errno value, then it's Linux, otherwise it's FreeBSD or NetBSD; don't chck CF, earlier versions of Linux may also set it to 1
   ; * .MINIX32: afterenv is the argv[0] string, i.e. argv[0] == &afterenv; ESP is set as above (a bit below 0x7ffffffc); ECX == 3 (the code of SENDREC from the previous program); EAX == 0 (is it always 0?); other GPRs are arbitrary (mostly inherited from the previous program)
   ; * .MINIX33: afterenv is auxt[0] == NULL; ESP is set as above (a bit below EBX); EBX is 0xeffffff0; other GPRs are 0
   ; * .SVR4: afterenv is the argv[0] string, i.e. argv[0] == &afterenv; ESP is set as above (a bit below the first PT_LOAD page); EAX == 0; other GPRs are arbitrary (mostly inherited from the previous program).
@@ -1423,7 +1469,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		; the NULL of environ). This happens on SysV SVR4 for
 		; statically linked ELF-32 i386 programs, but not on Linux
 		; >=1.0.4, ibcs-us (which inherits to auxv from the host
-		; Linux or FreeBSD >=3.5), FreeBSD 3.5, NetBSD 1.5.2.
+		; Linux or FreeBSD >=3.5), FreeBSD 3.5, NetBSD 1.5.2,
+		; OpenBSD 3.4.
 		je short .sysv_minix32  ; OSCOMPAT.SYSV or OSCOMPAT.MINIX32.
 		test ebp, ebp
 		jnz short .not_minix33_minix32_sysv
@@ -1464,9 +1511,10 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		; empty.
 		je short .auxv_starts_with_at_null
   %endif
+  .linux_or_bsd:
 		; Now we are running on Linux (OSCOMPAT.LINUX) or some kind
-		; of BSD (supported: FreeBSD and NetBSD)
-		; (OSCOMPAT.FREENETBSD). Let's distinguish these two cases
+		; of BSD (supported: FreeBSD, NetBSD and OpenBSD)
+		; (OSCOMPAT.MANYBSD). Let's distinguish these two cases
 		; by attempting a write(-1, NULL, 0), and checking how they
 		; return the errno.
 		;
@@ -1483,7 +1531,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		or ebx, byte -1  ; Argument fd of Linux i386 SYS_write.
 		push ebx  ; Argument fd of FreeBSD SYS_write.
 		push eax  ; Fake return address of FreeBSD syscall.
-		int 0x80  ; Linux i386 and FreeBSD i386 syscall. It fails because of the negative fd.
+  @syscall_location_write: equ $
+		int 0x80  ; Linux i386 or OSCOMAT.MANYBSD syscall. It fails because of the negative fd.
 		add esp, byte 4*4  ; Clean up syscall arguments above.
 		test eax, eax
 		jns short .freenetbsd  ; Jump iff FreeBSD (EAX == EBADF, positive). Linux has EAX == -EBADF, negative here.
@@ -1520,7 +1569,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push byte OSCOMPAT.LINUX  ; We're running on Linux: either natively or in ibcs-us.
 		jmp short .detected
   .freenetbsd:
-		push byte OSCOMPAT.FREENETBSD
+		push byte OSCOMPAT.MANYBSD
 		jmp short .detected
   .sysv_minix32:
   %if 0  ; Not needed, the ESP test below is enough.
@@ -1879,7 +1928,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop ebx  ; Restore.
 		jns short .ret
 		; Now we could get errno from the negative of EAX.
-		; Fall through to .error.
+		; Fall through to .syscall_error.
 %elif WIN32WL
 %elif DOSCOM+DOSEXE
 %else
@@ -1958,7 +2007,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		mov cl, [@oscompat]
 		cmp cl, OSCOMPAT.SYSV
 		je short .sysv
-		cmp cl, OSCOMPAT.FREENETBSD
+		cmp cl, OSCOMPAT.MANYBSD
 		je short .freenetbsd
 		; OSCOMPAT.LINUX or OSCOMPAT.MINIX32 or OSCOMPAT.MINIX33.
 		cmp cl, OSCOMPAT.MINIX32
@@ -1976,19 +2025,16 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop ebx  ; Restore.
 		test eax, eax
     .return_based_on_sign:
-		js short .error  ; We could get errno from the negative of EAX.
+		js short .syscall_error  ; We could get errno from the negative of EAX.
 		ret
     .sysv:
 		call 7:dword 0  ; SysV i386 syscall.
-		dw 0xb966  ; `mov cx, ...' to skip over the `int 0x80' below.
+		jmp short .after_syscall
     .freenetbsd:
-		int 0x80  ; FreeBSD i386 syscall.
-    %if $-.freenetbsd!=2
-      %error ERROR_SKIP_FREEBSD_MUST_BE_2_BYTES  ; For the `dw 0xb966' above.
-      times -1 nop
-    %endif
+    @syscall_location_any: equ $
+		int 0x80  ; OS.MANYBSD i386 syscall.
     .after_syscall:
-                  jnc short .ret
+		jnc short .ret
   %else
     %error ERROR_MISSING_SYSCALL_WRAPPER
     times -1 nop
@@ -1996,7 +2042,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 %if DOSCOM+DOSEXE==0
   %if XV6I386==0
-  .error:
+  .syscall_error:
 		;neg eax  ; Negation needed only for Linux and Minix 2.x.
 		;mov [errno], eax  ; errno is unused in this program.
 		or eax, byte -1  ; Return -1 to indicate error.
@@ -2449,13 +2495,13 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop dx  ; Restore.
 		pop bx  ; Restore.
   %else  ; ELF.
-    ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
+    ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.MANYBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of @ioctl_wrapper.
-		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Argument 2 request of @ioctl_wrapper. Same value as IOCTL_NetBSD.TIOCGETA, IOCTL_386BSD.TIOCETA and IOCTL_Minix330.TIOCGETA. Correct value for OSCOMPAT.FREENETBSD and OSCOMPAT.MINIX33.
+		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Argument 2 request of @ioctl_wrapper. Same value as IOCTL_NetBSD.TIOCGETA, IOCTL_386BSD.TIOCETA and IOCTL_Minix330.TIOCGETA. Correct value for OSCOMPAT.MANYBSD and OSCOMPAT.MINIX33.
 		push eax  ; Argument 1 fd of @ioctl_wrapper == argument fd of this isatty(...)
 		mov al, [@oscompat]
-		test al, OSCOMPAT.MINIX33_FREENETBSD_MASK
+		test al, OSCOMPAT.MINIX33_MANYBSD_MASK
 		jnz short .ioctl_args_pushed
 		mov dword [esp+4], IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA. Correct value for OSCOMPAT.LINUX and OSCOMPAT.SYSV.
 		cmp al, OSCOMPAT.MINIX32

@@ -123,6 +123,7 @@ wcc32args="-bt=linux -3r -zp=4"  # zsh(1) SH_WORD_SPLIT is needed by $wcc32args 
 rm -f -- *_16.o *_32.o *_16.wasm *_32.wasm *_16.nasm *_32.nasm
 
 wcc386 $wcc32args $common_wccargs -fo=luuzcat_32.o -D_PROGX86_ONLY_BINARY luuzcat.c
+wcc386 $wcc32args $common_wccargs -fo=luuzcatw_32.o -D_PROGX86_ONLY_BINARY -DUSE_WRITE_FIX luuzcat.c
 wcc386 $wcc32args $common_wccargs -fo=luuzcatt_32.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
 wcc386 $wcc32args $common_wccargs -fo=luuzcatr_32.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF luuzcat.c  # Always prints \r\n (CRLF) to stderr.
 wcc386 $wcc32args $common_wccargs -fo=unscolzh_32.o unscolzh.c
@@ -148,8 +149,8 @@ wcc    $wcc16args $common_wccargs -fo=unfreeze_16.o -D_PROGX86_CSEQDS unfreeze.c
 perl=tools/miniperl-5.004.04.upx
 "$perl" -e0 || perl=perl  # Use the system perl(1) if tools is not available.
 fi=0
-for f in luuzcat_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o uncompact_32.o unopack_32.o unpack_32.o undeflate_32.o uncompress_32.o                  unfreeze_32.o \
-         luuzcat_16.o luuzcatt_16.o luuzcatd_16.o unscolzh_16.o uncompact_16.o unopack_16.o unpack_16.o undeflate_16.o uncompress_16.o uncompressd_16.o unfreeze_16.o; do
+for f in luuzcat_32.o luuzcatw_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o uncompact_32.o unopack_32.o unpack_32.o undeflate_32.o uncompress_32.o                  unfreeze_32.o \
+         luuzcat_16.o               luuzcatt_16.o luuzcatd_16.o unscolzh_16.o uncompact_16.o unopack_16.o unpack_16.o undeflate_16.o uncompress_16.o uncompressd_16.o unfreeze_16.o; do
   fi=$((fi+1))  # For local variables.
   wdis -a -fi -fu -i=@ "$f" >"${f%.*}.wasm"
   "$perl" wasm2nasm.pl "$fi" <"${f%.*}.wasm" >"${f%.*}.nasm"
@@ -169,6 +170,7 @@ ibcs-us ./luuzcatx.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcat_32y.o luuzcat_32.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatw_32y.o luuzcatw_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatt_32y.o luuzcatt_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatr_32y.o luuzcatr_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unscolzh_32y.o unscolzh_32.nasm
@@ -239,7 +241,7 @@ dosbox.nox.static --cmd luuzcatp.exe -cd <test_C1_new9.Z >test_C1.bin
 ./kvikdos luuzcatp.exe <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                        -o luuzcat.elf   progx86.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatw_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                       -o luuzcat.elf   progx86.nasm
 chmod +x luuzcat.elf
 ./luuzcat.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin

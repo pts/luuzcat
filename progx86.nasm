@@ -10,7 +10,9 @@
 ;   FreeBSD >=3.5 (1995-05-28) i386 and possibly earlier
 ;   (tested on FreeBSD 9.3 (2014-07-11)),
 ;   NetBSD >=1.5.2 i386 and possibly earlier
-;   (tested on NetBSD 1.5.2 (2001-09-10), 10.1 (2024-11-17)),
+;   (tested on NetBSD 1.5.2 (2001-09-10) and 10.1 (2024-11-17)),
+;   Minix >=3.2 i386
+;   (tested on 3.2.0 (2012-02-28) and 3.3.0 (2014-09-14)),
 ;   AT&T Unix System V/386 Release 4 (SVR4) i386
 ;   (tested on version 2.1) and drivatives (such as
 ;   INTERACTIVE UNIX SYSTEM V RELEASE 4.0, Dell Unix, Olivetti Unix, Intel
@@ -35,8 +37,7 @@
 ;   Minix 3.1.0 i386 (2005-10-18), Minix 3.2.0 i386 (2012-02-28).
 ;   For [Minix-386vm](https://ftp.funet.fi/pub/minix/Minix-386vm/1.6.25.1/)
 ;   1.6.25.1, use -DMINIX386VM instead. Minix 3.3.0 has dropped a.out
-;   support, it supports now ELF-32 executables only, so this doesn't work
-;   anymore.
+;   support, it supports now ELF-32 executables only, use -DELF instead.
 ; * prog.m3vm (-DMINIX386VM):
 ;   [Minix-386vm](https://ftp.funet.fi/pub/minix/Minix-386vm/1.6.25.1/)
 ;   1.6.25.1 (1994-03-10, based on Minix 1.6.25). Also tested with Minix
@@ -87,12 +88,15 @@
 ; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
 ; Docker or WSL).
 ;
-; !! Add Minix 3.2.0 (2012-02-28) and 3.3.0 i386 support (2014-09-14) for ELF. They ELF-32 programs. 3.2.0 also supports a.out, but 3.3.0 not anymore.
+; !! Rename MINIX2I386 TO MINIXI386.
+; !! Add 16-bit targets MINIXI86 and ELKS.
+; !! Add Dragonfly BSD target.
+; !! Add Xenix/86 (large model) and Xenix/386 targets.
 ; !! Test it on FreeBSD 3.5 (1995-05-28).
 ; !! Test it on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
-; !! For FreeBSD, try alternative of ELF_OSABI.FreeBSD (i.e. at EI_ABIVERSION == EI_BRAND == 8). NetBSD 10.1 also allows it.
-; !! For 16-bit targets with ES == DS (such as MINIX2I8086), remove the `mov ax, ds' ++ `mov es, ax' and `push ds ++ pop es' instructions from *_16.nasm, and also from the libc, because they are useless.
+; !! For FreeBSD, try alternative of ELF_OSABI.FreeBSD (i.e. at EI_ABIVERSION == EI_BRAND == 8). Which versions of FreeBSD support it? NetBSD 10.1 also allows it.
+; !! For 16-bit targets with ES == DS (such as MINIX1I86, but not DOSEXE or DOSCOM), remove the `mov ax, ds' ++ `mov es, ax' and `push ds ++ pop es' instructions from *_16.nasm, and also from the libc, because they are useless.
 ;
 ; Please note that this file implements a minialistic and simplified libc
 ; for console applications (i.e. no GUI). Especially argv and envp
@@ -836,8 +840,8 @@ __prog_default_cpu_and_bits
   %ifidn __OUTPUT_FORMAT__, obj
     ; !! Group CONST with _TEXT. OpenWatcom wlink(1) groups CONST and CONST2
     ;    with _DATA in the output PT_LOAD, rather than _TEXT. Grouping with
-    ;    _TEXT is more common on Linux, and for some programs, _DATA would
-    ;    remain empty (except for @oscompat).
+    ;    _TEXT is mor common on Linux, and for some programs, _DATA may
+    ;    remain empty.
     %define __FILESECTIONNAME__TEXT _TEXT
     %define __FILESECTIONNAME_CONST CONST
     %define __FILESECTIONNAME_CONST2 CONST2
@@ -1091,8 +1095,8 @@ __prog_depend exit_, _exit_  ; Will be repeated below to get more dependencies.
 %endif
 __prog_depend _exit, __exit  ; Repeat it.
 __prog_depend exit_, _exit_  ; Repeat it.
+__prog_depend _isatty, isatty_
 %if XV6I386+WIN32WL+DOSCOM+DOSEXE==0
-  __prog_depend _isatty, @ioctl_wrapper
   __prog_depend isatty_, @ioctl_wrapper
 %endif
 __prog_depend _write, _write_binary
@@ -1153,7 +1157,7 @@ SYS:
 .exit equ 2
 .read equ 5
 .write equ 16
-%else  ; Linux i386, FreeBSD i386, NetBSD i386, v7x86, SysV SVR3 i386, SysV SVR4 i386, iBCS2, 386BSD, Minix 2.x syscall numbers.
+%else  ; Linux i386, FreeBSD i386, NetBSD i386, v7x86, SysV SVR3 i386, SysV SVR4 i386, iBCS2, 386BSD, Minix 2.x, Minix 3.2.x syscall numbers.
 .exit equ 1
 .read equ 3
 .write equ 4
@@ -1237,12 +1241,15 @@ IOCTL_Coherent4:  ; Coherent 4.x i386. Similar to SysV SVR3.
 .TIOCGWINSZ equ 0x5468  ; Get window size. sizeof(struct winsize) == 8.
 .TIOCGETC   equ 0x7412  ; Get characters. sizeof(struct tchars) == 6. SVR3 doesn't have it.
 
-IOCTL_Minix2:  ; Minix 2.0.4 i386, also Minix 1.6 i386. Minix for 8086 has the low 16 bits only.
+IOCTL_Minix2:  ; Minix 1.5--1.6--1.7.0--2.0.4--3.2.0 i386. Minix for 8086 has the low 16 bits only.
 .TCGETS     equ 0x80245408  ; _IOR('T',  8, struct termios). sizeof(struct termios) == 36 == 0x24. isatty(3) uses TCGETS.
 .TIOCGWINSZ equ 0x80085410  ; _IOR('T', 16, struct winsize). sizeof(struct sinsize) == 8.
 .TIOCGPGRP  equ 0x40045412  ; _IOW('T', 18, int). There is a bug, it should be _IOR. sizeof(int) == 4.
 .TIOCGETP   equ 0x80087401  ; _IOR('t',  1, struct sgttyb). sizeof(struct sgttyb) == 8.
 .TIOCGETC   equ 0x80067403  ; _IOR('t',  3, struct tchars). sizeof(struct tchars) == 6.
+
+IOCTL_Minix33:  ; Minix 3.3.0 i386.
+.TIOCGETA equ 0x402c7413  ; sizeof(struct termios) == 44 == 0x2c. iastty(3) uses this. Same value for TIOCGETA as on FreeBSD, NetBSD and 386BSD.
 
 IOCTL_Minix1.5:  ; Minix 1.5 i386.
 .TCGETS     equ 0x7408  ; There is no struct pointer passed in Minix 1.5. isatty(3) uses TCGETS.
@@ -1266,11 +1273,16 @@ IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
 .XCGETA     equ 0x695801  ; sizoef(struct termios) == 24. Not implemented in SVR3 or SRV4.
 .OXCGETA    equ 0x7801  ; sizoef(struct termios) == 24. Not implemented in SVR3 or SRV4.
 
-; !! Add IOCTL_* numbers for Minix 3.2.x, xv6, and Xenix/386.
-
 %if ELF
   SYS_Linux:  ; Linux i386 syscalls. Syscall input: EAX: syscall number; EBX: arg1; ECX: arg2; EDX: arg3.
   .mmap equ 90
+
+  SYS_Minix330:  ; Minix 3.3.0 i386 syscalls.
+  ; Defined in minix/minix/include/minix/callnr.h
+  .PM_EXIT   equ 0x1
+  .VFS_READ  equ 0x100  ; 0xfd+SYS.read .
+  .VFS_WRITE equ 0x101  ; 0xfd+SYS.write .
+  .VFS_IOCTL equ 0x118
 
   MAP_Linux:  ; Symbolic constants for Linux i386 mmap(2).
   .PRIVATE equ 2
@@ -1285,6 +1297,19 @@ IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
   .LINUX equ 0  ; (All ELF.) Linux i386 native; Linux i386 running on Linux amd64; Linux (any architecture) qemu-i386; Linux i386 ibcs-us ELF.
   .SYSV equ 1  ; AT&T Unix System V/386 (SysV) Release 3 (SVR3) COFF; AT&T Unix System V/386 (SysV) Release 4 (SVR4) ELF; Coherent 4.x COFF; iBCS2 COFF; Linux i386 ibcs-us COFF.
   .FREENETBSD equ 2  ; (All ELF.) FreeBSD or NetBSD i386. !! Will it work on OpenBSD (probably not, needs extra sections to describe syscall addresses) or DragonFly BSD, or do they mandate conflicting ELF-32 headers?
+  .MINIX32 equ 4  ; Minix 3.2.0.
+  .MINIX33 equ 6  ; Minix 3.3.0.
+  .MINIX3_MASK equ 4  ; Bit set for both .MINIX32 and .MINIX33.
+  .MINIX33_FREENETBSD_MASK equ 2  ; Bit set for both .FREENETBSD and .MINIX33.
+
+  ; Initial Unix process state:
+  ; * The GPRs (general-purpose registers) are EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI.
+  ; * From top of stack (ESP): argc, argv[0], ..., argv[argc-1], NULL, envp[0], ... envp[envc-1], NULL, afterenv.
+  ; * .LINUX: afterenv is auxt[0] (non-NULL) since Linux 1.0; EDX == 0; ESP is set as above; other GPRs are either arbitrary (for Linux <2.2) or 0 (for Linux >=2.2) (https://asm.sourceforge.net/articles/startup.html and https://stackoverflow.com/q/9147455)
+  ; * .FREENETBSD: afterenv is auxt[0] (non-NULL); ESP is set as above; treat other GPRs as arbitrary; distinguish it from Linux by: if write(-1, "", 0) returns a negative errno value, then it's Linux, otherwise it's FreeBSD or NetBSD; don't chck CF, earlier versions of Linux may also set it to 1
+  ; * .MINIX32: afterenv is the argv[0] string, i.e. argv[0] == &afterenv; ESP is set as above (a bit below 0x7ffffffc); ECX == 3 (the code of SENDREC from the previous program); EAX == 0 (is it always 0?); other GPRs are arbitrary (mostly inherited from the previous program)
+  ; * .MINIX33: afterenv is auxt[0] == NULL; ESP is set as above (a bit below EBX); EBX is 0xeffffff0; other GPRs are 0
+  ; * .SVR4: afterenv is the argv[0] string, i.e. argv[0] == &afterenv; ESP is set as above (a bit below the first PT_LOAD page); EAX == 0; other GPRs are arbitrary (mostly inherited from the previous program).
 %endif
 
 %if WIN32WL
@@ -1346,6 +1371,25 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		cld  ; Not all systems set DF := 0, so we play it safe.
 %endif
 %if ELF  ; Auto-detect the operating system (OSCOMPAT) for ELF.
+		cmp ebx, 0xeffffff0
+		jne short .not_minix33
+		test eax, eax
+		jnz .not_minix33
+		test ecx, ecx
+		jnz .not_minix33
+		test edx, edx
+		jnz .not_minix33
+		test esi, esi
+		jnz .not_minix33
+		test edi, edi
+		jnz .not_minix33
+		test ebp, ebp
+		jnz .not_minix33
+		jmp short .cont1  ; EBP == 0 indicates possible OSCOMPAT.MINIX33.
+  .not_minix33:
+		xor ebp, ebp
+		inc ebp  ; EBP == 1 indicates that OSCOMPAT.MINIX33 is impossible.
+  .cont1:
 		; Linux >=1.0 and FreeBSD >=3.5 both set up a non-empty
 		; auxv, even for statically linked executable. SVR4 2.1
 		; doesn't even add an auxv: the argv[0] string directly
@@ -1370,7 +1414,36 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		; statically linked ELF-32 i386 programs, but not on Linux
 		; >=1.0.4, ibcs-us (which inherits to auxv from the host
 		; Linux or FreeBSD >=3.5), FreeBSD 3.5, NetBSD 1.5.2.
-		je short .sysv  ; OSCOMPAT.SYSV.
+		je short .sysv_minix32  ; OSCOMPAT.SYSV or OSCOMPAT.MINIX32.
+		test ebp, ebp
+		jnz short .not_minix33_minix32_sysv
+		mov edx, [edi-2*4]  ; EDX := envp[envc - 1].
+		test edx, edx
+		jnz short .edx_is_last
+		mov edx, [edi-3*4]  ; EDX := argv[argc - 1].
+		test edi, edi
+		jz short .minix33   ; Both argv and envp are empty, EBX is 0xeffffff0.
+  .edx_is_last:
+		; Now EDX points to the beginning of envp[envc - 1] (or, if envp is empty, and argv is nonempty, argv[argc  1]).
+		mov edi, edx
+  .next_char:
+		scasb
+		jne short .next_char
+		times 3 inc edi
+		and edi, byte ~3
+		cmp edi, ebx  ; EDI == 0xeffffff0 ?
+		jne .not_minix33_minix32_sysv
+  .minix33:
+		push byte OSCOMPAT.MINIX33
+  %if 0  ; Just for debugging.
+		pop eax
+		mov [@oscompat], al  ; We must do this after the clearing of the first page of .bss above.
+		mov al, 33
+		jmp strict near exit_
+  %else
+		jmp short .detected
+  %endif
+  .not_minix33_minix32_sysv:
   %if 0  ; This is a useless check.
 		scasd
 		; Jump iff the first element of auxv is AT_NULL (== 0). This
@@ -1439,6 +1512,21 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   .freenetbsd:
 		push byte OSCOMPAT.FREENETBSD
 		jmp short .detected
+  .sysv_minix32:
+  %if 0  ; Not needed, the ESP test below is enough.
+		cmp ecx, byte 3
+		jne short .sysv
+		test eax, eax
+		jne short .sysv
+  %endif
+  %ifidn __OUTPUT_FORMAT__, bin  ; The subtractions below work only in a single section.
+		cmp esp, _base_org
+  %else
+		cmp esp, _start  ; _base_org not defined. _start is a bit larger, but good enough to check here.
+  %endif
+		jb short .sysv  ; More specifically: For OSCOMPAT.SYSV, envp[envc - 1] rounded up to the multiple of 0x10 is _base_org; for OSCOMPAT.MINIX32, envp[envc - 1] rounded up to the multiple of 0x10 is 0x80000000.
+		push byte OSCOMPAT.MINIX32
+		jmp short .detected
   .sysv:
 		push byte OSCOMPAT.SYSV
   .detected:
@@ -1458,9 +1546,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		; Now we clear the .bss part of the last page of .data.
 		; 386BSD 1.0 and some early Linux kernels put junk there if
 		; there is junk at the end of the ELF-32 executable program
-		; file after the last PT_LOAD file byte.
-		;
-		; !! Do we ever have to clear subsequent .bss pages? Not on Linux ELF, because the mmap(...) above has cleared it.
+		; file after the last PT_LOAD file byte. (Example for such
+		; junk: ELF section header (e_shoff) and sections.)
 		xor eax, eax
   global _start.startref2
   .startref2:  ; fix_elf_edata.pl will find this symbol by name, and then it will fix the value in the instruction below.
@@ -1689,6 +1776,21 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %elif WIN32WL
 		push eax  ; exit_code.
 		call _ExitProcess@4  ; Doesn't return.
+  %elif ELF
+		push eax  ; exit_code for OSCOMPAT.MINIX3, fake return address for anything else.
+		test byte [@oscompat], OSCOMPAT.MINIX3_MASK
+		jz short .not_minix3
+		; This works for OSCOMPAT.MINIX32 and OSCOMPAT.MINIX33.
+		push byte SYS_Minix330.PM_EXIT
+		xor eax, eax  ; MINIX_WHO.MM == 0.
+		push eax  ; Arbitrary value.
+		mov ebx, esp
+		push byte 3  ; SENDREC.
+		pop ecx
+		int 0x21  ; Minix i386 syscall. It ruins EAX, EBX, ECX and EDX.
+  .not_minix3:
+		push eax  ; exit_code.
+		push byte SYS.exit
   %else
 		push eax  ; Fake return address.
 		push eax  ; exit_code.
@@ -1717,6 +1819,20 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop ax  ; Discard return address.
 		pop ax  ; AX := exit_code.
 		jmp short _exit_  ; Doesn't return.
+  %elif ELF
+		test byte [@oscompat], OSCOMPAT.MINIX3_MASK
+		jz short .not_minix3
+		; This works for OSCOMPAT.MINIX32 and OSCOMPAT.MINIX33.
+		;push eax  ; exit_code.  Alrready pushed in _exit_ above.
+		push byte SYS_Minix330.PM_EXIT
+		xor eax, eax  ; MINIX_WHO.MM == 0.
+		push eax  ; Arbitrary value.
+		mov ebx, esp
+		push byte 3  ; SENDREC.
+		pop ecx
+		int 0x21  ; Minix i386 syscall. It ruins EAX, EBX, ECX and EDX.
+  .not_minix3:
+		push byte SYS.exit
   %else
 		push byte SYS.exit
 		; Fall through to @simple_syscall3_pop
@@ -1747,9 +1863,9 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop ecx
 		int 0x21  ; Minix 2.x i386 syscall. Inputs: EAX, EBX and ECX; returns EAX. Ruins EBX (on both Minix 1.5 i386 and Minix 1.7.0 i386).
 		test eax, eax
-		jnz short .have_status_tested
+		jnz short .return_based_on_sign
 		or eax, [@minix_syscall_msg+4]  ; We can't do `or eax, [ebx+4]' here, because int 0x21' has already ruined EBX (in Minix 1.5 i386 and Minix 1.7.0 i386).
-  .have_status_tested:
+  .return_based_on_sign:
 		pop ebx  ; Restore.
 		jns short .ret
 		; Now we could get errno from the negative of EAX.
@@ -1757,7 +1873,53 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %elif WIN32WL
 %elif DOSCOM+DOSEXE
 %else
-  ; Calls a single systcall of 0, 1, 2 or 3. arguments.
+  %if ELF
+		jmp short @simple_syscall3_pop
+    global @simple_syscall3_minix3_helper
+    @simple_syscall3_minix3_helper:  ; This works for SYS.read and SYS.write. It also works for SYS.ioctl of the ioctl(2) request number has the correct system-specific value.
+		lea esp, [esp-(16-6)*4]  ; We must reserve 16*4 bytes for the Minix message buffer on OSCOMPAT.MINIX33. 9*4 bytes are enough on OSCOMPAT.MINIX32.
+		push ecx  ; Syscall argument 3: buf for read(2) and write(2). Only used by OSCOMPAT.MINIX32. At message offset +5*4.
+		push edx  ; Syscall argument 2: count for read(2) and write(2). Only used by OSCOMPAT.MINIX33. At message offset +4*4.
+		je short .minix32
+    .minix33:
+		add eax, strict dword 0xfd  ; SYS.read --> SYS_Minix330.VFS_READ; SYS.write --> SYS_Minix330.VFS_WRITE.
+		cmp al, (SYS.ioctl+0xfd)&0xff
+		jne short .minix33_syscall_number_ok
+		sub eax, byte (SYS.ioctl+0xfd)-SYS_Minix330.VFS_IOCTL  ; Change syscall number for SYS.ioctl to SYS_Minix330.VFS_IOCTL.
+    .minix33_syscall_number_ok:
+		push ecx  ; Syscall argument 2: buf for read(2) and write(2). At message offset +3*4.
+		db 0xa8  ; Opcode byte for `test al, ...'. Skips over the `push edx' below.
+    .minix32:
+		push edx  ; Syscall argument 2: count for read(2) and write(2). At message offset +3*4.
+    %if $-.minix32!=1
+      %error ERROR_ASSERT_PUSH_EDX_MUST_BE_1_BYTE  ; For the `test al, ...' above to work.
+    %endif
+    .minix3_common:
+		push ebx  ; Syscall argument 1: fd. At message offset +2*4.
+		push eax  ; Syscall number (SYS.read, SYS.write, SYS_Minix330.VFS_READ, SYS_Minix330.VFS_WRITE or SYS_Minix330.VFS_IOCTL). At message offset +1*4.
+		push eax  ; Arbitrary value. At message offset +0*4.
+		mov ebx, esp
+		cmp al, SYS.ioctl  ; This matches SYS.ioctly only for OSCOMPAT.MINIX32.
+		jne short .minix3_common2
+    .minix32_ioctl:
+		mov [ebx+4*4], ecx  ; ioctl(2) argument 2: request. At message offset +4*4 == +16.
+		mov [ebx+7*4], edx  ; ioctl(2) argument 3: arg. At message offset +7*4 == +28.
+    .minix3_common2:
+		xor eax, eax
+		inc eax  ; MINIX_WHO.FS == 1.
+		push byte 3  ; SENDREC.
+		pop ecx
+		int 0x21  ; Minix i386 syscall. Inputs: EAX, EBX and ECX; returns EAX. Ruins EBX (on both Minix 1.5 i386 and Minix 1.7.0 i386).
+		pop ecx  ; Discard first dword (placeholder for who).
+		pop ecx  ; ECX := result.
+		add esp, byte (16-2)*4  ; Clean up Minix message buffer from stack.
+		pop ebx  ; Restore.
+		test eax, eax
+		jnz short @simple_syscall3_eax.return_based_on_sign
+		or eax, ecx
+		jmp short @simple_syscall3_eax.return_based_on_sign
+  %endif
+  ; Calls a single systcall of 0, 1, 2 or 3 arguments.
   ;
   ; Input stack: dword [esp]: syscall number (SYS....); dword [esp+4]: return
   ; address; dword [esp+2*4] syscall argument 1; dword [esp+3*4] syscall
@@ -1786,18 +1948,26 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		mov cl, [@oscompat]
 		cmp cl, OSCOMPAT.SYSV
 		je short .sysv
-		test cl, cl  ; OSCOMPAT.LINUX.
-		jnz short .freenetbsd  ; OSCOMPAT.FREENETBSD.
-    .linux:
+		cmp cl, OSCOMPAT.FREENETBSD
+		je short .freenetbsd
+		; OSCOMPAT.LINUX or OSCOMPAT.MINIX32 or OSCOMPAT.MINIX33.
+		cmp cl, OSCOMPAT.MINIX32
+    %if OSCOMPAT.MINIX33<OSCOMPAT.MINIX32
+      %error ERROR_BAD_ORDERING_OF_OSCOMPAT_MINIX3  ; Needed by the `jae short .minix23' above.
+      times -1 nop
+    %endif
 		push ebx  ; Save.
 		mov ebx, [esp+2*4]  ; Syscall argument 1.
 		mov ecx, [esp+3*4]  ; Syscall argument 2.
 		mov edx, [esp+4*4]  ; Syscall argument 3.
+		jae short @simple_syscall3_minix3_helper
+    .linux:
 		int 0x80  ; Linux i386 syscall.
 		pop ebx  ; Restore.
 		test eax, eax
-		jns short .ret
-		jmp short .error
+    .return_based_on_sign:
+		js short .error  ; We could get errno from the negative of EAX.
+		ret
     .sysv:
 		call 7:dword 0  ; SysV i386 syscall.
 		dw 0xb966  ; `mov cx, ...' to skip over the `int 0x80' below.
@@ -2172,8 +2342,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		mov eax, [ecx+4*4]  ; fd.
 		;mov [ebx-16+8], eax  ;  ; .m2_i1, at offset 8 of the struct (TTY_LINE == DEVICE == m2_i1 == m_u.m_m2.m2i1 == 8). Set it to fd. This is automatic in @minix_syscall_cont.
 		jmp short @minix_syscall_cont
-  %elif XV6I386
-    %error ERROR_ASSERT_NO_IOCTL_WRAPPER_FOR_XV6I386  ; This is fine, isatty(2) below is a dummy for xv6-i386.
+  %elif XV6I386+WIN32WL+DOSCOM+DOSEXE
+    %error ERROR_ASSERT_NO_IOCTL_WRAPPER  ; This is fine, isatty(2) below is a dummy for xv6-i386.
     times -1 nop
   %else
 		push byte SYS.ioctl
@@ -2188,91 +2358,10 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 ; --- System-specific libc functions.
 
 %ifdef __NEED__isatty
-  ; This function is implemented twice: also at __NEED_isatty_.
-  %if DOSCOM+DOSEXE==0
-    _isatty: __prog_libc_export 'int __cdecl isatty(int fd);'
-  %endif
-  %if COFF
-    ISATTY_TERMIOS_SIZE equ 18+2  ; sizeof(struct termio) == 18 for SYSV and iBCS2 (we round it up to 20, to dword bounadry).
-		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of @ioctl_wrapper.
-		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
-  %elif S386BSD
-    ISATTY_TERMIOS_SIZE equ 44  ; sizeof(struct termios) == 44 on 386BSD.
-		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of @ioctl_wrapper.
-		push strict dword IOCTL_386BSD.TIOCGETA
-  %elif MINIX2I386+MINIX386VM
-    ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386+MINIX386VM.
-		sub esp, byte ISATTY_TERMIOS_SIZE
-		; Minix 2.0 has a different ioctl from Minix 1.5--1.7, so we try both, and if any of them returns nonnegative, then it's a TTY.
-		push esp  ; Argument 3 arg of @ioctl_wrapper.
-		push strict dword IOCTL_Minix1.5.TCGETS  ; Same as IOCTL_Minix1.7.TIOCGETP.
-		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
-		call @ioctl_wrapper
-		cmp eax, byte -1
-		jne short .return  ; Found a TTY.
-		times 2 pop eax  ; Clean up the argument fd and request of @ioctl_wrapper above from the stack. We don't clean up argument arg, because we reuise it below. @ioctl_wrapper doesn't modify it on the stack.
-		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP (Minix 2.0 only) with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
-  %elif V7X86
-    ISATTY_TERMIOS_SIZE equ 8  ; sizeof(struct agttyb) == 8 on V7X86.
-		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of @ioctl_wrapper.
-		push strict dword IOCTL_v7x86.TIOCGETP  ; Alternatively, we could use IOCTL_v7x86.TIOCGETD with the smaller sizeof(int) == 3.
-  %elif XV6I386
-		xor eax, eax
-		inc eax  ; EAX := 1. This is a fallback of isatty(...) always returning true (1), because there is no isatty(3) or ioctl(2) on xv6-i386.
-  %elif WIN32WL
-		; handle_from_fd. EAX --> EAX. !! Move to a helper function.
-		cmp eax, byte 3  ; CONFIG_FILE_HANDLE_COUNT
-		jnc short .bad_fd
-		mov eax, [@fd_handles+eax*4]
-		jmp short .have_handle
-    .bad_fd:
-		or eax, byte -1
-    .have_handle:
-		push eax  ; hFile.
-		call _GetFileType@4  ;  Ruins EDX and ECX.
-		xchg edx, eax  ; EDX := file type; EAX := junk.
-		xor eax, eax  ; EAX := 0.
-		cmp edx, byte FILE_TYPE_CHAR
-		sete al
-  %eilf DOSCOM+DOSEXE
-  %else  ; ELF.
-    ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
-		sub esp, byte ISATTY_TERMIOS_SIZE
-		push esp  ; Argument 3 arg of @ioctl_wrapper.
-		cmp byte [@oscompat], OSCOMPAT.FREENETBSD
-		je short .freenetbsd
-    .linux_or_sysv:
-		push strict dword IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
-		jmp .ioctl_number_pushed
-    .freenetbsd:
-		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
-  %endif
-  %if XV6I386+WIN32WL+DOSCOM+DOSEXE==0
-    .ioctl_number_pushed:
-		push dword [esp+2*4+ISATTY_TERMIOS_SIZE+4]  ; Argument fd of this isatty(...).
-		call @ioctl_wrapper
-    .return:
-		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of @ioctl_wrapper above from the stack, and also clean up the arg struct.
-		; Now convert result EAX: -1 to 0, everything else to 1.
-		inc eax
-    %if 0  ; Faster (because it avoids the jump), but 1 byte longer.
-		setnz al
-		movzx eax, al
-    %else
-		jz short .have_retval
-		xor eax, eax
-		inc eax  ; EAX := 1.
-     .have_retval:
-    %endif
-  %endif
-  %if DOSCOM+DOSEXE==0
-		ret
-  %endif
+  _isatty: __prog_libc_export 'int __cdecl isatty(int fd);'
+		mov eax, [esp+1*4]  ; Argument fd.
+		; Fall through to isatty_.
 %endif
-
 %ifdef __NEED_isatty_
   isatty_: __prog_libc_export 'int __watcall isatty(int fd);'
   %if XV6I386+DOSCOM+DOSEXE==0
@@ -2284,11 +2373,13 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_Linux.TCGETS  ; We need the one which works on SysV. Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
+		push eax  ; Argument fd of this isatty(...).
   %elif S386BSD
     ISATTY_TERMIOS_SIZE equ 44  ; sizeof(struct termios) == 44 on 386BSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_386BSD.TIOCGETA
+		push eax  ; Argument fd of this isatty(...).
   %elif MINIX2I386+MINIX386VM
     ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386+MINIX386VM.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -2302,11 +2393,13 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop eax  ; Restore EAX := argument fd. That works, because @ioctl_wrapper doesn't modify its arguments on the stack.
 		lea esp, [esp+4]  ; Clean up the argument request of @ioctl_wrapper above from the stack, without modifying the flags.
 		push strict dword IOCTL_Minix2.TCGETS  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP (Minix 2.0 only) with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
+		push eax  ; Argument fd of this isatty(...).
   %elif V7X86
     ISATTY_TERMIOS_SIZE equ 8  ; sizeof(struct agttyb) == 8 on V7X86.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_v7x86.TIOCGETP  ; Alternatively, we could use IOCTL_v7x86.TIOCGETD with the smaller sizeof(int) == 3.
+		push eax  ; Argument fd of this isatty(...).
   %elif XV6I386
 		xor eax, eax
 		inc eax  ; EAX := 1. This is a fallback of isatty(...) always returning true (1), because there is no isatty(3) or ioctl(2) on xv6-i386.
@@ -2349,17 +2442,18 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.FREENETBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		push esp  ; Argument 3 arg of @ioctl_wrapper.
-		cmp byte [@oscompat], OSCOMPAT.FREENETBSD
-		je short .freenetbsd
-    .linux_or_sysv:
-		push strict dword IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA.
-		jmp .ioctl_number_pushed
-    .freenetbsd:
-		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Same value as IOCTL_NetBSD.TIOCGETA.
+		push strict dword IOCTL_FreeBSD.TIOCGETA  ; Argument 2 request of @ioctl_wrapper. Same value as IOCTL_NetBSD.TIOCGETA, IOCTL_386BSD.TIOCETA and IOCTL_Minix330.TIOCGETA. Correct value for OSCOMPAT.FREENETBSD and OSCOMPAT.MINIX33.
+		push eax  ; Argument 1 fd of @ioctl_wrapper == argument fd of this isatty(...)
+		mov al, [@oscompat]
+		test al, OSCOMPAT.MINIX33_FREENETBSD_MASK
+		jnz short .ioctl_args_pushed
+		mov dword [esp+4], IOCTL_Linux.TCGETS  ; Same value as IOCTL_SysV.TCGETA, IOCTL_Coherent4.TCGETA, IOCTL_iBCS2.TCGETA. Correct value for OSCOMPAT.LINUX and OSCOMPAT.SYSV.
+		cmp al, OSCOMPAT.MINIX32
+		jne short .ioctl_args_pushed
+		mov dword [esp+4], IOCTL_Minix2.TCGETS  ; Correct value for OSCOMPAT.MINIX32.
+    .ioctl_args_pushed:
   %endif
   %if XV6I386+WIN32WL+DOSCOM+DOSEXE==0
-    .ioctl_number_pushed:
-		push eax  ; Argument fd of this isatty(...).
 		call @ioctl_wrapper
     .return:
 		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of @ioctl_wrapper above from the stack, and also clean up the arg struct.

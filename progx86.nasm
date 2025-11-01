@@ -662,7 +662,7 @@ __prog_default_cpu_and_bits
       _rodata_endalign equ (-(_rodata_endu-_rodata_start))&3
       _data_endalign equ (-(_data_endu-_data_start))&3
     %elif V7X86
-      %if _rodata_endu==_rodata_start
+      %if _data_endu==_data_start && _rodata_endu==_rodata_start
         _rodatastr_endalign equ 0
       %else
         _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
@@ -670,7 +670,7 @@ __prog_default_cpu_and_bits
       _rodata_endalign equ 0  ; .data has align=1 valign=0x1000, no need to add any alignment before .data to the file.
       _data_endalign equ (-(_data_endu-_data_start))&3
     %elif XV6I386
-      %if _rodata_endu==_rodata_start
+      %if _data_endu==_data_start && _rodata_endu==_rodata_start
         _rodatastr_endalign equ 0
       %else
         _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
@@ -686,7 +686,7 @@ __prog_default_cpu_and_bits
         _startsec_start equ 0  ; Fake.
         _startsec_endu  equ 0  ; Fake.
       %endif
-      %if _rodata_endu==_rodata_start
+      %if _data_endu==_data_start && _rodata_endu==_rodata_start
         _rodatastr_endalign equ 0
       %else
         _rodatastr_endalign equ (-(_startsec_endu-_startsec_start+_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&1
@@ -698,7 +698,7 @@ __prog_default_cpu_and_bits
       %endif
       _data_endalign equ (-(_startsec_endu-_startsec_start+_text_endu-_text_start)-(_rodatastr_endu+_rodatastr_endalign-_rodatastr_start)-(_rodata_endu+_rodata_endalign-_rodata_start)-(_data_endu-_data_start))&1
     %elif ELF
-      %if _rodata_endu==_rodata_start
+      %if _data_endu==_data_start && _rodata_endu==_rodata_start
         _rodatastr_endalign equ 0
       %else
         _rodatastr_endalign equ (-(_text_endu-_text_start)-(_rodatastr_endu-_rodatastr_start))&3
@@ -787,13 +787,23 @@ __prog_default_cpu_and_bits
     %elif S386BSD+V7X86
       _data_start_pagemod equ 0
     %else
-      _data_start_pagemod equ _startsec_size+_text_size+_rodatastr_size+_rodata_size
+      _data_start_pagemod equ _startsec_size+_text_size+_rodatastr_size+_rodata_size+_datauna_size
     %endif
     %if (_data_start_pagemod&(__prog_general_alignment-1)) && _data_size
-      %error ERROR_DATA_NOT_ALIGNED
+      %assign ERROR_VALUE1 _startsec_size
+      %assign ERROR_VALUE2 _text_size
+      %assign ERROR_VALUE3 _rodatastr_size
+      %assign ERROR_VALUE4 _rodata_size
+      %assign ERROR_VALUE5 _datauna_size
+      %if ELF
+        %assign ERROR_VALUE6 _datauna_endalign
+      %else
+        %assign ERROR_VALUE6 0
+      %endif
+      %error ERROR_DATA_NOT_ALIGNED ERROR_VALUE1 ERROR_VALUE2 ERROR_VALUE3 ERROR_VALUE4 ERROR_VALUE5 ERROR_VALUE6
       times -1 nop
     %endif
-    _bss_start_pagemod equ _data_start_pagemod+_datauna_size+_data_size+_data_endalign_extra
+    _bss_start_pagemod equ _data_start_pagemod+_data_size+_data_endalign_extra
     %if _bss_start_pagemod&(__prog_general_alignment-1)
       %error ERROR_BSS_NOT_ALIGNED
       times -1 nop

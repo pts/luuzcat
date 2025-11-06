@@ -13,6 +13,9 @@
 ;   (tested on NetBSD 1.5.2 (2001-09-10) and 10.1 (2024-11-17)),
 ;   OpenBSD >=3.4 i386 and possibly a bit earlier
 ;   (tested on OpenBSD 3.4 (2003-09-27) and 7.8 (2025-10-12)).
+;   DragonFly BSD i386
+;   (tested on DragonFly BSD 1.4.0 (2006-01-05) and 3.8.2 (2014-08-14),
+;   later versions can't run i386 exeutables),
 ;   Minix >=3.2 i386
 ;   (tested on 3.2.0 (2012-02-28) and 3.3.0 (2014-09-14)),
 ;   AT&T Unix System V/386 Release 4 (SVR4) i386
@@ -92,7 +95,6 @@
 ;
 ; !! Rename MINIX2I386 TO MINIXI386.
 ; !! Add 16-bit targets MINIXI86 and ELKS.
-; !! Add Dragonfly BSD target.
 ; !! Add Xenix/86 (large model) and Xenix/386 targets.
 ; !! Test it on FreeBSD 3.5 (1995-05-28).
 ; !! Test it on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
@@ -353,7 +355,7 @@ __prog_default_cpu_and_bits
     ELF_OSABI:  ; ELF EI_OSABI constants.
     .SysV equ 0
     .Linux equ 3
-    .FreeBSD equ 9
+    .FreeBSD equ 9  ; DragonFly BSD <=3.8.2 can run FreeBSD executables out of the box.
 
     ELF_PT:  ; ELF PHDR type constants.
     .LOAD equ 1

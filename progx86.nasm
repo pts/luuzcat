@@ -7,8 +7,10 @@
 ; * prog.elf (-DELF, default):
 ;   Linux >=1.0.4 (1994-05-22) i386 and possibly earlier
 ;   (tested on Linux 1.0.4 (1994-03-22), 5.4.0 (2019-11-24)),
-;   FreeBSD >=3.5 (1995-05-28) i386 and possibly earlier
-;   (tested on FreeBSD 9.3 (2014-07-11)),
+;   FreeBSD >=2.2.1 (1997-04-05) i386
+;   (tested on FreeBSD 2.2.1 (1997-04-05), 2.2.2 (1997-05-29),
+;   2.2.5 (1997-10-21), 2.2.8 (1998-11-29), 2.2.9 (2006-03-31),
+;   3.2 (1999-05-18), 3.5.1 (2000-07-26), 9.3 (2014-07-11)),
 ;   NetBSD >=1.5.2 i386 and possibly earlier
 ;   (tested on NetBSD 1.5.2 (2001-09-10) and 10.1 (2024-11-17)),
 ;   OpenBSD >=3.4 i386 and possibly a bit earlier
@@ -96,6 +98,8 @@
 ; !! Rename MINIX2I386 TO MINIXI386.
 ; !! Add 16-bit targets MINIXI86 and ELKS.
 ; !! Add Xenix/86 (large model) and Xenix/386 targets.
+; !! Add FreeBSD 2.0.5 (1995-07-10) with the a.out executable format.
+; !! Add Linux target with various a.out executable formats. (Linux 1.0 has already supported ELF.)
 ; !! Test it on FreeBSD 3.5 (1995-05-28).
 ; !! Test it on 386BSD 0.0 (1992-03-17) or 386BSD 0.1 (1992-07-14).
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
@@ -363,8 +367,11 @@ __prog_default_cpu_and_bits
     .OPENBSD_SYSCALLS equ 0x65a3dbe9
     section .header
     ; We use ELF_OSABI.FreeBSD, because newer FreeBSD checks it. Linux, NetBSD, OpenBSD and SysV SVR4 don't check it.
+    ; FreeBSD 3.5.1 requires the NUL-terminated string "FreeBSD" at file offset 8 (== EI_BRAND), otherwise it fails with:
+    ;   ELF binary type not known.  Use "brandelf" to brand it.
+    ; FreeBSD 9.3 doesn't require such a brand.
     Elf32_Ehdr:
-		db 0x7F, 'ELF', 1, 1, 1, ELF_OSABI.FreeBSD, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 3, ERROR_MISSING_F_END
+		db 0x7f, 'ELF', 1, 1, 1, ELF_OSABI.FreeBSD, 'FreeBSD', 0, 2, 0, 3, ERROR_MISSING_F_END
 		dd 1, _start, Elf32_Phdr0-Elf32_Ehdr, 0, 0
 		dw Elf32_Phdr0-Elf32_Ehdr, Elf32_Phdr1-Elf32_Phdr0, (Elf32_Phdr.end-Elf32_Phdr0)>>5, 0x28, 0, 0
     Elf32_Phdr0:

@@ -1306,7 +1306,7 @@ IOCTL_Coherent4:  ; Coherent 4.x i386. Similar to SysV SVR3.
 .TIOCGWINSZ equ 0x5468  ; Get window size. sizeof(struct winsize) == 8.
 .TIOCGETC   equ 0x7412  ; Get characters. sizeof(struct tchars) == 6. SVR3 doesn't have it.
 
-IOCTL_Minix2:  ; Minix 1.5--1.6--1.7.0--2.0.4--3.2.0 i386. Minix for 8086 has the low 16 bits only.
+IOCTL_Minix2:  ; Minix 1.7.4--1.7.5--2.0.4--3.2.0 i386. Minix for i86 has the low 16 bits of these only.
 .TCGETS     equ 0x80245408  ; _IOR('T',  8, struct termios). sizeof(struct termios) == 36 == 0x24. isatty(3) uses TCGETS.
 .TIOCGWINSZ equ 0x80085410  ; _IOR('T', 16, struct winsize). sizeof(struct sinsize) == 8.
 .TIOCGPGRP  equ 0x40045412  ; _IOW('T', 18, int). There is a bug, it should be _IOR. sizeof(int) == 4.
@@ -1316,11 +1316,11 @@ IOCTL_Minix2:  ; Minix 1.5--1.6--1.7.0--2.0.4--3.2.0 i386. Minix for 8086 has th
 IOCTL_Minix33:  ; Minix 3.3.0 i386.
 .TIOCGETA equ 0x402c7413  ; sizeof(struct termios) == 44 == 0x2c. iastty(3) uses this. Same value for TIOCGETA as on FreeBSD, NetBSD and 386BSD.
 
-IOCTL_Minix1.5:  ; Minix 1.5 i386.
+IOCTL_Minix1.5:  ; Minix 1.5 i86 and i386.
 .TCGETS     equ 0x7408  ; There is no struct pointer passed in Minix 1.5. isatty(3) uses TCGETS.
 
-IOCTL_Minix1.7:  ; Minix 1.7.0 i386.
-.TIOCGETP   equ 0x7408  ; There is no struct pointer passed in Minix 1.7. isatty(3) uses TIOCGETP.
+IOCTL_Minix1.7:  ; Minix 1.7.0--1.7.2 i86 and i386.
+.TIOCGETP   equ 0x7408  ; There is no struct pointer passed in Minix 1.7.0. isatty(3) uses TIOCGETP.
 
 IOCTL_v7x86:  ; v7x86 0.8a in usr/include/sgtty.h
 .TIOCGETP equ 0x7408  ; (('t'<<8)|8).  sizeof(struct sgttyb) == 8. There is no `struct termio' or `struct termios' in Unix V7.

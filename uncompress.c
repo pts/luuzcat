@@ -95,9 +95,6 @@
 #  define LOAD_UINT_24BP(p) ((p)[0] | (p)[1] << 8 | (p)[2] << 16)  /* This works only if sizeof(unsigned int) > 2. */
 #endif
 
-#define BITS 16
-#define INIT_BITS 9              /* Initial number of bits per code */
-
 #if READ_BUFFER_SIZE + READ_BUFFER_EXTRA > 0xffffU - READ_BUFFER_EXTRA - BITS  /* BITS is included here for posbyte_after_read calculations. */
 #  error Input buffer too large for 16-bit compress (LZW) calculations.
 #endif
@@ -158,10 +155,14 @@ typedef unsigned int uint;
  * 8086 is an exception, and we provide multiple, compiler-specific
  * implementations below using far pointers for the two large arrays.
  */
-#if !IS_DOS_16
+#undef BITS
+#undef UNCOMPRESS_WRITE_BUFFER_SIZE
+#if !IS_X86_16
   /* This is the large array implementation for targets supporting arrays
    * larger than 64 KiB. Most modern 32-bit and 64-bit targets do so.
    */
+#  define BITS 16
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
   /* For faster code string writes. Resize it to 1 to save ~64 KiB of
    * memory. Must be large enough to fit a code string of this size: 1
    * finchar, 0xff00 codes pointing back, 1 literal code.
@@ -176,10 +177,29 @@ typedef unsigned int uint;
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init() do {} while (0)
 #endif
-#if IS_DOS_16 && defined(__WATCOMC__) && !defined(__TURBOC__)
+#if IS_X86_16 && (!IS_DOS_16 || defined(_PROGX86_NOALLOC))
+  /* This implementation supports maxbits <= 13 (so it doesn't support 14, 15 or 16), but it keeps the data segment under 64 KiB. For DOS .com programs, it keeps code+data under 64 KiB. */
+#  define BITS 13
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE (1U << 13)
+#  define lzw_stack big.compress.stack_supplement
+#  define tab_suffixof(code) ((uc8*)(global_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256))[code]  /* In global_write_buffer, after the UNCOMPRESS_WRITE_BUFFER_SIZE bytes. */
+#  define tab_prefixof(code) ((um16*)(global_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256 + (1 << BITS)) - 256)[code]  /* In global_write_buffer, after tab_suffixof. */
+#  if BITS > 14
+#    error BITS too large for 16-bit noalloc uncompress.
+#  endif
+  typedef char assert_write_buffer_size_for_uncompress[sizeof(global_write_buffer) >= UNCOMPRESS_WRITE_BUFFER_SIZE + (3U << BITS) - 3U * 256 ? 1 : -1];
+  typedef char assert_stack_size_for_uncompress[sizeof(lzw_stack) >= (1U << BITS) - 254U ? 1 : -1];
+#  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_init() do {} while (0)
+#endif
+#if IS_DOS_16 && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the optimized far pointer implementation of the large arrays
    * for the OpenWatcom C compiler targeting DOS 8086.
    */
+#  define BITS 16
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
 #  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
 #  if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
@@ -250,7 +270,7 @@ typedef unsigned int uint;
     tab_suffix_seg  = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4) * 2;  /* Prefix for odd codes. */
   }
 #endif
-#if IS_DOS_16 && 0 && defined(__WATCOMC__) && !defined(__TURBOC__)
+#if IS_DOS_16 && !defined(_PROGX86_NOALLOC) && 0 && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the basic (unoptimized but working) far pointer implementation
    * of the larger arrays with the DOS 8086 target. Currently it works with
    * the OpenWatcom C compiler, but with some work it could be made work for
@@ -261,6 +281,8 @@ typedef unsigned int uint;
    * _BSS. The optimized implementation above avoids this problem by using
    * dynamic memory allocation with halloc(...) instead.
    */
+#  define BITS 16
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
 #  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static uc8  __far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
   static um16 __far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
@@ -273,7 +295,7 @@ typedef unsigned int uint;
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init() do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
 #endif
-#if IS_DOS_16 && !defined(__WATCOMC__) && defined(__TURBOC__)
+#if IS_DOS_16 && !defined(_PROGX86_NOALLOC) && !defined(__WATCOMC__) && defined(__TURBOC__)
   /* This is the memory-optimized (but not speed-optimized) far pointer
    * implementation of the large arrays for the Turbo C++ 1.00 or 1.01
    * compilers targeting DOS 8086. Don't specify the `-A' flag at compile
@@ -282,6 +304,8 @@ typedef unsigned int uint;
    * To avoid adding NUL bytes to the .exe, we use allocmem(...) to allocate
    * these arrays. We don't need them initialized.
    */
+#  define BITS 16
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
 #  include <dos.h>  /* For Turbo C++ allocmem(...), MK_FP(...) and FP_SEG(...). */
 #  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static uc8 far *tab_suffix_fptr;  /* [(1UL << BITS) - 256U]. For each code, it contains the last byte. */
@@ -306,7 +330,7 @@ typedef unsigned int uint;
     tab_suffix_fptr        = MK_FP(segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4) * 2, 0);  /* Prefix for odd codes. */
   }
 #endif
-#if IS_DOS_16 && 0 && !defined(__WATCOMC__) && defined(__TURBOC__)
+#if IS_DOS_16 && !defined(_PROGX86_NOALLOC) && 0 && !defined(__WATCOMC__) && defined(__TURBOC__)
   /* This is the basic (unoptimized but working) far pointer implementation
    * of the large arrays for the Turbo C++ 1.00 or 1.01 compilers targeting
    * DOS 8086. Don't specify the `-A' flag at compile time, it will hide
@@ -317,6 +341,8 @@ typedef unsigned int uint;
    * _BSS. The optimized implementation above avoids this problem by using
    * dynamic memory allocation with allocmem(...) instead.
    */
+#  define BITS 16
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
 #  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static uc8  far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
   static um16 far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
@@ -329,6 +355,15 @@ typedef unsigned int uint;
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init() do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
 #endif
+
+#ifndef BITS
+#  define BITS 16
+#endif
+#if BITS < 9 || BITS > 16
+#  error Bad BITS.
+#endif
+
+#define INIT_BITS 9  /* Initial number of bits per code */
 
 /* A helper function for calculating code_count. */
 #if defined(__WATCOMC__) && defined(_M_I86)
@@ -382,7 +417,7 @@ void decompress_compress_nohdr(void) {
   uint code_count_remainder;  /* Only the low 3 bits matter, so it can overflow. */
   um8 posbiti;  /* 0 <= posbiti <= 7. */
   uint discard_byte_count;  /* 0 <= discard_byte_count <= 15. */
-  uint write_idx;  /* 0 <= write_idx <= WRITE_BUFFER_SIZE. */
+  uint write_idx;  /* 0 <= write_idx <= UNCOMPRESS_WRITE_BUFFER_SIZE. */
   uint bitmask;  /* 0 <= bitmask <= 0xffffU. */
   uint free_ent1;  /* 255 <= free_ent1 <= 0xffffU. */
   uint maxcode;  /* 0 <= maxcode <= 0x10000U. If sizeof(uint) == 2, then the maximum value overflows to 0U. */
@@ -392,7 +427,7 @@ void decompress_compress_nohdr(void) {
   uint maxbits;  /* max bits per code for LZW */
   ub8 block_mode;  /* Nonzero for block mode (compress 3.0 without `-C'), zero for non-block mode (compress 2.0). */
   uint w_finchar;  /* 0 <= w_finchar <= 256. */
-  uint w_idx;  /* 0 <= write_idx <= WRITE_BUFFER_SIZE. */
+  uint w_idx;  /* 0 <= write_idx <= UNCOMPRESS_WRITE_BUFFER_SIZE. */
   uint w_code;  /* 0 <= w_code <= 0xffffU. */
   uint w_size;  /* 0 <= w_size <= 0xffffU. */
   uint w_skip;  /* 0 <= w_skip <= 0xffffU. */
@@ -421,7 +456,10 @@ void decompress_compress_nohdr(void) {
    * decompressor and gzip-1.14/unlzw.c both accept it, and it's possible to
    * do it without memory corruption.
    */
-  if (maxbits > BITS) fatal_corrupted_input();
+  if (maxbits > 16) fatal_corrupted_input();
+#if BITS < 16  /* Without this, wcc(1) isn't smart enough to omit the string literal from const. */
+  if (BITS < 16 && maxbits > BITS) fatal_msg("LZW bits not implemented" LUUZCAT_NL);
+#endif
   rsize = global_insize;
   n_bits = INIT_BITS;
   maxcode = (1U << INIT_BITS) - 1U;  /* Doesn't overflow 0xffffU. */
@@ -592,26 +630,26 @@ void decompress_compress_nohdr(void) {
 #if 0  /* This works, but it is slow. */
       while (stack_top != lzw_stack + sizeof(lzw_stack)) {
         global_write_buffer[write_idx++] = *stack_top++;
-        if (write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
+        if (write_idx == UNCOMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
       }
 #else
       w_size = lzw_stack + sizeof(lzw_stack) - stack_top;
       if (w_size <= 4) {  /* Write a few bytes quickly, without memcpy(...) etc. */
         while (stack_top != lzw_stack + sizeof(lzw_stack)) {
           global_write_buffer[write_idx++] = *stack_top++;
-          if (write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
+          if (write_idx == UNCOMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
         }
       } else {
-        while (w_size >= (w_skip = WRITE_BUFFER_SIZE - write_idx)) {
+        while (w_size >= (w_skip = UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx)) {
           memcpy(global_write_buffer + write_idx, stack_top, w_skip);
-          write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+          write_idx = flush_write_buffer(UNCOMPRESS_WRITE_BUFFER_SIZE);
           stack_top += w_skip;
           w_size -= w_skip;
         }
         memcpy(global_write_buffer + write_idx, stack_top, w_size);
         write_idx += w_size;  /* It doesn't fill it fully. */
 #ifdef USE_CHECK
-        if (write_idx == WRITE_BUFFER_SIZE) abort();  /* Must not be full. */
+        if (write_idx == UNCOMPRESS_WRITE_BUFFER_SIZE) abort();  /* Must not be full. */
 #endif
       }
 #endif
@@ -640,12 +678,12 @@ void decompress_compress_nohdr(void) {
       finchar = (uc8)code;
       /* Now generate output characters in reverse order. */
       for (;;) {
-        if (w_size > WRITE_BUFFER_SIZE - write_idx) {  /* This is the rare case with long string or string near the end of global_write_buffer. */
+        if (w_size > UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx) {  /* This is the rare case with long string or string near the end of global_write_buffer. */
 #ifdef USE_DEBUG
-          if (1) fprintf(stderr, "WRITE w_size=%lu remaining=%lu code=%lu\n", (unsigned long)w_size, (unsigned long)(WRITE_BUFFER_SIZE - write_idx), (unsigned long)code);
+          if (1) fprintf(stderr, "WRITE w_size=%lu remaining=%lu code=%lu\n", (unsigned long)w_size, (unsigned long)(UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx), (unsigned long)code);
 #endif
-          w_idx = WRITE_BUFFER_SIZE;
-          w_skip = w_size -= (WRITE_BUFFER_SIZE - write_idx);  /* After this, w_skip > 0 && w_size > 0. */
+          w_idx = UNCOMPRESS_WRITE_BUFFER_SIZE;
+          w_skip = w_size -= (UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx);  /* After this, w_skip > 0 && w_size > 0. */
 #ifdef USE_CHECK
           if (w_size == 0) abort();
           if (w_skip == 0) abort();
@@ -668,9 +706,9 @@ void decompress_compress_nohdr(void) {
         if (code >= 256U) code = tab_suffix_get(code);
         global_write_buffer[w_idx] = code;   /* Last code is always a literal. */
         if (w_skip != 0) break;  /* This was the last iteration, the entire string has been printed. */
-        write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
+        write_idx = flush_write_buffer(UNCOMPRESS_WRITE_BUFFER_SIZE);
       }
-      if ((write_idx += w_size) == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
+      if ((write_idx += w_size) == UNCOMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
     }
     if (free_ent1 < maxmaxcode1) {  /* Generate the new entry. */
       ++free_ent1;  /* Never overflows 0xffffU. */

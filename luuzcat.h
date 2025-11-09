@@ -90,6 +90,25 @@
 #    endif
 #    pragma intrinsic(memset)  /* This generates shorter code than the libc implementation. */
 #    pragma intrinsic(memcpy)  /* This generates shorter code than the libc implementation. */
+    /* It must not modify `bp', otherwise the OpenWatcom C compiler omits the
+     * `pop bp' between the `mov sp, bp' and the `ret'.
+     */
+#    ifdef _PROGX86_DOSPSPARGV
+      char *main0_argv1(void);
+#      pragma aux main __modify [__ax __bx __cx __dx __si __di __es]
+#      pragma aux main0_argv1 = "mov si, 81h"  "next:"  "lodsb"  "cmp al, 32" \
+          "je next"  "cmp al, 9"  "je next"  "dec si" \
+          __value [__si] __modify __exact [__si __al]  /* This is correct for a DOS .com program, and a PSP-based, short-model DOS .exe program (rare). */
+#      define main0() void __watcall main(void)
+#      define main0_exit0() do {} while (0)
+#      define main0_exit(exit_code) _exit(exit_code)
+#      define main0_is_progarg_null(arg) 0  /* Size optimization, never NULL. */
+#      pragma extref "progx86_main_returns_void";
+#    else
+#      pragma aux main __value [__ax] __modify [__bx __cx __dx __si __di __es]
+#    endif
+#  endif
+#  if IS_X86_16 && !defined(_PROGX86_NOALLOC)
     /* Allocates para_count << 4 bytes of memory, aligned to 16 (paragraph)
      * boundary, and returns the segment register value pointing to the
      * beginning of it. Returns 0 on out-of-memory.
@@ -123,23 +142,6 @@
 #      define progx86_para_reuse_or_alloc(para_count) progx86_para_reuse(para_count)
 #    else
 #      define progx86_para_reuse_or_alloc(para_count) progx86_para_alloc(para_count)
-#    endif
-    /* It must not modify `bp', otherwise the OpenWatcom C compiler omits the
-     * `pop bp' between the `mov sp, bp' and the `ret'.
-     */
-#    ifdef _PROGX86_DOSPSPARGV
-      char *main0_argv1(void);
-#      pragma aux main __modify [__ax __bx __cx __dx __si __di __es]
-#      pragma aux main0_argv1 = "mov si, 81h"  "next:"  "lodsb"  "cmp al, 32" \
-          "je next"  "cmp al, 9"  "je next"  "dec si" \
-          __value [__si] __modify __exact [__si __al]  /* This is correct for a DOS .com program, and a PSP-based, short-model DOS .exe program (rare). */
-#      define main0() void __watcall main(void)
-#      define main0_exit0() do {} while (0)
-#      define main0_exit(exit_code) _exit(exit_code)
-#      define main0_is_progarg_null(arg) 0  /* Size optimization, never NULL. */
-#      pragma extref "progx86_main_returns_void";
-#    else
-#      pragma aux main __value [__ax] __modify [__bx __cx __dx __si __di __es]
 #    endif
 #  endif
 #  ifdef __386__
@@ -573,7 +575,8 @@ struct deflate_big {
 #define FREEZE_T2 2043
 
 struct compress_big {
-  uc8 dummy[DOS_16_DUMMY_SIZE];  /* Used just as a placeholder used for a sizeof(...) < ~64 KiB check. compress doesn't have any big data structures to contribute. */
+  uc8 dummy[DOS_16_DUMMY_SIZE];  /* Used just as a placeholder for a sizeof(...) < ~64 KiB check. compress doesn't have any big data structures to contribute. */
+  uc8 stack_supplement[(1U << 13) - 254U];  /* For the 16-bit small `#define BITS 13' support in uncompress.c. Doesn't consume extra memory, because other fields of `big' are larger. */
 };
 
 struct freeze_big {

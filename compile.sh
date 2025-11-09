@@ -217,6 +217,22 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm',
 "$perl" shorten_to_bss.pl luuzcat.com
 ./kvikdos luuzcat.com <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_new13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_new14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_new15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_new16.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_old13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_old14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_old15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_old16.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
 ./kvikdos luuzcat.com r <test_C1.advdef.deflate >test_C1.bin
     cmp test_C1.good test_C1.bin
 
@@ -244,6 +260,22 @@ dosbox.nox.static --cmd luuzcatp.exe -cd <test_C1_new9.Z >test_C1.bin
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatw_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                       -o luuzcat.elf   progx86.nasm
 chmod +x luuzcat.elf
 ./luuzcat.elf <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new16.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_old13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_old14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_old15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_old16.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ibcs-us ./luuzcat.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin

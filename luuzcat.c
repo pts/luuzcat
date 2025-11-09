@@ -91,7 +91,7 @@ unsigned int flush_write_buffer(unsigned int size) {
   int got;
   for (size_i = 0; size_i < size; ) {
     got = (int)(size - size_i);
-    if (sizeof(int) == 2 && got < 0) got = 0x4000;
+    if (sizeof(int) == 2 && got < 0) got = 0x4000;  /* !! Not needed for DOS. Check for == -1 below instead.  */
     if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer + size_i), got)) <= 0) fatal_write_error();
     size_i += got;
   }

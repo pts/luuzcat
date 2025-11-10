@@ -439,7 +439,9 @@ __noreturn void fatal_unsupported_feature(void);
 /* This many bytes should be read to global_read_buffer at a time. It must
  * be a power of 2 divisible by 0x1000 for disk block alignment.
  */
-#define READ_BUFFER_SIZE 0x2000
+#ifndef READ_BUFFER_SIZE
+#  define READ_BUFFER_SIZE 0x2000
+#endif
 /* We allocate a few more bytes (READ_BUFFER_EXTRA bytes) of read buffer so
  * that compress (LZW) decompression can always read READ_BUFFER_SIZE bytes
  * at a time (even if it doesn't read to the start of the buffer), so it
@@ -470,7 +472,9 @@ unsigned int get_le16(void);
 
 /* --- Writing. */
 
-#define WRITE_BUFFER_SIZE 0x8000U
+#ifndef WRITE_BUFFER_SIZE
+#  define WRITE_BUFFER_SIZE 0x8000U
+#endif
 extern uc8 global_write_buffer[WRITE_BUFFER_SIZE];
 
 unsigned int flush_write_buffer(unsigned int size);

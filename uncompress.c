@@ -84,7 +84,15 @@
  *   (the latter with the `-C` flag).
  */
 
+#ifdef _DOSCOMSTART_UNCOMPRC
+#  define LUUZCAT_MAIN 1  /* Make luuzcat.h generate some functions early for the DOS .com target uncomprc.com. */
+#  define READ_BUFFER_SIZE  0x1000  /* The larger, the more it reduces syscall overhead. 0x800 would be enough already. */
+#  define WRITE_BUFFER_SIZE 0x2000  /* The larger, the faster output byte generation is. Unfortunately, 0x3000 would make the memry usage of the DOS .com program more than 64 KiB. */
+#endif
 #include "luuzcat.h"
+#ifdef _DOSCOMSTART_UNCOMPRC
+#  define read_force_eof() do {} while (0)
+#endif
 
 /* Below p is a const uc8* (const unsigned char*). */
 #ifdef IS_UNALIGNED_LE
@@ -175,7 +183,7 @@ typedef unsigned int uint;
 #  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_init() do {} while (0)
+#  define tab_init(maxbits) do {} while (0)
 #endif
 #if IS_X86_16 && (!IS_DOS_16 || defined(_PROGX86_NOALLOC))
   /* This implementation supports maxbits <= 13 (so it doesn't support 14, 15 or 16), but it keeps the data segment under 64 KiB. For DOS .com programs, it keeps code+data under 64 KiB. */
@@ -192,9 +200,71 @@ typedef unsigned int uint;
 #  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_init() do {} while (0)
+#  define tab_init(maxbits) do {} while (0)
 #endif
-#if IS_DOS_16 && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
+#if IS_DOS_16 && defined(_DOSCOMSTART_UNCOMPRC) && defined(_DOSCOMSTART) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
+  /* This is the optimized far pointer implementation of the large arrays in
+   * uncomprc.com for the OpenWatcom C compiler targeting DOS 8086.
+   *
+   * uncomprc.com is a DOS .com program which can decompress only
+   * LZW-compressed data, but it uses less memory than luuzcat.com (and
+   * luuzcatc.com). It uses (in addition to the MCB and kernel buffers):
+   *
+   * * For maxbits <= 14, 64 KiB.
+   * * For maxbits == 15, 127.5 KiB.
+   * * For maxbits == 16, 255.75 KiB.
+   */
+  /* !! Check for out-of-memory for DOS .com program (also for other DOS .com targets). Doesn't DOS already check at program load time that there is 64 KiB free? */
+#  define BITS 16
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
+#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+  static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
+  static um16 tab_prefix_get(um16 code);
+  /* tab_prefix_get(...) works with __modify [__es] and __modify [__es __bx], but it doesn't work with __modify __exact [es __bx] */
+  /* The manual register allocation of __value [__bx] __parm [__bx] is useful for the code = tab_prefix_get(code) below. */
+#  pragma aux tab_prefix_get = "shr bx, 1"  "jc odd"  "mov es, tab_prefix0_seg"  "jmp have"  "odd: mov es, tab_prefix1_seg"  "have: add bx, bx"  "mov bx, es:[bx]" __value [__bx] __parm [__bx] __modify [__es __bx]
+  static uc8 tab_suffix_get(um16 code);
+#  pragma aux tab_suffix_get = "mov es, tab_suffix_seg"  "mov al, es:[bx]" __value [__al] __parm [__bx] __modify __exact [__es]
+  static void tab_prefix_suffix_set(um16 code, um16 prefix, uc8 suffix);
+#  pragma aux tab_prefix_suffix_set = "mov es, tab_suffix_seg"  "mov es:[bx], al"  "shr bx, 1"  "jc odd"  "mov es, tab_prefix0_seg"  "jmp have"  "odd: mov es, tab_prefix1_seg"  "have: add bx, bx"  "mov es:[bx], dx" __parm [__bx] [__dx] [__al] __modify __exact [__es __bx]
+  static unsigned short get_start_segment(const void *p);  /* Rounds down. */
+#  pragma aux get_start_segment = "shr bx, 1"  "shr bx, 1"  "shr bx, 1"  "shr bx, 1"  "mov ax, ds"  "add ax, bx"  __parm [__bx] __value [__ax] __modify __exact [__bx]
+  static uc8 tables_upto_14[((1U << 14) - 256U) * 3 + 0xf];  /* A bit less than 48 KiB. */
+  static void tab_init(uint maxbits) {
+    unsigned short segment, array1_para_count;
+#  if 0  /* Not needed. */
+    if (tab_suffix_seg) return;  /* Prevent subsequent initialization. !! Disable below as well. */
+#  endif
+    if (maxbits <= 14) {
+      /* TODO(pts): Does an alternative, faster implementation of tab_prefix_get(...) for maxbits <= 15 fit here? How much faster is it? */
+      segment = get_start_segment(tables_upto_14 + 0xf);  /* Dynamic memory allocation (malloc(...) etc.) not needed. */
+      array1_para_count = (unsigned short)(((1UL << 14) - 256U) >> 4);
+      goto init_based_on_segment;
+    } else if (maxbits == 15) {
+#  define TAB_ALLOC_PARA_COUNT_15 (unsigned short)((((1UL << 15) - 256U) * 2 + 15) >> 4)  /* Number of 16-byte paragraphs needed by tab_prefix1_seg and tab_suffix_seg. */
+      tab_prefix0_seg = get_start_segment(tables_upto_14 + 0xf) - (256U >> 4);  /* Dynamic memory allocation (malloc(...) etc.) not needed for tab_prefix0_seg, but it is needed for tab_prefix1_seg and tab_suffix_seg. */
+      if (is_para_less_than(TAB_ALLOC_PARA_COUNT_15)) fatal_out_of_memory();
+      segment = para_reuse_start() + TAB_ALLOC_PARA_COUNT_15;
+      array1_para_count = (unsigned short)(((1UL << 15) - 256U) >> 4);
+      tab_prefix1_seg = segment -= (256U >> 4);  /* Prefix for odd codes. */
+      tab_suffix_seg  = segment +  array1_para_count;  /* For each code, it contains the last byte. */
+    } else {
+#  define TAB_ALLOC_PARA_COUNT_16 (unsigned short)((((1UL << BITS) - 256U) * 3 + 15) >> 4)  /* Number of 16-byte paragraphs needed by the tables above. */
+#  if 1  /* Shorter than para_reuse(...) */
+      if (is_para_less_than(TAB_ALLOC_PARA_COUNT_16)) fatal_out_of_memory();
+      segment = para_reuse_start() + TAB_ALLOC_PARA_COUNT_16;
+#  else
+      if ((segment = para_reuse(TAB_PARA_COUNT)) == 0U) fatal_out_of_memory();
+#  endif
+      array1_para_count = (unsigned short)(((1UL << BITS) - 256U) >> 4);
+     init_based_on_segment:
+      tab_prefix0_seg = segment -= (256U >> 4);  /* Prefix for even codes. */
+      tab_prefix1_seg = segment += array1_para_count;  /* Prefix for odd codes. */
+      tab_suffix_seg  = segment +  array1_para_count;  /* For each code, it contains the last byte. */
+    }
+  }
+#endif
+#if IS_DOS_16 && !defined(_DOSCOMSTART_UNCOMPRC) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the optimized far pointer implementation of the large arrays
    * for the OpenWatcom C compiler targeting DOS 8086.
    */
@@ -222,7 +292,8 @@ typedef unsigned int uint;
 #  ifndef LUUZCAT_MALLOC_OK
 #    error Change luuzcat.h to allow malloc.
 #  endif
-  static void tab_init(void) {
+#  define tab_init(maxbits) tab_init_noarg()
+  static void tab_init_noarg(void) {
     /* We use OpenWatcom-specific halloc(...), because all our attempts to
      * create __far arrays (such as uc8 `__far tab_suffix_ary[(1UL << BITS)
      * - 256U];') have added lots of NUL bytes to the .exe.
@@ -230,7 +301,7 @@ typedef unsigned int uint;
      * halloc(...) also zero-initializes. We don't need that, but it doesn't
      * hurt either.
      */
-#  define TAB_PARA_COUNT (unsigned short)((((1UL << BITS) - 256U) * 3 + 15) >> 4)  /* Number of 16-byte paragraphs needed by tables above. */
+#  define TAB_PARA_COUNT (unsigned short)((((1UL << BITS) - 256U) * 3 + 15) >> 4)  /* Number of 16-byte paragraphs needed by the tables above. */
 #  if !defined(_DOSCOMSTART) && !defined(_PROGX86)
     void __far *a;
 #  endif
@@ -265,9 +336,9 @@ typedef unsigned int uint;
      *    Xenix/86 and OS/2 1.x NE command-line would be the first one to
      *    need it.
      */
-    tab_prefix0_seg = segment - (256U >> 4);  /* For each code, it contains the last byte. */
-    tab_prefix1_seg = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4);  /* Prefix for even codes. */
-    tab_suffix_seg  = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4) * 2;  /* Prefix for odd codes. */
+    tab_prefix0_seg = segment - (256U >> 4);    /* Prefix for even codes. */
+    tab_prefix1_seg = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4);  /* Prefix for odd codes. */
+    tab_suffix_seg  = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4) * 2;  /* For each code, it contains the last byte. */
   }
 #endif
 #if IS_DOS_16 && !defined(_PROGX86_NOALLOC) && 0 && defined(__WATCOMC__) && !defined(__TURBOC__)
@@ -293,7 +364,7 @@ typedef unsigned int uint;
 #  define tab_suffixof(code) tab_suffix_ary[(code) - 256U]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_init() do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
+#  define tab_init(maxbits) do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
 #endif
 #if IS_DOS_16 && !defined(_PROGX86_NOALLOC) && !defined(__WATCOMC__) && defined(__TURBOC__)
   /* This is the memory-optimized (but not speed-optimized) far pointer
@@ -318,7 +389,8 @@ typedef unsigned int uint;
 #  ifndef LUUZCAT_MALLOC_OK
 #    error Change luuzcat.h to allow malloc.
 #  endif
-  static void tab_init(void) {
+#  define tab_init(maxbits) tab_init_noarg()
+  static void tab_init_noarg(void) {
 #  define TAB_PARA_COUNT (unsigned short)((((1UL << BITS) - 256U) * 3 + 15) >> 4)  /* Number of 16-byte paragraphs needed by tables above. */
     unsigned segment;
     if (FP_SEG(tab_suffix_fptr) != 0) return;  /* Prevent subsequent initialization. */
@@ -353,7 +425,7 @@ typedef unsigned int uint;
 #  define tab_suffixof(code) tab_suffix_ary[(code) - 256U]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_init() do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
+#  define tab_init(maxbits) do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
 #endif
 
 #ifndef BITS
@@ -433,7 +505,6 @@ void decompress_compress_nohdr(void) {
   uint w_skip;  /* 0 <= w_skip <= 0xffffU. */
   uc8 *stack_top;
 
-  tab_init();
   maxbits = get_byte();
   block_mode = (maxbits & BLOCK_MODE) ? 1 : 0;
 #ifdef USE_DEBUG
@@ -460,6 +531,7 @@ void decompress_compress_nohdr(void) {
 #if BITS < 16  /* Without this, wcc(1) isn't smart enough to omit the string literal from const. */
   if (BITS < 16 && maxbits > BITS) fatal_msg("LZW bits not implemented" LUUZCAT_NL);
 #endif
+  tab_init(maxbits);
   rsize = global_insize;
   n_bits = INIT_BITS;
   maxcode = (1U << INIT_BITS) - 1U;  /* Doesn't overflow 0xffffU. */
@@ -724,3 +796,97 @@ void decompress_compress_nohdr(void) {
   flush_write_buffer(write_idx);
   read_force_eof();
 }
+
+#ifdef _DOSCOMSTART_UNCOMPRC  /* Code copied from luuzcat.c for uncomprc.com. */
+  __noreturn void fatal_msg(const char *msg) {
+    write_nonzero_void(STDERR_FILENO, WRITE_PTR_ARG_CAST(msg), strlen(msg));
+    exit(EXIT_FAILURE);
+  }
+  __noreturn void fatal_read_error(void) { fatal_msg("read error" LUUZCAT_NL); }
+  __noreturn void fatal_write_error(void) { fatal_msg("write error" LUUZCAT_NL); }
+  __noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF" LUUZCAT_NL); }
+  __noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input" LUUZCAT_NL); }
+  __noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
+
+  uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT];
+  unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
+  unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
+  ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
+
+  unsigned int read_byte(ub8 is_eof_ok) {
+    int got;
+    if (global_inptr < global_insize) return global_read_buffer[global_inptr++];
+    if (global_read_had_eof) goto already_eof;
+    if ((got = read(STDIN_FILENO, (char*)global_read_buffer, (int)READ_BUFFER_SIZE)) < 0) fatal_read_error();
+    if (got == 0) {
+      ++global_read_had_eof;  /* = 1. */
+     already_eof:
+      if (is_eof_ok) return BEOF;
+      fatal_unexpected_eof();
+    }
+#  if 0
+    global_total_read_size += global_insize = got;
+#  else
+    global_insize = got;
+#  endif
+    global_inptr = 1;
+    return global_read_buffer[0];
+  }
+
+  uc8 global_write_buffer[WRITE_BUFFER_SIZE];
+
+  /* Always returns 0, which is the new buffer write index. */
+  unsigned int flush_write_buffer(unsigned int size) {
+    unsigned int size_i;
+    int got;
+    for (size_i = 0; size_i < size; ) {
+      got = (int)(size - size_i);
+      if (sizeof(int) == 2 && WRITE_BUFFER_SIZE >= 0x8000U && got < 0) got = 0x4000;  /* !! Not needed for DOS. Check for == -1 below instead.  */
+      if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer + size_i), got)) <= 0) fatal_write_error();
+      size_i += got;
+    }
+    return 0;
+  }
+#endif
+
+#ifdef _DOSCOMSTART_UNCOMPRC  /* Main function for uncomprc.com. */
+  /* The more usual `static const char usage_msg[] = "...";' also works, but __WATCOMC__ would align it to 4 or 2. */
+#  define USAGE_MSG ("Usage: uncomprc <input.Z >output" LUUZCAT_NL "https://github.com/pts/luuzcat" LUUZCAT_NL)
+#  define CO_INPUT_MSG ("compressed input expected" LUUZCAT_NL)
+
+#  if ' ' == 32  /* ASCII system. */
+#    define IS_PROGARG_TERMINATOR(c) ((unsigned char)(c) <= ' ')  /* ASCII only: matches '\0' (needed for Unix), '\t', '\n', '\r' (needed for DOS) and ' '. */
+#  else  /* Non-ASCII system. */
+    static ub8 is_progarg_terminator(char c) { return c == '\0' || c == '\t' || c == '\n' || c == '\r' || c == ' '; }
+#    define IS_PROGARG_TERMINATOR(c) is_progarg_terminator(c)
+#  endif
+
+  main0() {
+    unsigned int b;
+    const char *argv1 = main0_argv1();
+
+    /* We display the usage message if the are command-line arguments (or the
+     * first argument is empty), and stdin is a terminal (TTY).
+     */
+    if ((main0_is_progarg_null(argv1) || IS_PROGARG_TERMINATOR(*argv1)) && isatty(STDIN_FILENO)) { do_usage:
+      fatal_msg(USAGE_MSG);
+    }
+    if (!main0_is_progarg_null(argv1)) {
+      while (!IS_PROGARG_TERMINATOR(b = *(const unsigned char*)argv1++)) {
+        b |= 0x20;  /* Convert uppercase A-Z to lowercase a-z. */
+        if (b == 'h') goto do_usage;  /* --help. */
+      }
+    }
+
+#  if O_BINARY  /* For DOS, Windows (Win32 and Win64) and OS/2. */
+    setmode(STDIN_FILENO, O_BINARY);
+    /* if (!isatty(STDOUT_FILENO)) -- we don't do this, because isatty(...) always returns true in some emulators. */
+    setmode(STDOUT_FILENO, O_BINARY);  /* Prevent writing (in write(2)) LF as CRLF on DOS, Windows (Win32) and OS/2. */
+#  endif
+    if ((int)(b = try_byte()) >= 0) {  /* zcat in gzip also accepts empty stdin. */
+      if (b != 0x1f || get_byte() != 0x9d) fatal_msg(CO_INPUT_MSG);
+      decompress_compress_nohdr();  /* Reads stdin until EOF. */
+    }
+    main0_exit0();  /* return EXIT_SUCCESS; */
+  }
+#endif

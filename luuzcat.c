@@ -42,7 +42,7 @@ __noreturn void fatal_read_error(void) { fatal_msg("read error" LUUZCAT_NL); }
 __noreturn void fatal_write_error(void) { fatal_msg("write error" LUUZCAT_NL); }
 __noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF" LUUZCAT_NL); }
 __noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input" LUUZCAT_NL); }
-#ifdef LUUZCAT_MALLOC_OK
+#ifdef LUUZCAT_MALLOC_OK  /* !! Also omit from luuzcatn.com. */
   __noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
 #endif
 __noreturn void fatal_unsupported_feature(void) { fatal_msg("unsupported feature" LUUZCAT_NL); }
@@ -91,7 +91,7 @@ unsigned int flush_write_buffer(unsigned int size) {
   int got;
   for (size_i = 0; size_i < size; ) {
     got = (int)(size - size_i);
-    if (sizeof(int) == 2 && got < 0) got = 0x4000;  /* !! Not needed for DOS. Check for == -1 below instead.  */
+    if (sizeof(int) == 2 && WRITE_BUFFER_SIZE >= 0x8000U && got < 0) got = 0x4000;  /* !! Not needed for DOS. Check for == -1 below instead.  */
     if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer + size_i), got)) <= 0) fatal_write_error();
     size_i += got;
   }

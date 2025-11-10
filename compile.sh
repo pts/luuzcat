@@ -386,6 +386,33 @@ rm -f luuzcat.o unscolzh.o uncompact.o unopack.o unpack.o undeflate.o unfreeze.o
 ./kvikdos luuzcatc.com <test_C1_split.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
 
+wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=uncomprc.o -D_DOSCOMSTART_UNCOMPRC -D_DOSCOMSTART_DISTART uncompress.c
+wlink op q form dos com op d op nored op start=_comstart_ n uncomprc.com f uncomprc.o
+# uncomprc.com is a DOS .com program which can decompress only LZW-compressed data, but it uses less memory than luuzcat.com (and luuzcatc.com). It uses (in addition to the MCB and kernel buffers):
+# * For maxbits <= 14, 64 KiB.
+# * For maxbits == 15, 127.5 KiB.
+# * For maxbits == 16, 255.75 KiB.
+"$perl" shorten_to_bss.pl uncomprc.com
+rm -f uncomprc.o
+./kvikdos uncomprc.com <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos uncomprc.com <test_C1_new13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos uncomprc.com <test_C1_new14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos uncomprc.com <test_C1_new15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos uncomprc.com <test_C1_new16.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos uncomprc.com <test_C1_old13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos uncomprc.com <test_C1_old14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos uncomprc.com <test_C1_old15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos uncomprc.com <test_C1_old16.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+
 # Compile with OpenWatcom to a DOS 8086 .exe program using the OpenWatcom libc.
 #
 # This is just to prove a point that it compiles without any trickery, and

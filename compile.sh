@@ -120,6 +120,7 @@ minicc -ansi -pedantic -march=i386 -Wno-n201 -o luuzcat luuzcat.c unscolzh.c unc
 common_wccargs="-q -fr -D_PROGX86 -za -os -s -j -ei -zl -zld -wx -we -wcd=201"  # zsh(1) SH_WORD_SPLIT is needed by $common_wccargs below.
 wcc16args="-bt=dos -0"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16args below.
 wcc32args="-bt=linux -3r -zp=4"  # zsh(1) SH_WORD_SPLIT is needed by $wcc32args below.
+dosdefs="-D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG -D_PROGX86_REUSE -D_PROGX86_DOSMEM -D_PROGX86_CSEQDS -DLUUZCAT_DUCML"  # zsh(1) SH_WORD_SPLIT is needed by $dosdefs below.
 rm -f -- *_16.o *_32.o *_16.wasm *_32.wasm *_16.nasm *_32.nasm
 
 wcc386 $wcc32args $common_wccargs -fo=luuzcat_32.o -D_PROGX86_ONLY_BINARY luuzcat.c
@@ -134,24 +135,35 @@ wcc386 $wcc32args $common_wccargs -fo=undeflate_32.o undeflate.c
 wcc386 $wcc32args $common_wccargs -fo=uncompress_32.o uncompress.c
 wcc386 $wcc32args $common_wccargs -fo=unfreeze_32.o unfreeze.c
 #
-wcc    $wcc16args $common_wccargs -fo=luuzcat_16.o -D_PROGX86_ONLY_BINARY luuzcat.c
-wcc    $wcc16args $common_wccargs -fo=luuzcatt_16.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
-wcc    $wcc16args $common_wccargs -fo=luuzcatd_16.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG luuzcat.c  # Always prints \r\n (CRLF) to stderr, gets argv from the DOS PSP.
-wcc    $wcc16args $common_wccargs -fo=unscolzh_16.o unscolzh.c
-wcc    $wcc16args $common_wccargs -fo=uncompact_16.o uncompact.c
-wcc    $wcc16args $common_wccargs -fo=unopack_16.o unopack.c
-wcc    $wcc16args $common_wccargs -fo=unpack_16.o unpack.c
-wcc    $wcc16args $common_wccargs -fo=undeflate_16.o undeflate.c
-wcc    $wcc16args $common_wccargs -fo=uncompress_16.o uncompress.c
-wcc    $wcc16args $common_wccargs -fo=uncompressd_16.o -D_PROGX86_REUSE -D_PROGX86_DOSMEM uncompress.c
-wcc    $wcc16args $common_wccargs -fo=uncompressn_16.o -D_PROGX86_NOALLOC uncompress.c
-wcc    $wcc16args $common_wccargs -fo=unfreeze_16.o -D_PROGX86_CSEQDS unfreeze.c
+# TODO(pts): Reenable this for Minix i86 and ELKS.
+#wcc    $wcc16args $common_wccargs -fo=luuzcat_16.o -D_PROGX86_ONLY_BINARY luuzcat.c
+#wcc    $wcc16args $common_wccargs -fo=luuzcatt_16.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
+#wcc    $wcc16args $common_wccargs -fo=luuzcatd_16.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG luuzcat.c  # Always prints \r\n (CRLF) to stderr, gets argv from the DOS PSP.
+#wcc    $wcc16args $common_wccargs -fo=unscolzh_16.o unscolzh.c
+#wcc    $wcc16args $common_wccargs -fo=uncompact_16.o uncompact.c
+#wcc    $wcc16args $common_wccargs -fo=unopack_16.o unopack.c
+#wcc    $wcc16args $common_wccargs -fo=unpack_16.o unpack.c
+#wcc    $wcc16args $common_wccargs -fo=undeflate_16.o undeflate.c
+#wcc    $wcc16args $common_wccargs -fo=uncompress_16.o uncompress.c
+#wcc    $wcc16args $common_wccargs -fo=uncompressd_16.o -D_PROGX86_REUSE -D_PROGX86_DOSMEM uncompress.c
+#wcc    $wcc16args $common_wccargs -fo=uncompressn_16.o -D_PROGX86_NOALLOC uncompress.c
+#wcc    $wcc16args $common_wccargs -fo=unfreeze_16.o -D_PROGX86_CSEQDS unfreeze.c
+#
+wcc    $wcc16args $common_wccargs $dosdefs -fo=luuzcatc_16.o luuzcat.c
+wcc    $wcc16args $common_wccargs $dosdefs -fo=unscolzhc_16.o unscolzh.c
+wcc    $wcc16args $common_wccargs $dosdefs -fo=uncompactc_16.o uncompact.c
+wcc    $wcc16args $common_wccargs $dosdefs -fo=unopackc_16.o unopack.c
+wcc    $wcc16args $common_wccargs $dosdefs -fo=unpackc_16.o unpack.c
+wcc    $wcc16args $common_wccargs $dosdefs -fo=undeflatec_16.o undeflate.c
+wcc    $wcc16args $common_wccargs $dosdefs -fo=uncompressc_16.o uncompress.c
+wcc    $wcc16args $common_wccargs $dosdefs -fo=unfreezec_16.o unfreeze.c
 
 perl=tools/miniperl-5.004.04.upx
 "$perl" -e0 || perl=perl  # Use the system perl(1) if tools is not available.
 fi=0
-for f in luuzcat_32.o luuzcatw_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o uncompact_32.o unopack_32.o unpack_32.o undeflate_32.o uncompress_32.o                                   unfreeze_32.o \
-         luuzcat_16.o               luuzcatt_16.o luuzcatd_16.o unscolzh_16.o uncompact_16.o unopack_16.o unpack_16.o undeflate_16.o uncompress_16.o uncompressd_16.o uncompressn_16.o unfreeze_16.o; do
+# luuzcat_16.o               luuzcatt_16.o luuzcatd_16.o unscolzh_16.o uncompact_16.o unopack_16.o unpack_16.o undeflate_16.o uncompress_16.o uncompressd_16.o uncompressn_16.o unfreeze_16.o
+for f in luuzcat_32.o  luuzcatw_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o  uncompact_32.o  unopack_32.o  unpack_32.o  undeflate_32.o  uncompress_32.o  unfreeze_32.o \
+                                                   luuzcatc_16.o unscolzhc_16.o uncompactc_16.o unopackc_16.o unpackc_16.o undeflatec_16.o uncompressc_16.o unfreezec_16.o; do
   fi=$((fi+1))  # For local variables.
   wdis -a -fi -fu -i=@ "$f" >"${f%.*}.wasm"
   "$perl" wasm2nasm.pl "$fi" <"${f%.*}.wasm" >"${f%.*}.nasm"
@@ -181,17 +193,26 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unpack_32y.o unpack_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o undeflate_32y.o undeflate_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompress_32y.o uncompress_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unfreeze_32y.o unfreeze_32.nasm
-
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcat_16y.o luuzcat_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatt_16y.o luuzcatt_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatd_16y.o luuzcatd_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unscolzh_16y.o unscolzh_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompact_16y.o uncompact_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unopack_16y.o unopack_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unpack_16y.o unpack_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o undeflate_16y.o undeflate_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompress_16y.o uncompress_16.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unfreeze_16y.o unfreeze_16.nasm
+#
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcat_16y.o luuzcat_16.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatt_16y.o luuzcatt_16.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatd_16y.o luuzcatd_16.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unscolzh_16y.o unscolzh_16.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompact_16y.o uncompact_16.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unopack_16y.o unopack_16.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unpack_16y.o unpack_16.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o undeflate_16y.o undeflate_16.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompress_16y.o uncompress_16.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unfreeze_16y.o unfreeze_16.nasm
+#
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatc_16y.o luuzcatc_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unscolzhc_16y.o unscolzhc_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompactc_16y.o uncompactc_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unopackc_16y.o unopackc_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unpackc_16y.o unpackc_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o undeflatec_16y.o undeflatec_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompressc_16y.o uncompressc_16.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unfreezec_16y.o unfreezec_16.nasm
 
 # As a proof-of-concept, we create luuzcatz.elf with separate object files recompiled with NASM.
 dneeds="-D__NEED__write -D__NEED__read -D__NEED_isatty_ -D__NEED___argc -D__NEED__cstart_ -D__NEED_memset_ -D__NEED_memcpy_ -D__NEED_strlen_"
@@ -214,7 +235,7 @@ wlink op q form elf ru freebsd disa 1080 op noext op d op nored op start=_start 
 ibcs-us ./luuzcaty.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm','unscolzh_16.nasm','uncompact_16.nasm','unopack_16.nasm','unpack_16.nasm','undeflate_16.nasm','uncompressd_16.nasm','unfreeze_16.nasm'" -DDOSCOM                             -o luuzcat.com   progx86.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSCOM -o luuzcat.com   progx86.nasm
 "$perl" shorten_to_bss.pl luuzcat.com  # luuzcat.com allocates extra memory in uncompress.c.
 ./kvikdos luuzcat.com <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
@@ -237,32 +258,32 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm',
 ./kvikdos luuzcat.com r <test_C1.advdef.deflate >test_C1.bin
     cmp test_C1.good test_C1.bin
 
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm','unscolzh_16.nasm','uncompact_16.nasm','unopack_16.nasm','unpack_16.nasm','undeflate_16.nasm','uncompressn_16.nasm','unfreeze_16.nasm'" -DDOSCOM                             -o luuzcatn.com  progx86.nasm
-"$perl" shorten_to_bss.pl luuzcatn.com  # luuzcatn.com doesn't allocate extra memory in uncompress.c, so it supports maxbits <= 13, and it doesn't support 14, 15 or 16. !! Add support for 14 in DOS and Minix i86.
-./kvikdos luuzcatn.com <test_C1_new9.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./kvikdos luuzcatn.com <test_C1_new13.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-# maxbits >= 14 not supported.
-#./kvikdos luuzcatn.com <test_C1_new14.Z >test_C1.bin
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm','unscolzh_16.nasm','uncompact_16.nasm','unopack_16.nasm','unpack_16.nasm','undeflate_16.nasm','uncompressn_16.nasm','unfreeze_16.nasm'" -DDOSCOM                             -o luuzcatn.com  progx86.nasm
+#"$perl" shorten_to_bss.pl luuzcatn.com  # luuzcatn.com doesn't allocate extra memory in uncompress.c, so it supports maxbits <= 13, and it doesn't support 14, 15 or 16. !! Add support for 14 in DOS and Minix i86.
+#./kvikdos luuzcatn.com <test_C1_new9.Z >test_C1.bin
 #    cmp test_C1.good test_C1.bin
-#./kvikdos luuzcatn.com <test_C1_new15.Z >test_C1.bin
+#./kvikdos luuzcatn.com <test_C1_new13.Z >test_C1.bin
 #    cmp test_C1.good test_C1.bin
-#./kvikdos luuzcatn.com <test_C1_new16.Z >test_C1.bin
+## maxbits >= 14 not supported.
+##./kvikdos luuzcatn.com <test_C1_new14.Z >test_C1.bin
+##    cmp test_C1.good test_C1.bin
+##./kvikdos luuzcatn.com <test_C1_new15.Z >test_C1.bin
+##    cmp test_C1.good test_C1.bin
+##./kvikdos luuzcatn.com <test_C1_new16.Z >test_C1.bin
+##    cmp test_C1.good test_C1.bin
+#./kvikdos luuzcatn.com <test_C1_old13.Z >test_C1.bin
 #    cmp test_C1.good test_C1.bin
-./kvikdos luuzcatn.com <test_C1_old13.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-# maxbits >= 14 not supported.
-#./kvikdos luuzcatn.com <test_C1_old14.Z >test_C1.bin
+## maxbits >= 14 not supported.
+##./kvikdos luuzcatn.com <test_C1_old14.Z >test_C1.bin
+##    cmp test_C1.good test_C1.bin
+##./kvikdos luuzcatn.com <test_C1_old15.Z >test_C1.bin
+##    cmp test_C1.good test_C1.bin
+##./kvikdos luuzcatn.com <test_C1_old16.Z >test_C1.bin
+##    cmp test_C1.good test_C1.bin
+#./kvikdos luuzcatn.com r <test_C1.advdef.deflate >test_C1.bin
 #    cmp test_C1.good test_C1.bin
-#./kvikdos luuzcatn.com <test_C1_old15.Z >test_C1.bin
-#    cmp test_C1.good test_C1.bin
-#./kvikdos luuzcatn.com <test_C1_old16.Z >test_C1.bin
-#    cmp test_C1.good test_C1.bin
-./kvikdos luuzcatn.com r <test_C1.advdef.deflate >test_C1.bin
-    cmp test_C1.good test_C1.bin
 
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm','unscolzh_16.nasm','uncompact_16.nasm','unopack_16.nasm','unpack_16.nasm','undeflate_16.nasm','uncompressd_16.nasm','unfreeze_16.nasm'" -DDOSEXE                             -o luuzcatd.exe  progx86.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSEXE -o luuzcatd.exe  progx86.nasm
 ./kvikdos luuzcatd.exe <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcatd.exe r <test_C1.advdef.deflate >test_C1.bin

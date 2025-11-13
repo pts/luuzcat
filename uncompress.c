@@ -20,7 +20,7 @@
  * * lots of small optimizations such a for bit reading and bit counting
  * * speed optimization for long code strings (e.g. for input files with
  *   long runs of the same byte): using memcpy(...)
- *   when copying from lzw_stack to global_write_buffer has make it ~1.632
+ *   when copying from lzw_stack to uncompress_write_buffer has make it ~1.632
  *   times faster
  *
  * pts has added a memory optimization for reading and writing. pts has
@@ -94,51 +94,122 @@
 #  define read_force_eof() do {} while (0)
 #endif
 
-/* Below p is a const uc8* (const unsigned char*). */
-#ifdef IS_UNALIGNED_LE
-#  define LOAD_UINT_16BP(p) (((const um16*)(p))[0])  /* This does READ_BUFFER_OVERSHOOT. */
-#  define LOAD_UINT_24BP(p) (((const unsigned int*)(p))[0])  /* This works only if sizeof(unsigned int) > 2. */  /* This does READ_BUFFER_OVERSHOOT. */
+#ifdef LUUZCAT_DUCML  /* This functionality is duplicated in luuzcat.c for !LUUZCAT_DUCML. */
+  int luuzcat_ducml_read(int fd, void *buf, unsigned int count);
+#  pragma aux luuzcat_ducml_read = "mov ah, 3fh"  "int 21h"  "jnc ok"  "sbb ax, ax"  "ok:" \
+      __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
+
+  /* Like write(...), but count must be nonzero. */
+  int luuzcat_ducml_write_nonzero(int fd, const void *buf, unsigned int count);
+#  pragma aux luuzcat_ducml_write_nonzero = "mov ah, 40h"  "int 21h"  "jnc ok"  \
+      "sbb ax, ax"  "ok:"  \
+      __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
+
+  /* MS-DOS 3.30 returns CF == 0 (success) and AX == 0 (no bytes written)
+   * when writing \x1a (^Z) to the console. By `mov ax, cx', we simulate
+   * returning maximum value in this case. !! Modify other write(...) calls.
+   */
+  int luuzcat_ducml_write_nonzero_or_fatal(int fd, const void *buf, unsigned int count);
+#  pragma aux luuzcat_ducml_write_nonzero_or_fatal = "mov ah, 40h"  "int 21h"  "jnc noerr"  "jmp fatal_write_error"  "noerr: test ax, ax"  "jnz ok"  "mov ax, cx"  "ok:" \
+      __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
+
+  __noreturn void fatal_msg(const char *msg) {
+    luuzcat_ducml_write_nonzero(STDERR_FILENO, WRITE_PTR_ARG_CAST(msg), strlen(msg));
+    exit(EXIT_FAILURE);
+  }
+
+  __noreturn void fatal_read_error(void) { fatal_msg("read error" LUUZCAT_NL); }
+  __noreturn void fatal_write_error(void) { fatal_msg("write error" LUUZCAT_NL); }
+  __noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF" LUUZCAT_NL); }
+  __noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input" LUUZCAT_NL); }
+#  ifdef LUUZCAT_MALLOC_OK  /* !! Also omit from luuzcatn.com. */
+    __noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
+#  endif
+
+  unsigned int read_byte(ub8 is_eof_ok) {
+    int got;
+    if (global_inptr < global_insize) return global_read_buffer[global_inptr++];
+    if (global_read_had_eof) goto already_eof;
+    if ((got = luuzcat_ducml_read(STDIN_FILENO, (char*)global_read_buffer, (int)READ_BUFFER_SIZE)) < 0) fatal_read_error();
+    if (got == 0) {
+      ++global_read_had_eof;  /* = 1. */
+     already_eof:
+      if (is_eof_ok) return BEOF;
+      fatal_unexpected_eof();
+    }
+    global_total_read_size += global_insize = got;
+    global_inptr = 1;
+    return global_read_buffer[0];
+  }
+
+  /* A shorter, assembly implementation of flush_write_buffer(...) below. */
+  static unsigned int flush_write_buffer_inline(unsigned int size);
+#  pragma aux flush_write_buffer_inline = \
+      "push dx"  "mov dx, offset global_write_buffer"  "push cx"  "push bx"  "mov bx, 1"  "xchg cx, ax" \
+      "again: mov ah, 40h"  "int 21h"  "jnc noerr"  "jmp fatal_write_error"  "noerr: test ax, ax"  "jnz ok"  "mov ax, cx" \
+      "ok: add dx, ax"  "sub cx, ax" "jnz again"  "xor ax, ax"  "pop bx"  "pop cx"  "pop dx" \
+      __value [__ax] __parm [__ax] __modify __exact []
+  /* Always returns 0, which is the new buffer write index.
+   * flush_write_buffer(...) uses a buffer different from flush_write_buffer(...) uses.
+   */
+  unsigned int flush_write_buffer(unsigned int size) {
+#  if 1
+    return flush_write_buffer_inline(size);
+#  else
+    unsigned int size_i;
+    for (size_i = 0; size_i < size; ) {
+      /* MS-DOS 3.00 works with size as large as 0xffff. */
+      size_i += luuzcat_ducml_write_nonzero_or_fatal(STDOUT_FILENO, WRITE_PTR_ARG_CAST((is_uncompress_now ? uncompress_ducml_write_buffer : global_write_buffer) + size_i), size - size_i);
+    }
+    return 0;
+#  endif
+  }
+
+  struct uncompress_ducml_big_14 {
+    uc8 write_buffer[0x2000];  /* The struct must start with write_buffer. Make it as lare as possible to avoid slow reversal in `if (w_size > UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx)' below. */
+    uc8 tab_suffix_14_ary[(1U << 14) - 256U];
+    uc8 padding1[256U];  /* Removing this wouldn't decrease the memory usage, because the size of struct uncompress_ducml_big_16 is unchanged. */
+    um16 tab_prefix0_14_ary[((1UL << 14) - 256U) >> 1];
+    uc8 padding2[256U];
+    um16 tab_prefix1_14_ary[((1UL << 14) - 256U) >> 1];
+    uc8 padding3[256U];
+  };
+  typedef char assert_sizeof_struct_uncompress_ducml_big_14[sizeof(struct uncompress_ducml_big_14) == 0xe000U ? 1 : -1];
+  struct uncompress_ducml_big_15 {
+    uc8 write_buffer[0x6000];  /* The struct must start with write_buffer. Make it as lare as possible to avoid slow reversal in `if (w_size > UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx)' below. */
+    uc8 tab_suffix_15_ary[(1U << 15) - 256U];
+    uc8 padding[256U];
+    /* um16 tab_prefix0_15_ary[((1UL << 15) - 256U) >> 1]; */  /* On the heap. */
+    /* um16 tab_prefix1_15_ary[((1UL << 15) - 256U) >> 1]; */  /* On the heap. */
+  };
+  typedef char assert_sizeof_struct_uncompress_ducml_big_15[sizeof(struct uncompress_ducml_big_15) == 0xe000U ? 1 : -1];
+  struct uncompress_ducml_big_16 {
+    uc8 write_buffer[0xe000];  /* The struct must start with write_buffer. Make it as lare as possible to avoid slow reversal in `if (w_size > UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx)' below. */
+    /* uc8 tab_suffix_16_ary[(1U << 16) - 256U]; */  /* On the heap. */
+    /* um16 tab_prefix0_16_ary[((1UL << 16) - 256U) >> 1]; */  /* On the heap. */
+    /* um16 tab_prefix1_16_ary[((1UL << 16) - 256U) >> 1]; */  /* On the heap. */
+  };
+  typedef char assert_sizeof_struct_uncompress_ducml_big_16[sizeof(struct uncompress_ducml_big_16) == 0xe000U ? 1 : -1];
+  union uncompress_ducml_big_u {
+    uc8 write_buffer_and_more[0xe000];
+    struct uncompress_ducml_big_14 b14;
+    struct uncompress_ducml_big_15 b15;
+    struct uncompress_ducml_big_16 b16;
+  };
+  typedef char assert_sizeof_struct_uncompress_ducml_big_u[sizeof(union uncompress_ducml_big_u) == 0xe000U ? 1 : -1];
+  /* !!! size optimization: Make luuzcat.com shorter than 10000 bytes. */
+#  define uncompress_ducml_write_buffer ((uc8*)0xc00)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
+#  define uncompress_ducmp_write_buffer_asm "mov word ptr ds:[flush_write_buffer+2], 0xc00"  /* Also contains uncompress_ducml_write_buffer. */
+#  define uncompress_ducml_big (*(union uncompress_ducml_big_u*)0xc00)
+#  define uncompress_ducml_write_buffer_size (*(unsigned int*)0xfc12)
+
+#  define read_force_eof() exit(EXIT_SUCCESS)
+#  define uncompress_read(fd, buf, count) luuzcat_ducml_read(fd, buf, count)
+#  define uncompress_write_buffer uncompress_ducml_write_buffer
 #else
-#  define LOAD_UINT_16BP(p) ((p)[0] | (p)[1] << 8)
-#  define LOAD_UINT_24BP(p) ((p)[0] | (p)[1] << 8 | (p)[2] << 16)  /* This works only if sizeof(unsigned int) > 2. */
-#endif
-
-#if READ_BUFFER_SIZE + READ_BUFFER_EXTRA > 0xffffU - READ_BUFFER_EXTRA - BITS  /* BITS is included here for posbyte_after_read calculations. */
-#  error Input buffer too large for 16-bit compress (LZW) calculations.
-#endif
-#if READ_BUFFER_SIZE < 15  /* Needed by `global_inptr += discard_byte_count'. */
-#  error Input buffer too small for compress (LZW) calculations.
-#endif
-
-#define BITMASK    0x1f /* Mask for 'number of compression bits' */
-/* Mask 0x20 is reserved to mean a fourth header byte, and 0x40 is free.
- * It's a pity that old uncompress does not check bit 0x20. That makes
- * extension of the format actually undesirable because old compress
- * would just crash on the new format instead of giving a meaningful
- * error message. It does check the number of bits, but it's more
- * helpful to say "unsupported format, get a new version" than
- * "can only handle 16 bits".
- */
-
-#define BLOCK_MODE  0x80
-/* Block compression: if table is full and compression rate is dropping,
- * clear the dictionary.
- */
-
-#define LZW_RESERVED 0x60 /* reserved bits */
-
-#define	CLEAR  256       /* flush the dictionary */
-#define FIRST  (CLEAR+1) /* first free entry */
-
-/* !! Submit patch: gzip 1.14 has INBUF_EXTRA == 64 here, which is a bit wasteful: BITS + (sizeof(long) - 2) is enough there. */
-/* !! Submit patch: gzip 1.14 still has `#define OUTBUF_EXTRA 2048', completely unnecessary by unlzw.c. */
-
-/* The code works equivalently with 2-byte, 4-byte and 8-byte uint (unsigned
- * short, unsigned int, unsigned long, unsigned long long (e.g. with GCC
- * __extension__ typedef)). We use `unsigned int' because provides the
- * fastest native speeds.
- */
-typedef unsigned int uint;
+#  define uncompress_read(fd, buf, count) read(fd, buf, count)
+#  define uncompress_write_buffer global_write_buffer
+#endif  /* #else LUUZCAT_DUCML. */
 
 /* !! patch: gzip 1.2.4 allocates 0x2000*2 bytes with SMALL_MEM for its
  * stack in d_buf, which is too little. Report bug. The maximum which can be
@@ -190,19 +261,77 @@ typedef unsigned int uint;
 #  define BITS 13
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE (1U << 13)
 #  define lzw_stack big.compress.stack_supplement
-#  define tab_suffixof(code) ((uc8*)(global_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256))[code]  /* In global_write_buffer, after the UNCOMPRESS_WRITE_BUFFER_SIZE bytes. */
-#  define tab_prefixof(code) ((um16*)(global_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256 + (1 << BITS)) - 256)[code]  /* In global_write_buffer, after tab_suffixof. */
+#  define tab_suffixof(code) ((uc8*)(uncompress_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256))[code]  /* In uncompress_write_buffer, after the UNCOMPRESS_WRITE_BUFFER_SIZE bytes. */
+#  define tab_prefixof(code) ((um16*)(uncompress_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256 + (1 << BITS)) - 256)[code]  /* In uncompress_write_buffer, after tab_suffixof. */
 #  if BITS > 14
 #    error BITS too large for 16-bit noalloc uncompress.
 #  endif
-  typedef char assert_write_buffer_size_for_uncompress[sizeof(global_write_buffer) >= UNCOMPRESS_WRITE_BUFFER_SIZE + (3U << BITS) - 3U * 256 ? 1 : -1];
+  typedef char assert_write_buffer_size_for_uncompress[sizeof(uncompress_write_buffer) >= UNCOMPRESS_WRITE_BUFFER_SIZE + (3U << BITS) - 3U * 256 ? 1 : -1];
   typedef char assert_stack_size_for_uncompress[sizeof(lzw_stack) >= (1U << BITS) - 254U ? 1 : -1];
 #  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init(maxbits) do {} while (0)
 #endif
-#if IS_DOS_16 && defined(_DOSCOMSTART_UNCOMPRC) && defined(_DOSCOMSTART) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
+#if IS_DOS_16 && defined(LUUZCAT_DUCML) && defined(_PROGX86) && defined(_PROGX86_DOSMEM) && defined(_PROGX86_HAVE_PARA_REUSE_START) && defined(__SMALL__) && !defined(_DOSCOMSTART_UNCOMPRC) && !defined(_DOSCOMSTART) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
+  /* This is the optimized far pointer implementation of the large arrays
+   * for LUUZCAT_DUCML (using the OpenWatcom C compiler targeting DOS 8086).
+   * This allocates heap memory only for bits == 15 and 16, and it allocates
+   * less for bits == 15.
+   */
+#  define BITS 16
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE uncompress_ducml_write_buffer_size
+#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define tab_suffix_seg  (*(__segment*)0xfc0c)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
+#  define tab_prefix0_seg (*(__segment*)0xfc0e)
+#  define tab_prefix1_seg (*(__segment*)0xfc10)
+#  define tab_suffix_seg_asm  "mov es, ds:[0xfc0c]"  /* The OpenWatcom C compiler will omit the `ds:' prefix byte. Good. */
+#  define tab_prefix0_seg_asm "mov es, ds:[0xfc0e]"
+#  define tab_prefix1_seg_asm "mov es, ds:[0xfc10]"
+  static um16 tab_prefix_get(um16 code);
+  /* tab_prefix_get(...) works with __modify [__es] and __modify [__es __bx], but it doesn't work with __modify __exact [es __bx] */
+  /* The manual register allocation of __value [__bx] __parm [__bx] is useful for the code = tab_prefix_get(code) below. */
+#  pragma aux tab_prefix_get = "shr bx, 1"  "jc odd"  tab_prefix0_seg_asm  "jmp have"  "odd:"  tab_prefix1_seg_asm  "have: add bx, bx"  "mov bx, es:[bx]" __value [__bx] __parm [__bx] __modify [__es __bx]
+  static uc8 tab_suffix_get(um16 code);
+#  pragma aux tab_suffix_get = tab_suffix_seg_asm  "mov al, es:[bx]" __value [__al] __parm [__bx] __modify __exact [__es]
+  static void tab_prefix_suffix_set(um16 code, um16 prefix, uc8 suffix);
+#  pragma aux tab_prefix_suffix_set = tab_suffix_seg_asm  "mov es:[bx], al"  "shr bx, 1"  "jc odd"  tab_prefix0_seg_asm  "jmp have"  "odd:"  tab_prefix1_seg_asm  "have: add bx, bx"  "mov es:[bx], dx" __parm [__bx] [__dx] [__al] __modify __exact [__es __bx]
+  static unsigned short get_ds(void);
+#  pragma aux get_ds = "mov ax, ds" __value [__ax] __modify __exact []
+  static void set_uncompress_ducml_write_buffer(void);
+#  pragma aux set_uncompress_ducml_write_buffer = uncompress_ducmp_write_buffer_asm __modify __exact []  /* Sets the argument of the `mov dx' in flush_write_buffer(...) to uncompress_ducml_write_buffer. */
+  static void tab_init(maxbits) {
+    unsigned short segment;
+#  if 0  /* Not needed. */
+    if (tab_suffix_seg) return;  /* Prevent subsequent initialization. */
+#  endif
+    set_uncompress_ducml_write_buffer();  /* Self-modifying code: change the buffer address in flush_write_buffer from global_write_buffer to uncompress_ducml_write_buffer. */
+    if (maxbits < 15) {
+      uncompress_ducml_write_buffer_size = 0x2000;
+      /* !!! size optimization: Make this function shorter in assembly. */
+      tab_prefix0_seg = get_ds() + (((unsigned)&uncompress_ducml_big.b14.tab_prefix0_14_ary - 256U) >> 4);  /* It's aligned to a multiple of 0x10. */
+      tab_prefix1_seg = get_ds() + (((unsigned)&uncompress_ducml_big.b14.tab_prefix1_14_ary - 256U) >> 4);
+      tab_suffix_seg  = get_ds() + (((unsigned)&uncompress_ducml_big.b14.tab_suffix_14_ary  - 256U) >> 4);
+    } else if (maxbits == 15) {
+      uncompress_ducml_write_buffer_size = 0x6000;
+      tab_suffix_seg  = get_ds() + (((unsigned)&uncompress_ducml_big.b15.tab_suffix_15_ary  - 256U) >> 4);
+#  define TAB_ALLOC_PARA_COUNT_15 (unsigned short)((((1UL << 15) - 256U) * 2 + 15) >> 4)  /* Number of 16-byte paragraphs needed by tab_prefix0_seg and tab_prefix1_seg. */
+      if (progx86_is_para_less_than(TAB_ALLOC_PARA_COUNT_15)) fatal_out_of_memory();
+      segment = progx86_para_reuse_start() + TAB_ALLOC_PARA_COUNT_15 - 256U;
+      tab_prefix0_seg = segment;    /* Prefix for even codes. */
+      tab_prefix1_seg = segment + (unsigned short)(((1UL << 15) - 256U) >> 4);  /* Prefix for odd codes. */
+    } else {  /* maxbits == 16. */
+      uncompress_ducml_write_buffer_size = 0xe000;
+#  define TAB_ALLOC_PARA_COUNT_16 (unsigned short)((((1UL << 16) - 256U) * 3 + 15) >> 4)  /* Number of 16-byte paragraphs needed by tab_suffix_seg, tab_prefix0_seg and tab_prefix1_seg above. */
+      if (progx86_is_para_less_than(TAB_ALLOC_PARA_COUNT_16)) fatal_out_of_memory();
+      segment = progx86_para_reuse_start() + TAB_ALLOC_PARA_COUNT_16 - 256U;
+      tab_prefix0_seg = segment;    /* Prefix for even codes. */
+      tab_prefix1_seg = segment += (unsigned short)(((1UL << 16) - 256U) >> 4);  /* Prefix for odd codes. */
+      tab_suffix_seg  = segment +  (unsigned short)(((1UL << 16) - 256U) >> 4);  /* For each code, it contains the last byte. */
+    }
+  }
+#endif
+#if IS_DOS_16 && !defined(LUUZCAT_DUCML) && defined(_DOSCOMSTART_UNCOMPRC) && defined(_DOSCOMSTART) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the optimized far pointer implementation of the large arrays in
    * uncomprc.com for the OpenWatcom C compiler targeting DOS 8086.
    *
@@ -230,7 +359,7 @@ typedef unsigned int uint;
   static unsigned short get_start_segment(const void *p);  /* Rounds down. */
 #  pragma aux get_start_segment = "shr bx, 1"  "shr bx, 1"  "shr bx, 1"  "shr bx, 1"  "mov ax, ds"  "add ax, bx"  __parm [__bx] __value [__ax] __modify __exact [__bx]
   static uc8 tables_upto_14[((1U << 14) - 256U) * 3 + 0xf];  /* A bit less than 48 KiB. */
-  static void tab_init(uint maxbits) {
+  static void tab_init(unsigned int maxbits) {
     unsigned short segment, array1_para_count;
 #  if 0  /* Not needed. */
     if (tab_suffix_seg) return;  /* Prevent subsequent initialization. !! Disable below as well. */
@@ -264,7 +393,7 @@ typedef unsigned int uint;
     }
   }
 #endif
-#if IS_DOS_16 && !defined(_DOSCOMSTART_UNCOMPRC) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
+#if IS_DOS_16 && !defined(LUUZCAT_DUCML) && !defined(_DOSCOMSTART_UNCOMPRC) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the optimized far pointer implementation of the large arrays
    * for the OpenWatcom C compiler targeting DOS 8086.
    */
@@ -481,6 +610,52 @@ static void abort_line(unsigned int line) {
 #define abort() abort_line(__LINE__)
 #endif
 
+/* Below p is a const uc8* (const unsigned char*). */
+#ifdef IS_UNALIGNED_LE
+#  define LOAD_UINT_16BP(p) (((const um16*)(p))[0])  /* This does READ_BUFFER_OVERSHOOT. */
+#  define LOAD_UINT_24BP(p) (((const unsigned int*)(p))[0])  /* This works only if sizeof(unsigned int) > 2. */  /* This does READ_BUFFER_OVERSHOOT. */
+#else
+#  define LOAD_UINT_16BP(p) ((p)[0] | (p)[1] << 8)
+#  define LOAD_UINT_24BP(p) ((p)[0] | (p)[1] << 8 | (p)[2] << 16)  /* This works only if sizeof(unsigned int) > 2. */
+#endif
+
+#if READ_BUFFER_SIZE + READ_BUFFER_EXTRA > 0xffffU - READ_BUFFER_EXTRA - BITS  /* BITS is included here for posbyte_after_read calculations. */
+#  error Input buffer too large for 16-bit compress (LZW) calculations.
+#endif
+#if READ_BUFFER_SIZE < 15  /* Needed by `global_inptr += discard_byte_count'. */
+#  error Input buffer too small for compress (LZW) calculations.
+#endif
+
+#define BITMASK    0x1f /* Mask for 'number of compression bits' */
+/* Mask 0x20 is reserved to mean a fourth header byte, and 0x40 is free.
+ * It's a pity that old uncompress does not check bit 0x20. That makes
+ * extension of the format actually undesirable because old compress
+ * would just crash on the new format instead of giving a meaningful
+ * error message. It does check the number of bits, but it's more
+ * helpful to say "unsupported format, get a new version" than
+ * "can only handle 16 bits".
+ */
+
+#define BLOCK_MODE  0x80
+/* Block compression: if table is full and compression rate is dropping,
+ * clear the dictionary.
+ */
+
+#define LZW_RESERVED 0x60 /* reserved bits */
+
+#define	CLEAR  256       /* flush the dictionary */
+#define FIRST  (CLEAR+1) /* first free entry */
+
+/* !! Submit patch: gzip 1.14 has INBUF_EXTRA == 64 here, which is a bit wasteful: BITS + (sizeof(long) - 2) is enough there. */
+/* !! Submit patch: gzip 1.14 still has `#define OUTBUF_EXTRA 2048', completely unnecessary by unlzw.c. */
+
+/* The code works equivalently with 2-byte, 4-byte and 8-byte uint (unsigned
+ * short, unsigned int, unsigned long, unsigned long long (e.g. with GCC
+ * __extension__ typedef)). We use `unsigned int' because provides the
+ * fastest native speeds.
+ */
+typedef unsigned int uint;
+
 void decompress_compress_nohdr(void) {
   uint code, incode, oldcode;  /* 0 <= ... <= 0ffffU. */
   ub8 is_very_first_code;
@@ -582,7 +757,7 @@ void decompress_compress_nohdr(void) {
       }
     }
     /* Doing == (uint)-1U, because with `(int)... < 0), 0x8000U would fail. */
-    if ((rsize = read(STDIN_FILENO, global_read_buffer + global_insize, READ_BUFFER_SIZE)) == (uint)-1U) fatal_read_error();
+    if ((rsize = uncompress_read(STDIN_FILENO, global_read_buffer + global_insize, READ_BUFFER_SIZE)) == (uint)-1U) fatal_read_error();
 #ifdef USE_DEBUG
     if (1) fprintf(stderr, "READ(%u)=%lu\n", READ_BUFFER_SIZE, (unsigned long)rsize);
 #endif
@@ -603,7 +778,7 @@ void decompress_compress_nohdr(void) {
 #endif
       --is_very_first_code;  /* = 0. */
       flush_full_write_buffer_in_the_beginning();  /* Usually this is a no-op, because the write buffer is not full in the beginning. */
-      global_write_buffer[write_idx++] = (finchar = (uc8)(oldcode = code));
+      uncompress_write_buffer[write_idx++] = (finchar = (uc8)(oldcode = code));
       if (--code_count == 0) continue;
     }
    maybe_next_code:
@@ -701,24 +876,24 @@ void decompress_compress_nohdr(void) {
       *--stack_top = finchar = (uc8)code;
 #if 0  /* This works, but it is slow. */
       while (stack_top != lzw_stack + sizeof(lzw_stack)) {
-        global_write_buffer[write_idx++] = *stack_top++;
+        uncompress_write_buffer[write_idx++] = *stack_top++;
         if (write_idx == UNCOMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
       }
 #else
       w_size = lzw_stack + sizeof(lzw_stack) - stack_top;
       if (w_size <= 4) {  /* Write a few bytes quickly, without memcpy(...) etc. */
         while (stack_top != lzw_stack + sizeof(lzw_stack)) {
-          global_write_buffer[write_idx++] = *stack_top++;
+          uncompress_write_buffer[write_idx++] = *stack_top++;
           if (write_idx == UNCOMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
         }
       } else {
         while (w_size >= (w_skip = UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx)) {
-          memcpy(global_write_buffer + write_idx, stack_top, w_skip);
+          memcpy(uncompress_write_buffer + write_idx, stack_top, w_skip);
           write_idx = flush_write_buffer(UNCOMPRESS_WRITE_BUFFER_SIZE);
           stack_top += w_skip;
           w_size -= w_skip;
         }
-        memcpy(global_write_buffer + write_idx, stack_top, w_size);
+        memcpy(uncompress_write_buffer + write_idx, stack_top, w_size);
         write_idx += w_size;  /* It doesn't fill it fully. */
 #ifdef USE_CHECK
         if (write_idx == UNCOMPRESS_WRITE_BUFFER_SIZE) abort();  /* Must not be full. */
@@ -750,7 +925,7 @@ void decompress_compress_nohdr(void) {
       finchar = (uc8)code;
       /* Now generate output characters in reverse order. */
       for (;;) {
-        if (w_size > UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx) {  /* This is the rare case with long string or string near the end of global_write_buffer. */
+        if (w_size > UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx) {  /* This is the rare case with long string or string near the end of uncompress_write_buffer. */
 #ifdef USE_DEBUG
           if (1) fprintf(stderr, "WRITE w_size=%lu remaining=%lu code=%lu\n", (unsigned long)w_size, (unsigned long)(UNCOMPRESS_WRITE_BUFFER_SIZE - write_idx), (unsigned long)code);
 #endif
@@ -766,17 +941,17 @@ void decompress_compress_nohdr(void) {
         } else {
           w_idx = write_idx + w_size;
           if (w_finchar != 0) {
-            global_write_buffer[--w_idx] = (uc8)w_finchar - 1;
+            uncompress_write_buffer[--w_idx] = (uc8)w_finchar - 1;
             if (w_idx == write_idx) break;
           }
           code = w_code;
           w_skip = 1;
         }
         for (; --w_idx != write_idx; code = tab_prefix_get(code)) {
-          global_write_buffer[w_idx] = tab_suffix_get(code);
+          uncompress_write_buffer[w_idx] = tab_suffix_get(code);
         }
         if (code >= 256U) code = tab_suffix_get(code);
-        global_write_buffer[w_idx] = code;   /* Last code is always a literal. */
+        uncompress_write_buffer[w_idx] = code;   /* Last code is always a literal. */
         if (w_skip != 0) break;  /* This was the last iteration, the entire string has been printed. */
         write_idx = flush_write_buffer(UNCOMPRESS_WRITE_BUFFER_SIZE);
       }

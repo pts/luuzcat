@@ -436,11 +436,87 @@ __noreturn void fatal_unsupported_feature(void);
 
 /* --- Reading. */
 
-/* This many bytes should be read to global_read_buffer at a time. It must
- * be a power of 2 divisible by 0x1000 for disk block alignment.
+/* READ_BUFFER_SIZE is the number of bytes that should be read to
+ * global_read_buffer at a time. It must be a power of 2 divisible by 0x1000
+ * for disk block alignment.
+ *
+ * READ_BUFFER_SIZE and global_read_buffer are used by all decompressors
+ * including decompress_compress_nohdr(...) with LUUZCAT_DUCML.
+ *
+ * Memory layout for LUUZCAT_DUCML:
+ *
+ * * -0x10...0: DOS Memory Control Block (MCB).
+ * * 0...0x100: DOS Program Segment Prefix (PSP).
+ * * 0x100..0x10d: _start, with BSS initialization (`rep stosw') and a `jmp strict near main_' at the end.
+ * * 0x10d...~0x718: uncompress.c code (_TEXT): library code (fatal_msg(...), fatal_*(void), read_byte(...)), tab_init_noarg(...), decompress_compress_nohdr(...).
+ * * For decompress_compress_nohdr(...) in uncompress.c with bits <= 14 only:
+ *   * 0xc00..0x2c00:  uc8 uncompress_ducml_write_buffer_14[1U << 14]; 8 KiB.
+ *   * 0x2c00..0x6c00: uc8  tab_suffix_14_ary[1U << 14]; 16 KiB.
+ *   * 0x6c00..0xec00: um16 tab_prefix_14_ary[1U << 14]; 32 KiB. Separated to odd and even halves.
+ * * For decompress_compress_nohdr(...) in uncompress.c with bits == 15 only:
+ *   * 0xc00..0x6c00:  uc8 uncompress_ducml_write_buffer_15[0x6000]; 24 KiB.
+ *   * 0x6c00..0xec00: uc8 tab_suffix_15_ary[1U << 15]; 32 KiB.
+ *   * On the heap: um16 tab_prefix_15_ary[1U << 15]; 64 KiB. Separated to odd and even halves.
+ * * For decompress_compress_nohdr(...) in uncompress.c with bits == 16 only:
+ *   * 0xc00..0xec00: uc8 uncompress_ducml_write_buffer_16[0xe000]; 56 KiB.
+ *   * On the heap: uc8  tab_suffix_16_ary[1U << 16]; 64 KiB.
+ *   * On the heap: um16 tab_prefix_16_ary[1U << 16]; 128 KiB. Separated to odd and even halves.
+ * * For all decompressors other than decompress_compress_nohdr(...):
+ *   * ~0x718...0x2700: rest of the code (_TEXT): luuzcatc.c, unscolzh.c, uncompact.c, unopack.c, unpack.c, undeflate.c, unfreeze.c
+ *   * ~0x2700...~0x27d0: string constants (CONST): error messages and the usage message; some of the error messages are inlined to _TEXT
+ *   * ~0x27d0...~0x27d0 (empty): other global constants (CONST2): empty; only unfreeze.c had table1, which has been inlined to to _TEXT as table1_func.
+ *   * ~0x27d0...~0x27d0 (empty): non-constant, initialized global variables (_DATA): empty
+ *   * ~0x27d0...<0xec00: non-constant, non-constant, zero-initialized global variables (_BSS) except for global_write_buffer: global_read_buffer, big and others.
+ *   * The code and data here overlaps with data of uncompress.c. This is fine, because decompress_compress_nohdr(...) doesn't return.
+ * 0xec00...0xfc03: uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT]; 0x1003 == 4099 bytes.
+ * 0xfc03...0xfc04: ub8 global_read_had_eof;
+ * 0xfc04...0xfc06: unsigned int global_insize;
+ * 0xfc06...0xfc08: unsigned int global_inptr;
+ * 0xfc08...0xfc0c: unsigned int global_total_read_size;
+ * 0xfc0c...0xfc0e: __segment tab_suffix_seg;
+ * 0xfc0e...0xfc10: __segment tab_prefix0_seg;
+ * 0xfc10...0xfc12: __segment tab_prefix1_seg;
+ * 0xfc12...0xfc14: unsigned int uncompress_ducml_write_buffer_size;
+ * 0xfc14...0x10000: stack: 0xc0 bytes reserved for DOS etc. (https://retrocomputing.stackexchange.com/a/31813), 0x3ec bytes (plenty) can be used by the program.
  */
-#ifndef READ_BUFFER_SIZE
-#  define READ_BUFFER_SIZE 0x2000
+#ifdef LUUZCAT_DUCML
+#  ifndef __WATCOMC__
+#    error LUUZCAT_DUCML requires __WATCOMC__.
+#  endif
+#  if !IS_DOS_16
+#    error LUUZCAT_DUCML requires DOS 8086 (16-bit).
+#  endif
+#  ifndef __SMALL__
+#    error LUUZCAT_DUCML requires the __SMALL__ memory model.
+#  endif
+#  ifndef _PROGX86
+#    error LUUZCAT_DUCML requires _PROGX86.
+#  endif
+#  ifndef _PROGX86_DOSMEM
+#    error LUUZCAT_DUCML requires _PROGX86_DOSMEM.
+#  endif
+#  ifndef _PROGX86_HAVE_PARA_REUSE_START  /* Defined above. */
+#    error LUUZCAT_DUCML requires _PROGX86_HAVE_PARA_REUSE_START.
+#  endif
+#  ifdef _DOSCOMSTART
+#    error LUUZCAT_DUCML conflicts with _DOSCOMSTART.
+#  endif
+#  ifdef _DOSCOMSTART_UNCOMPRC
+#    error LUUZCAT_DUCML conflicts with _DOSCOMSTART_UNCOMPRC.
+#  endif
+#  ifdef _PROGX86_NOALLOC
+#    error LUUZCAT_DUCML conflicts with _PROGX86_NOALLOC.
+#  endif
+#  ifdef __TURBOC__
+#  endif
+#  ifdef READ_BUFFER_SIZE
+#    error LUUZCAT_DUCML conflicts with custom READ_BUFFER_SIZE.
+#  endif
+#  define READ_BUFFER_SIZE 0x1000
+#else
+#  ifndef READ_BUFFER_SIZE
+#    define READ_BUFFER_SIZE 0x2000
+#  endif
 #endif
 /* We allocate a few more bytes (READ_BUFFER_EXTRA bytes) of read buffer so
  * that compress (LZW) decompression can always read READ_BUFFER_SIZE bytes
@@ -454,14 +530,22 @@ __noreturn void fatal_unsupported_feature(void);
  */
 #define READ_BUFFER_OVERSHOOT (sizeof(unsigned int) > 2 ? sizeof(unsigned int) - 2 : 1)
 /* uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT]; */
-extern uc8 global_read_buffer[];
+#ifdef LUUZCAT_DUCML
+#  define global_read_buffer ((uc8*)0xec00U)
+#  define global_read_had_eof (*(uc8*)0xfc03U)
+#  define global_insize (*(unsigned int*)0xfc04U)
+#  define global_inptr (*(unsigned int*)0xfc06U)
+#  define global_total_read_size (*(um32*)0xfc08U)
+#else
+  extern uc8 global_read_buffer[];
+  extern ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
+  extern unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
+  extern unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
+  extern um32 global_total_read_size;  /* read_byte(...) increses it after each read from the filehandle to global_read_buffer. */
+#endif
 
 #define BEOF (-1U)  /* Returned by read_byte(1) and try_byte(). */
 
-extern unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
-extern unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
-extern um32 global_total_read_size;  /* read_byte(...) increses it after each read from the filehandle to global_read_buffer. */
-extern ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
 unsigned int read_byte(ub8 is_eof_ok);
 void read_force_eof(void);
 unsigned int get_le16(void);
@@ -472,6 +556,9 @@ unsigned int get_le16(void);
 
 /* --- Writing. */
 
+/* WRITE_BUFFER_SIZE and global_write_buffer are used by all decompressors
+ * except for decompress_compress_nohdr(...) with LUUZCAT_DUCML.
+ */
 #ifndef WRITE_BUFFER_SIZE
 #  define WRITE_BUFFER_SIZE 0x8000U
 #endif

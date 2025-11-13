@@ -24,57 +24,73 @@ unsigned int _mbctoupper(unsigned int c) {
 }
 #endif
 
-/* --- Error reporting. */
+/* --- Common error reporting. */
 
-__noreturn void fatal_msg(const char *msg) {
-#if USE_WRITE_FIX  /* Workaround for write(2) failing with EFAULT on OpenBSD 7.3--7.8 i386. (It works on 6.0, 7.0 and 7.2.). https://stackoverflow.com/q/79806755 */
-  const unsigned size = strlen(msg);
-  memcpy(global_write_buffer, msg, size);
-  write_nonzero_void(STDOUT_FILENO, global_write_buffer, size);
+#ifdef LUUZCAT_DUCML  /* This functionality is implemented in uncompress.c. */
 #else
-  write_nonzero_void(STDERR_FILENO, WRITE_PTR_ARG_CAST(msg), strlen(msg));
-#endif
-  exit(EXIT_FAILURE);
-}
+  __noreturn void fatal_msg(const char *msg) {
+#  if USE_WRITE_FIX  /* Workaround for write(2) failing with EFAULT on OpenBSD 7.3--7.8 i386. (It works on 6.0, 7.0 and 7.2.). https://stackoverflow.com/q/79806755 */
+    const unsigned size = strlen(msg);
+    memcpy(global_write_buffer, msg, size);
+    write_nonzero_void(STDOUT_FILENO, global_write_buffer, size);
+#  else
+    write_nonzero_void(STDERR_FILENO, WRITE_PTR_ARG_CAST(msg), strlen(msg));
+#  endif
+    exit(EXIT_FAILURE);
+  }
 
-/* !! Add different exit codes. */
-__noreturn void fatal_read_error(void) { fatal_msg("read error" LUUZCAT_NL); }
-__noreturn void fatal_write_error(void) { fatal_msg("write error" LUUZCAT_NL); }
-__noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF" LUUZCAT_NL); }
-__noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input" LUUZCAT_NL); }
-#ifdef LUUZCAT_MALLOC_OK  /* !! Also omit from luuzcatn.com. */
-  __noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
+  /* !! Add different exit codes. */
+  __noreturn void fatal_read_error(void) { fatal_msg("read error" LUUZCAT_NL); }
+  __noreturn void fatal_write_error(void) { fatal_msg("write error" LUUZCAT_NL); }
+  __noreturn void fatal_unexpected_eof(void) { fatal_msg("unexpected EOF" LUUZCAT_NL); }
+  __noreturn void fatal_corrupted_input(void) { fatal_msg("corrupted input" LUUZCAT_NL); }
+#  ifdef LUUZCAT_MALLOC_OK  /* !! Also omit from luuzcatn.com. */
+    __noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
+#  endif
 #endif
+
+/* --- Additional error reporting. */
+
 __noreturn void fatal_unsupported_feature(void) { fatal_msg("unsupported feature" LUUZCAT_NL); }
 
-uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT];
-unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
-unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
-um32 global_total_read_size;  /* read_byte(...) increses it after each read from the filehandle to global_read_buffer. */
-ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
+/* --- Common reading. */
 
-/* --- Reading. */
+/* --- Additional reading. */
 
 void read_force_eof(void) {
   global_insize = global_inptr = 0;
   global_read_had_eof = 1;
 }
 
-unsigned int read_byte(ub8 is_eof_ok) {
-  int got;
-  if (global_inptr < global_insize) return global_read_buffer[global_inptr++];
-  if (global_read_had_eof) goto already_eof;
-  if ((got = read(STDIN_FILENO, (char*)global_read_buffer, (int)READ_BUFFER_SIZE)) < 0) fatal_read_error();
-  if (got == 0) {
-    ++global_read_had_eof;  /* = 1. */
-   already_eof:
-    if (is_eof_ok) return BEOF;
-    fatal_unexpected_eof();
+#ifdef LUUZCAT_DUCML
+  /* For LUUZCAT_DUCML, these global variables are defined in luuzcat.h:
+   * global_read_buffer, global_read_had_eof, global_insize, global_inptr, global_total_read_size.
+   *
+   * For LUUZCAT_DUCML, read_byte(...) is implemented in uncompress.c.
+   */
+#else
+  uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT];
+  ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
+  unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
+  unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
+  um32 global_total_read_size;  /* read_byte(...) increses it after each read from the filehandle to global_read_buffer. */
+
+  unsigned int read_byte(ub8 is_eof_ok) {
+    int got;
+    if (global_inptr < global_insize) return global_read_buffer[global_inptr++];
+    if (global_read_had_eof) goto already_eof;
+    if ((got = read(STDIN_FILENO, (char*)global_read_buffer, (int)READ_BUFFER_SIZE)) < 0) fatal_read_error();
+    if (got == 0) {
+      ++global_read_had_eof;  /* = 1. */
+     already_eof:
+      if (is_eof_ok) return BEOF;
+      fatal_unexpected_eof();
+    }
+    global_total_read_size += global_insize = got;
+    global_inptr = 1;
+    return global_read_buffer[0];
   }
-  global_total_read_size += global_insize = got;
-  global_inptr = 1;
-  return global_read_buffer[0];
-}
+#endif
 
 unsigned int get_le16(void) {
   const unsigned int i = get_byte();
@@ -85,18 +101,21 @@ unsigned int get_le16(void) {
 
 uc8 global_write_buffer[WRITE_BUFFER_SIZE];
 
-/* Always returns 0, which is the new buffer write index. */
-unsigned int flush_write_buffer(unsigned int size) {
-  unsigned int size_i;
-  int got;
-  for (size_i = 0; size_i < size; ) {
-    got = (int)(size - size_i);
-    if (sizeof(int) == 2 && WRITE_BUFFER_SIZE >= 0x8000U && got < 0) got = 0x4000;  /* !! Not needed for DOS. Check for == -1 below instead.  */
-    if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer + size_i), got)) <= 0) fatal_write_error();
-    size_i += got;
+#ifdef LUUZCAT_DUCML  /* For LUUZCAT_DUCML, flush_write_buffer(...) is implemented in uncompress.c. */
+#else
+  /* Always returns 0, which is the new buffer write index. */
+  unsigned int flush_write_buffer(unsigned int size) {
+    unsigned int size_i;
+    int got;
+    for (size_i = 0; size_i < size; ) {
+      got = (int)(size - size_i);
+      if (sizeof(int) == 2 && WRITE_BUFFER_SIZE >= 0x8000U && got < 0) got = 0x4000;  /* !! size optimization elsewhere: Not needed for DOS 3.00 if we check for == -1 below, and we return on == 0.  */
+      if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer + size_i), got)) <= 0) fatal_write_error();
+      size_i += got;
+    }
+    return 0;
   }
-  return 0;
-}
+#endif
 
 /* --- main. */
 

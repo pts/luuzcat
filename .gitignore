@@ -39,6 +39,7 @@
 /hello.img
 /floppy.img
 /transfer.img
+/fd.img
 
 # --- Test files.
 

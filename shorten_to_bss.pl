@@ -34,6 +34,10 @@ if ($s =~ m@^[\x33\x31]\xc0(\xbf)(..)\xb9(..)\x2b\xcf\xf3([\xaa])@s or  # xor ax
   die("fatal: error seeking to start: $fn\n") if (sysseek(F, 0, 0) or -1) != 0;
   die("fatal: error writing to DOS .com program: $fn\n") if (syswrite(F, $code, length($code)) or 0) != length($code);
   die("fatal: error truncating DOS .com program: $fn\n") if !truncate(F, length($s) - $i);
+} elsif ($s =~ m@^[\x33\x31]\xc0\xbf..\x89\xe1\x29\xf9\xd1\xe9\xf3\xab@s) {  # xor ax, ax ++ mov di, ... ++ mov cx, sp ++ sub cx, di ++ shr cx, 1 ++ rep stosw.
+  my $i = length($s);
+  while (!vec($s, --$i, 8)) {}  # Skip backward over trailing NULs.
+  die("fatal: error truncating DOS .com program: $fn\n") if !truncate(F, $i + 1);
 } else {
   die("fatal: unsupported DOS .com program start code: $fn\n");
 }

@@ -806,10 +806,14 @@ __prog_default_cpu_and_bits
     section .text
     %if DOSEXE
       __prog_dosexe_file_image_size equ _text_size+_rodatastr_size+_rodata_size+_data_size
-      __prog_para_count_from_psp equ (0x100+_text_size+_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+DOSEXE_STACK_SIZE+0xf)>>4
-      __prog_dosexe_offset_limit equ 0x100+_text_size+_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+DOSEXE_STACK_SIZE
+      %ifdef FULL_BSS  ; Specify as `nasm -DFULL_BSS'.
+        __prog_dosexe_offset_limit equ 0x10000
+      %else
+        __prog_dosexe_offset_limit equ 0x100+_text_size+_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+DOSEXE_STACK_SIZE
+      %endif
+      __prog_para_count_from_psp equ (__prog_dosexe_offset_limit+0xf)>>4
       ; This based on the formula used by MS-DOS 6.22, FreeDOS 1.2, DOSBox 0.74-4 and kvikdos. The .lastsize (modulo 0x1ff) value doesn't matter.
-      __prog_dosexe_minalloc0 equ ((_text_size+_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+DOSEXE_STACK_SIZE+0xf)>>4)-((__prog_dosexe_file_image_size+(__prog_dosexe_hdrsize<<4)+0x1ff)>>9<<5)+__prog_dosexe_hdrsize
+      __prog_dosexe_minalloc0 equ((-0x100+__prog_dosexe_offset_limit+0xf)>>4)-((__prog_dosexe_file_image_size+(__prog_dosexe_hdrsize<<4)+0x1ff)>>9<<5)+__prog_dosexe_hdrsize
       %if __prog_dosexe_minalloc0<1  ; The values 0 and -1 == 0xffff are special. Just use 1 instead of them.
         __prog_dosexe_minalloc equ 1
       %else
@@ -1602,7 +1606,13 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %if DOSCOM+DOSEXE  ; Clear BSS. DOS doesn't do it for us.
 		xor ax, ax
 		mov di, _bss_start  ; Already aligned to 2.
+  %ifdef FULL_BSS  ; Specify as `nasm -DFULL_BSS'.
+		mov cx, sp
+		sub cx, di
+		shr cx, 1
+  %else
 		mov cx, (_bss_end-_bss_start+1)>>1
+  %endif
 		rep stosw
   %ifdef __NEED_progx86_para_alloc_
 		mov ax, cs

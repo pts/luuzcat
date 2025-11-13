@@ -166,7 +166,12 @@ for f in luuzcat_32.o  luuzcatw_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o  
                                                    luuzcatc_16.o unscolzhc_16.o uncompactc_16.o unopackc_16.o unpackc_16.o undeflatec_16.o uncompressc_16.o unfreezec_16.o; do
   fi=$((fi+1))  # For local variables.
   wdis -a -fi -fu -i=@ "$f" >"${f%.*}.wasm"
-  "$perl" wasm2nasm.pl "$fi" <"${f%.*}.wasm" >"${f%.*}.nasm"
+  if test "$f" = uncompressc_16.o; then
+    # We pass --CONST=_TEXT so that error messages such as "read error" go to the _TEXT of uncompressc_16.o, thus the rest of the memory image can be overwritten with data.
+   "$perl" wasm2nasm.pl --CONST=_TEXT "$fi" <"${f%.*}.wasm" >"${f%.*}.nasm"
+  else
+   "$perl" wasm2nasm.pl "$fi" <"${f%.*}.wasm" >"${f%.*}.nasm"
+  fi
   # objconv 2.54 is buggy, it creates wrong destination for some `call' instructions.
   # tools/objconv-2.54.upx -fnasm "$f" "${f%.*}.nasm"
 done
@@ -235,8 +240,35 @@ wlink op q form elf ru freebsd disa 1080 op noext op d op nored op start=_start 
 ibcs-us ./luuzcaty.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSCOM -o luuzcat.com   progx86.nasm
+# We pass -DFULL_BSS so that global_insize, global_inptr and global_total_read_size will be zero-initialized.
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSCOM -DFULL_BSS -o luuzcat.com   progx86.nasm
 "$perl" shorten_to_bss.pl luuzcat.com  # luuzcat.com allocates extra memory in uncompress.c.
+./kvikdos luuzcat.com <XFileMgro.sz >XFileMgro
+    cmp XFileMgro.good XFileMgro
+./kvikdos luuzcat.com <test_C1.bin.C >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_pack.z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_pack_old.z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1.advdef.gz >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1.advdef.qz >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1.advdef.zlib >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com -r <test_C1.advdef.deflate >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com -r <test_C1.advdef.gz >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_old.F >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1.F >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1.zip >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./kvikdos luuzcat.com <test_C1_split.zip >test_C1.bin
+    cmp test_C1.good test_C1.bin
 ./kvikdos luuzcat.com <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcat.com <test_C1_new13.Z >test_C1.bin
@@ -254,8 +286,6 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nas
 ./kvikdos luuzcat.com <test_C1_old15.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcat.com <test_C1_old16.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./kvikdos luuzcat.com r <test_C1.advdef.deflate >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 #nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatd_16.nasm','unscolzh_16.nasm','uncompact_16.nasm','unopack_16.nasm','unpack_16.nasm','undeflate_16.nasm','uncompressn_16.nasm','unfreeze_16.nasm'" -DDOSCOM                             -o luuzcatn.com  progx86.nasm
@@ -283,8 +313,8 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nas
 #./kvikdos luuzcatn.com r <test_C1.advdef.deflate >test_C1.bin
 #    cmp test_C1.good test_C1.bin
 
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSEXE -o luuzcatd.exe  progx86.nasm
-./kvikdos luuzcatd.exe <test_C1_new9.Z >test_C1.bin
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSEXE -DFULL_BSS -o luuzcatd.exe  progx86.nasm
+./kvikdos luuzcatd.exe <test_C1_new16.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcatd.exe r <test_C1.advdef.deflate >test_C1.bin
     cmp test_C1.good test_C1.bin

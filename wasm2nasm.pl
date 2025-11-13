@@ -9,6 +9,8 @@
 BEGIN { $^W = 1 }
 use integer;
 use strict;
+my $secname_const = "CONST";  # String literals.
+shift(@ARGV), $secname_const = $1 if @ARGV and $ARGV[0] =~ m@^--CONST=(.*)@s;  # Example: --CONST=_TEXT
 my $fi = int($ARGV[0]); die("fatal: bad or missing file index argument: $fi\n") if !$fi;  # File index.
 my $ofs;
 my %globals;  # Symbol names to be prefixed with "G\@".
@@ -103,7 +105,7 @@ for $_ (@lines) {
         print($_, "\n") }
     elsif (m@^    ORG\s+(\d[\da-f]*)(H?)@) { die("bad ofs: $_\n") if !defined($ofs); my $oldofs = $ofs; $ofs = $2 ? hex($1) : int($1); print("\t\tRESB $oldofs\n") if ($oldofs = $ofs - $oldofs) > 0; }
     elsif (m@^DGROUP\s+GROUP\s@) {}
-    elsif (m@^(_TEXT|CONST2?|_DATA|_BSS)\s+SEGMENT\s@) { print($nasmcode_sectiondef, "SECTION $1\n"); $nasmcode_sectiondef = ""; $ofs = 0 if $1 eq "_BSS" }
+    elsif (m@^(_TEXT|CONST2?|_DATA|_BSS)\s+SEGMENT\s@) { my $secname = $1; $secname = $secname_const if $secname eq "CONST"; print($nasmcode_sectiondef, "SECTION $secname\n"); $nasmcode_sectiondef = ""; $ofs = 0 if $secname eq "_BSS" }
     elsif (m@^[_A-Z0-9]+\s+ENDS$@) { $ofs = undef }
     elsif ($_ eq ".387" or $_ eq ".386p" or $_ eq ".model flat" or !length($_) or m@^YI[BE]?\s+SEGMENT\s@) {}
     else { die("bad: $_\n") }

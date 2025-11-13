@@ -105,6 +105,9 @@
 ;    https://gunkies.org/wiki/386BSD says: Once patchkit 023 is installed, 386BSD 0.1 will then run under Qemu 0.11.x
 ; !! For FreeBSD, try alternative of ELF_OSABI.FreeBSD (i.e. at EI_ABIVERSION == EI_BRAND == 8). Which versions of FreeBSD support it? NetBSD 10.1 also allows it.
 ; !! For 16-bit targets with ES == DS (such as MINIX1I86, but not DOSEXE or DOSCOM), remove the `mov ax, ds' ++ `mov es, ax' and `push ds ++ pop es' instructions from *_16.nasm, and also from the libc, because they are useless.
+; !! Add CP/M-86 target (http://www.bitsavers.org/pdf/nec/APC/NEC_APC_CPM86_System_Reference_Guide_Aug83.pdf).
+; !! Add 4.3BSD-on-VAX target elsewhere. This is not Intel x86.
+; !! Add VMS-on-VAX target elsewhere. This is not Intel x86.
 ;
 ; Please note that this file implements a minialistic and simplified libc
 ; for console applications (i.e. no GUI). Especially argv and envp

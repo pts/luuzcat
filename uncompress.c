@@ -197,11 +197,18 @@
     struct uncompress_ducml_big_16 b16;
   };
   typedef char assert_sizeof_struct_uncompress_ducml_big_u[sizeof(union uncompress_ducml_big_u) == 0xe000U ? 1 : -1];
-  /* !!! size optimization: Make luuzcat.com shorter than 10000 bytes. */
-#  define uncompress_ducml_write_buffer ((uc8*)0xc00)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
-#  define uncompress_ducmp_write_buffer_asm "mov word ptr ds:[flush_write_buffer+2], 0xc00"  /* Also contains uncompress_ducml_write_buffer. */
-#  define uncompress_ducml_big (*(union uncompress_ducml_big_u*)0xc00)
-#  define uncompress_ducml_write_buffer_size (*(unsigned int*)0xfc12)
+  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
+#  define uncompress_ducmp_write_buffer_asm "mov word ptr ds:[flush_write_buffer+2], 0xc00"
+  extern uc8 uncompress_ducml_write_buffer[];
+#  pragma aux uncompress_ducml_write_buffer "uncompress_ducml_write_buffer__FIXOFS_0xc00"
+#  if 1  /* This one happens to produce a smaller program file.. */
+#    define uncompress_ducml_big (*(union uncompress_ducml_big_u*)0xc00)
+#  else
+    extern union uncompress_ducml_big_u uncompress_ducml_big;  /* Also contains uncompress_ducml_write_buffer. */
+#    pragma aux uncompress_ducml_big "uncompress_ducml_big__FIXOFS_0xc00"
+#endif
+  extern unsigned int uncompress_ducml_write_buffer_size;
+#  pragma aux uncompress_ducml_write_buffer_size "uncompress_ducml_write_buffer_size__FIXOFS_0xfc12"  /* Unfortunately there is no way to generate this with `wcc -za'. Without `-xa', there is _Pragma("..."). */
 
 #  define read_force_eof() exit(EXIT_SUCCESS)
 #  define uncompress_read(fd, buf, count) luuzcat_ducml_read(fd, buf, count)
@@ -282,9 +289,16 @@
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE uncompress_ducml_write_buffer_size
 #  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
-#  define tab_suffix_seg  (*(__segment*)0xfc0c)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
-#  define tab_prefix0_seg (*(__segment*)0xfc0e)
-#  define tab_prefix1_seg (*(__segment*)0xfc10)
+#  if 0
+#    define tab_suffix_seg  (*(__segment*)0xfc0c)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
+#    define tab_prefix0_seg (*(__segment*)0xfc0e)
+#    define tab_prefix1_seg (*(__segment*)0xfc10)
+#  else
+    extern __segment tab_suffix_seg, tab_prefix0_seg, tab_prefix1_seg;
+#    pragma aux tab_suffix_seg   "tab_suffix_seg__FIXOFS_0xfc0c"
+#    pragma aux tab_prefix0_seg  "tab_prefix0_seg__FIXOFS_0xfc0e"
+#    pragma aux tab_prefix1_seg  "tab_prefix1_seg__FIXOFS_0xfc10"
+#  endif
 #  define tab_suffix_seg_asm  "mov es, ds:[0xfc0c]"  /* The OpenWatcom C compiler will omit the `ds:' prefix byte. Good. */
 #  define tab_prefix0_seg_asm "mov es, ds:[0xfc0e]"
 #  define tab_prefix1_seg_asm "mov es, ds:[0xfc10]"
@@ -301,20 +315,20 @@
   static void set_uncompress_ducml_write_buffer(void);
 #  pragma aux set_uncompress_ducml_write_buffer = uncompress_ducmp_write_buffer_asm __modify __exact []  /* Sets the argument of the `mov dx' in flush_write_buffer(...) to uncompress_ducml_write_buffer. */
   static void tab_init(maxbits) {
-    unsigned short segment;
+    unsigned short segment = get_ds();
 #  if 0  /* Not needed. */
     if (tab_suffix_seg) return;  /* Prevent subsequent initialization. */
 #  endif
     set_uncompress_ducml_write_buffer();  /* Self-modifying code: change the buffer address in flush_write_buffer from global_write_buffer to uncompress_ducml_write_buffer. */
     if (maxbits < 15) {
       uncompress_ducml_write_buffer_size = 0x2000;
-      /* !!! size optimization: Make this function shorter in assembly. */
-      tab_prefix0_seg = get_ds() + (((unsigned)&uncompress_ducml_big.b14.tab_prefix0_14_ary - 256U) >> 4);  /* It's aligned to a multiple of 0x10. */
-      tab_prefix1_seg = get_ds() + (((unsigned)&uncompress_ducml_big.b14.tab_prefix1_14_ary - 256U) >> 4);
-      tab_suffix_seg  = get_ds() + (((unsigned)&uncompress_ducml_big.b14.tab_suffix_14_ary  - 256U) >> 4);
+      /* !! size optimization: Make this function shorter in assembly. */
+      tab_prefix0_seg = segment + (((unsigned)&uncompress_ducml_big.b14.tab_prefix0_14_ary - 256U) >> 4);  /* It's aligned to a multiple of 0x10. */
+      tab_prefix1_seg = segment + (((unsigned)&uncompress_ducml_big.b14.tab_prefix1_14_ary - 256U) >> 4);
+      tab_suffix_seg  = segment + (((unsigned)&uncompress_ducml_big.b14.tab_suffix_14_ary  - 256U) >> 4);
     } else if (maxbits == 15) {
       uncompress_ducml_write_buffer_size = 0x6000;
-      tab_suffix_seg  = get_ds() + (((unsigned)&uncompress_ducml_big.b15.tab_suffix_15_ary  - 256U) >> 4);
+      tab_suffix_seg  = segment + (((unsigned)&uncompress_ducml_big.b15.tab_suffix_15_ary  - 256U) >> 4);
 #  define TAB_ALLOC_PARA_COUNT_15 (unsigned short)((((1UL << 15) - 256U) * 2 + 15) >> 4)  /* Number of 16-byte paragraphs needed by tab_prefix0_seg and tab_prefix1_seg. */
       if (progx86_is_para_less_than(TAB_ALLOC_PARA_COUNT_15)) fatal_out_of_memory();
       segment = progx86_para_reuse_start() + TAB_ALLOC_PARA_COUNT_15 - 256U;

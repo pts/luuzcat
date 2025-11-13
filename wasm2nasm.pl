@@ -93,7 +93,10 @@ for $_ (@lines) {
     print("\t\t", $_, "\n");
   } elsif (m@^\t\t@) {
     if (m@^\t\tPUBLIC\s+([_a-zA-Z]\w*)$@) { $globals{$1} = 1; print("GLOBAL G\@$1\n") }
-    elsif (m@^\t\tEXTRN\s+([_a-zA-Z]\w*):@) { $globals{$1} = 1; print("EXTERN G\@$1\n") }
+    elsif (m@^\t\tEXTRN\s+([_a-zA-Z]\w*):@) {
+        $globals{$1} = 1; my $label = "G\x40$1";
+        print($label =~ m@__FIXOFS_(?:([0-7]+)|([1-9]\d*)|0[xX]([0-9a-f]+))$@ ? sprintf("%%ifndef %s\n  %%define %s %s\n  %s EQU 0%xH\n%%endif\n", $label, $label, $label, $label, defined($1) ? oct($1) : defined($2) ? int($2) : hex($3))
+            : "EXTERN $label\n") }
     elsif (m@^\t\tASSUME\s+@) {}
     elsif ($_ eq "\t\tEND") {}
     else { die("bad: $_\n") }

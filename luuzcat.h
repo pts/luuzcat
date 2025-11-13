@@ -531,11 +531,36 @@ __noreturn void fatal_unsupported_feature(void);
 #define READ_BUFFER_OVERSHOOT (sizeof(unsigned int) > 2 ? sizeof(unsigned int) - 2 : 1)
 /* uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT]; */
 #ifdef LUUZCAT_DUCML
-#  define global_read_buffer ((uc8*)0xec00U)
-#  define global_read_had_eof (*(uc8*)0xfc03U)
-#  define global_insize (*(unsigned int*)0xfc04U)
-#  define global_inptr (*(unsigned int*)0xfc06U)
-#  define global_total_read_size (*(um32*)0xfc08U)
+#  if 0  /* #if and #else are equivalent, but one of them produces a smaller program file because of different code generation in the OpenWatcom C compiler. */
+#    define global_read_buffer ((uc8*)0xec00U)
+#  else
+    extern uc8 global_read_buffer[];
+#    pragma aux global_read_buffer "global_read_buffer__FIXOFS_0xec00"  /* __FIXOFS_... is processed by wasm2nasm.pl. */
+#  endif
+#  if 0
+#    define global_read_had_eof (*(ub8*)0xfc03U)
+#  else
+    extern ub8 global_read_had_eof;
+#    pragma aux global_read_had_eof "global_read_had_eof__FIXOFS_0xfc03"
+#  endif
+#  if 0
+#    define global_insize (*(unsigned int*)0xfc04U)
+#  else
+    extern unsigned int global_insize;
+#    pragma aux global_insize "global_insize__FIXOFS_0xfc04"
+#  endif
+#  if 0
+#    define global_inptr (*(unsigned int*)0xfc06U)
+#  else
+    extern unsigned int global_inptr;
+#    pragma aux global_inptr "global_inptr__FIXOFS_0xfc06"
+#  endif
+#  if 0
+#    define global_total_read_size (*(um32*)0xfc08U)
+#  else
+    extern um32 global_total_read_size;
+#    pragma aux global_total_read_size "global_total_read_size__FIXOFS_0xfc08"
+#  endif
 #else
   extern uc8 global_read_buffer[];
   extern ub8 global_read_had_eof;  /* Was there an EOF already when reading? */

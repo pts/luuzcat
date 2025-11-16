@@ -26,9 +26,13 @@
 
 #if (!defined(__i386) && !defined(__i386__) && !defined(__amd64__) && !defined(__x86_64__) && !defined(_M_X64) && !defined(_M_AMD64) && !defined(__386) && \
      !defined(__X86_64__) && !defined(_M_I386) && !defined(_M_X64) && !defined(_M_AMD64) && !defined(__386__)) && \
-    (defined(_M_I86) || defined(_M_IX86) || defined(__X86__) || defined(__I86__) || defined(_M_I8086) || defined(_M_I286) || defined(__TURBOC__)) && \
-    (defined(MSDOS) || defined(_MSDOS) || defined(__DOS__) || defined(__COM__) || defined(__MSDOS__))
+    ((!defined(__WATCOMC__) && (defined(_M_I86) || defined(_M_IX86) || defined(__X86__) || defined(__I86__) || defined(_M_I8086) || defined(_M_I286) || defined(__TURBOC__)) && \
+      (defined(MSDOS) || defined(_MSDOS) || defined(__DOS__) || defined(__COM__) || defined(__MSDOS__))) || \
+     (defined(__WATCOMC__) && defined(_M_I86)))
 #  define IS_X86_16 1
+#endif
+
+#if IS_X86_16 && (defined(MSDOS) || defined(_MSDOS) || defined(__DOS__) || defined(__COM__) || defined(__MSDOS__) || defined(__TURBOC__))
 #  define IS_DOS_16 1
 #endif
 

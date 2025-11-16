@@ -27,7 +27,7 @@
 ;   [ibcs-us](https://ibcs-us.sourceforge.io/) running on Linux i386
 ;   (tested with ibcs-us 4.1.6),
 ;   qemu-i386 running on Linux (any architecture) (tested with
-;   qemu-i386 2.11.1).
+;   qemu-i386 2.11.1). Operating system is autodetected at process startup.
 ; * prog.coff (-DCOFF):
 ;   AT&T Unix System V/386 Release 3.x (SVR3, 1987--) i386,
 ;   386/ix >=1.0.6, INTERACTIVE UNIX >=2.2 (all versions), Microport Unix
@@ -35,8 +35,17 @@
 ;   [ibcs-us](https://ibcs-us.sourceforge.io/) running on Linux i386.
 ; * prog.3b (-DS386BSD):
 ;   386BSD >=1.0 (tested on 386BSD 1.0 (1994-10-27)).
+; * prog.mi8 (-DMINIXI86):
+;   Minix 1.5--2.0.4 i86 (tested with Minix 1.5 i86 (1990-06-01),
+;   Minix 1.7.0 i86 (1995-05-30), Minix 1.7.5 i86 (1996-09-03),
+;   Minix 2.0.0 i86 (1996-10-01), Minix 2.0.4 i86 (2003-11-09)),
+;   ELKS 0.1.4--0.8.1-- (tested with
+;   ELKS 0.1.4 (2012-02-19), ELKS 0.2.0 (2015-03-01),
+;   ELKS 0.4.0 (2021-12-07), EKS 0.8.1 (2024-10-16)).
+;   Operating system is autodetected at process startup.
+;   Programs not calling fork(2) also work in elksemu 0.8.1 on Linux.
 ; * prog.mi3 (-DMINIXI386):
-;   Minix 1.5--3.2.x i386 (tested on Minix 1.5 i386 (~1990),
+;   Minix 1.5--3.2.x i386 (tested on Minix 1.5 i386 (1990-06-01),
 ;   Minix 1.7.0 i386 (1995-05-30),
 ;   [Minix 1.7.0 i386 vmd](https://web.archive.org/web/20240914234222/https://www.minix-vmd.org/pub/Minix-vmd/1.7.0/)
 ;   (1996-11-06),
@@ -95,7 +104,6 @@
 ; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
 ; Docker or WSL).
 ;
-; !! Add 16-bit targets MINIXI86 and ELKS.
 ; !! Add Xenix/86 (large model) and Xenix/386 targets.
 ; !! Add FreeBSD 2.0.5 (1995-07-10) with the a.out executable format.
 ; !! Add Linux target with various a.out executable formats. (Linux 1.0 has already supported ELF.)
@@ -134,6 +142,11 @@
 %else
   %define S386BSD 0
 %endif
+%ifdef MINIXI86
+  %define MINIXI86 1
+%else
+  %define MINIXI86 0
+%endif
 %ifdef MINIXI386
   %define MINIXI386 1
 %else
@@ -169,16 +182,16 @@
 %else
   %define DOSEXE 0
 %endif
-%if COFF+ELF+S386BSD+MINIXI386+MINIX386VM+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE==0
+%if COFF+ELF+S386BSD+MINIXI86+MINIXI386+MINIX386VM+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE==0
   %define ELF 1  ; Default.
 %endif
-%if COFF+ELF+S386BSD+MINIXI386+MINIX386VM+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE>1
+%if COFF+ELF+S386BSD+MINIXI86+MINIXI386+MINIX386VM+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE>1
   %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED
   times -1 nop
 %endif
 
 %macro __prog_default_cpu_and_bits 0
-  %if DOSCOM+DOSEXE
+  %if DOSCOM+DOSEXE+MINIXI86
     bits 16
     cpu 8086
   %else
@@ -197,7 +210,7 @@ __prog_default_cpu_and_bits
 %else
   %define __PROG_IS_OBJ_OR_ELF 0
 %endif
-%if DOSCOM+DOSEXE
+%if DOSCOM+DOSEXE+MINIXI86
   __prog_general_alignment equ 2
 %else
   __prog_general_alignment equ 4
@@ -427,14 +440,100 @@ __prog_default_cpu_and_bits
     .a_entry:	dd _start  ; Virtual address (vaddr) of entry point.
     .a_trsize:	dd 0  ; Text relocation size.
     .a_drsize:	dd 0  ; Data relocation size.
-  %elif MINIXI386+MINIX386VM
-    %ifndef MINIX_I386_STACK
-      %define MINIX_I386_STACK 0x4000  ; 16 KiB. Minix i386 programs (such as cat(1)) use this value. This is just a hint, the actual stack usage will be smaller.
+  %elif MINIXI86+MINIXI386+MINIX386VM
+    ; Testing for Minix i86 wwas done with Minix 1.5--2.0.4 i386. Testing
+    ; for ELSKS (i860 was done with ELKS 0.2.0--0.8.1.
+    ;
+    ; In Minix i86 and ELKS, process memory usage (including code (text),
+    ; data, bss, heap and stack) is determined at execve(2) time. It consists
+    ; of:
+    ;
+    ; * Kernel memory structures, includig open filehandles.
+    ; * Code segment. Byte size: a_text+rounding. Rounding is up to 0x10 for
+    ;   ELKS and up to 0x100 for Minix.
+    ; * Data segment. Byte size is calculated like this:
+    ;   * If a_total == 0: it depends on the system and the version.
+    ;   * If a_total != 0 && (a_version == 0 || Minix || ELKS <0.4.0):
+    ;     a_total+rounding. Rounding is up to 0x10 for ELKS and up to 0x100 for
+    ;     Minix.
+    ;   * If a_total != 0 && a_version == 1 && ELKS >=0.4.0:
+    ;     a_data+a_bss+a_total+argv_envp_size+rounding. Rounding is up to 0x10
+    ;     for ELKS and up to 0x100 for Minix. argv_envp_size is the total size
+    ;     of argc (2 bytes), argv pointers, envp pointers, argv strings and envp
+    ;     strings.
+    ;
+    ; Notes:
+    ;
+    ; * The ELKS >=0.3.0 kernel (in elks/fs/exec.c) source uses mh.chmem as
+    ;   struct_exec.a_total.
+    ; * The ELKS 0.4.0 kernel (but not 0.3.0 or 0.5.0) with a_version == 0
+    ;   requires a_total >= a_data+a_bss+0x1000+argv_envp_size. (See the `if
+    ;   (heap < INIT_STACK)' check in elks/fs/exec.c, also INIT_STACK == 4096 ==
+    ;   0x1000). This means that the heap and the stack (excluding argv and
+    ;   envp) must be at least 0x1000 bytes.
+    ;
+    ; Memory layout of data for ELKS with a_version == 0 and Minix i86:
+    ;
+    ; * (a_text is not included in this calculation.)
+    ; * SP := (a_total+0xf)&~0xf.
+    ; * Allocate SP bytes. Load a_text bytes from the file to the beginning. Set
+    ;   the next a_bss bytes to NUL.
+    ; * In ELKS 0.7.0 (but not ELKS 0.2.0) and Minix >=1.5 (and maybe others),
+    ;   if the total number of to-be-pushed bytes below is odd, decrement SP (SP
+    ;   -= 1).
+    ; * The SP value now is the tnp value below.
+    ; * Push (by decreasing SP) the envp[envpi] strings in reverse order.
+    ; * Push (by decreasing SP) the argv[argvi] strings in reverse order.
+    ; * Push the terminating NULL of the envp[envpi] pointers.
+    ; * Push the envp[envpi] pointers in reverse order.
+    ; * Push the terminating NULL of the argv[argvi] pointers.
+    ; * Push the argv[argvi] pointers in reverse order.
+    ; * Push argc.
+    ; * In ELKS 0.2.0, there is no rounding of SP to a multiple of 2.
+    ;
+    ; Sampling of the initial contents of the registers (AX, CX, DX, BX, SP,
+    ; BP, SI, DI) and the tnp value for MINIXI86:
+    ;
+    ; * ELKS 0.2.0     : 0000 2f00 0089 5b8f 0387 9c56 1732 1722; tnp=0x4b0. ELKS <=0.2.0 keeps junk in BP.
+    ; * ELKS 0.7.0     : 0000 2c56 005e 176c 03b2 0000 2cb4 2c68; tnp=0x4b0. ELKS >=0.2.1 initializes BP := 0.
+    ; * ELKS 0.8.0     : 0000 2bee 0067 16fe 0448 0000 2c55 2c02: tnp=0x4af.
+    ; * ELKS 0.8.1     : 0000 2bee 0067 16fe 0448 0000 2c55 2c02; tnp=0x4af.
+    ; * elksemu 0.8.1: : 0000 0000 0000 0000 1416 0000 0000 0000: tnp=0x4af.
+    ; * Minix 1.5      : 0000 0000 0000 0001 049e 5f8c 1666 0006; tnp=0x4ff.
+    ; * Minix 1.7.0    : 0000 0002 0000 0000 046c 6dac 6dc6 0007; tnp=0x4ff.
+    ; * Minix 1.7.5    : 0000 fffa ffff 00d6 046c 6db0 6dca 0007; tnp=0x4ff.
+    ; * Minix 2.0.0    : 0000 0002 0001 6e84 046c 6db0 6dca 0007; tnp=0x500.
+    ; * Minix 2.0.4    : 0000 ffff 000c 8b28 07aa 8a9e 8ab8 3456; tnp=0x7ff.
+    ; * Minix 2.0.4 old: 0000 1002 0f79 0000 07aa 8a9e 8ab8 3456: tnp=0x7ff.
+    ; * ELKS
+    ;
+    ; For MINIXI86, we do OS detection (i.e. determining whether it's Minix
+    ; or ELKS) at runtime, during process startup, at _start.detect_os. Our
+    ; OS detection implementation (using @os_detect_gap) works like this: we
+    ; calculate tnp; if (tnp+0xf)&~0xf is a multiple of 0x100, then it's
+    ; Minix, otherwise it's ELKS. We also add an extra `resb 0x10' after
+    ; @os_detect_gap to make sure it won't accidentally be a multiple of
+    ; 0x100 on ELKS.
+    ;
+    ; For MINIXI86, we control the data segment size like this:
+    ;
+    ; * Because of @os_detect_gap in our OS detection implementation, we want
+    ;   precise control over the data segment size modulo 0x100. This is
+    ;   impossible with a_version == 1 (because we have no control over
+    ;   argv_envp_size), so we use a_version == 0. a_version == 0 is also useful
+    ;   for Minix and ELKS <0.4.0 compatibility.
+    ; * Our heap is empty, it has size 0.
+    ; * For ELKS 0.4.0 support, we want STACK_SIZE >= 0x1400. This includes the
+    ;   INIT_STACK == 0x1000,and 0x400 bytes (== 1 KiB) reserved for argv and
+    ;   envp.
+
+    %ifndef MINIX_STACK_SIZE
+      %define MINIX_STACK_SIZE 0x1400  ; Includes argv and environ strings. Minix i386 programs (such as cat(1)) use 16 KiB. We don't need that much. ELKS 0.4.0 (but not <=0.3.0 or >=0.5.0) needs at least 0x1000 bytes excluding argv and environ strings.
     %endif
-    %if MINIX_I386_STACK<0x1000  ; Must include argv and environ strings.
-      %define MINIX_I386_STACK 0x1000
+    %if MINIX_STACK_SIZE<0x1400  ; Must include argv and environ strings.
+      %define MINIX_STACK_SIZE 0x1400
     %endif
-    %if MINIXI386
+    %if MINIXI386+MINIXI86
       section .header align=1 valign=1 start=0 vstart=-0x20  ; -0x20 to make the relative jmp correct in __prog_j_start blow.
       section .text align=1 valign=1 follows=.header vstart=(__prog_j_start.end-__prog_j_start)
       ; It would be more traditional to group .rodata.str and .rodata together
@@ -461,9 +560,9 @@ __prog_default_cpu_and_bits
     section .bss align=4 follows=.data nobits
     _bss_start:
     section .header
-    minix_i386_exec:  ; `struct exec' in usr/include/a.out.h
+    minix_struct_exec:  ; Minix and ELKS a.out header. `struct exec' in usr/include/a.out.h
     .a_magic: db 1, 3  ; Signature (magic number).
-    %if MINIXI386
+    %if MINIXI386+MINIXI86
       .a_flags: db 0x20  ; Flags. 0x20 == A_SEP (text and data share the same virtual address space).
     %elif MINIX386VM
       .a_flags: db 0x23  ; Flags. 0x23 == A_SEP (text and data share the same virtual address space) | A_UZP (== 1, unmapped zero page) | A_PAL (== 2, page-aligned executable).
@@ -471,26 +570,37 @@ __prog_default_cpu_and_bits
       %error ERROR_UNKNOWN_MINIX_TARGET
       times -1 nop
     %endif
-    .a_cpu: db 0x10  ; CPU ID.
-    .a_hdrlen: db .size  ; Length of header.
+    %if MINIXI86
+      .a_cpu: db 4  ; CPU ID: i86 (8086+ in 16-bit mode: real mode on 16-bit protected mode).
+    %elif MINIXI386+MINIX386VM
+      .a_cpu: db 0x10  ; CPU ID: i386.
+    %else
+      %error ERROR_UNKNOWN_MINIX_TARGET
+      times -1 nop
+    %endif
+    .a_hdrlen: db .size  ; Size of the minix_struct_exec header.
     .a_unused: db 0  ; Reserved for future use.
-    .a_version: dw 0  ; Version stamp (unused by Minix).
+    .a_version: dw 0  ; Version stamp. Unused for Minix. Setting it 1 would make ELKS >=0.4.0 calculate the data segment size differently. See above why we set it to 0.
     .a_text: dd _text_size  ; Size of text segement in bytes.
     .a_data: dd _rodatastr_size+_rodata_size+_data_size  ; Size of data segment in bytes.
     .a_bss: dd _data_endalign_extra+_bss_size  ; Size of bss segment in bytes.
-    %if MINIXI386
-      .a_entry: dd 0  ; Virtual address (vaddr) of entry point. It will start at __prog_j_start below. Minix 1.5--1.7.0 i386 ignores this value, and always uses 0.
+    %if MINIXI386+MINIXI86
+      .a_entry: dd 0  ; Virtual address (vaddr) of entry point. It will start at __prog_j_start below. Minix 1.5--1.7.0 (but not >=1.7.1) and ELKS <=0.2.1 (but not >=0.3.0) ignore the .a_entry value and use 0 instead.
     %elif MINIX386VM
       .a_entry: dd 0x1020  ; Repurposed to be checksum field, its value must be (UZP ? page_size : 0) + (PAL ? a_hdrlen : 0). The entry point virtual address is always 0.
     %else
       %error ERROR_UNKNOWN_MINIX_TARGET
       times -1 nop
     %endif
-    .a_total: dd _data_size+_bss_size+MINIX_I386_STACK  ; Total memory allocated for a_data, a_bss and stack, including argv and environ strings. text is not included because of A_SEP.
+    .a_total: dd _data_size+_bss_size+MINIX_STACK_SIZE  ; Total memory allocated for a_data, a_bss and stack, including argv and environ strings. text is not included because of A_SEP. For MINIXI86, this will be a multiple of 0x10, but not a multiple of 0x100 because of the `resb's in @os_detect_gap.
     .a_syms: dd 0  ; Size of symbol table.
-    .size: equ $-minix_i386_exec
+    .size: equ $-minix_struct_exec
+    %if .size!=0x20
+      %error ERROR_BAD_MINIX_A_OUT_HEADER_SIZE
+      times -1 nop
+    %endif
     __prog_j_start:
-    jmp strict near _start  ; Minix 1.7.0 i386 always uses vaddr 0 as the entry point, ignoring .a_start below. To work it around, add a jump here.
+    jmp strict near _start  ; Minix 1.7.0 i386 always uses vaddr 0 as the entry point, ignoring .a_start below. To work it around, add a jump here. !! size optimization: Don't jump, keep _start in `section .header'.
     .end:
     section .text
     _text_start: equ $-(__prog_j_start.end-__prog_j_start)
@@ -690,7 +800,7 @@ __prog_default_cpu_and_bits
     _data_endu:
     section .text
 
-    %if MINIXI386+MINIX386VM
+    %if MINIXI386+MINIX386VM+MINIXI86
       %if _data_endu==_data_start && _rodata_endu==_rodata_start  ; Both .rodata and .data are empty.
         _rodatastr_endalign equ 0  ; For S386BSD this wouldn't make a difference because of the page-alignment of nonempty data. For compatibility, we make everything a multiple of 4 in COFF.
       %else
@@ -802,7 +912,18 @@ __prog_default_cpu_and_bits
         resb 0x1000-(_text_size+_rodatastr_size+_rodata_size+_data_size+($-$$))  ; Workaround to avoid the `<3>mm->brk does not lie within mmap' warning in ibcs-us 4.1.6.
       %endif
     %endif
-    resb ($$-$)&(__prog_general_alignment-1)  ; Align end of section to a multiple of 2 or 4.
+    %if MINIXI86
+      @os_is_elks: resb 1  ; 0 for Minix i86, nonzero for ELKS.
+      resb ($$-$)&1
+      @minix_syscall_msg: resb 24
+      @os_detect_gap: resb -(_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+($-$$)+MINIX_STACK_SIZE)&0xf  ; Round to a multiple of 0x10.
+    %endif
+    resb ($$-$)&(__prog_general_alignment-1)  ; Align end of section to a multiple of 2 or 4. !! Is this (and all alignment in .bss) correct, even if _data_endalign_extra is 1?
+    %if MINIXI86
+      %if ((_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+($-$$)+MINIX_STACK_SIZE)&0xff)==0
+        resb 0x10  ; Make sure that a_total is a multiple of 0x100, but not a multiple of 0x100.
+      %endif
+    %endif
     _bss_end:
     _bss_size equ $-$$  ; _bss_size is a multiple of 4 or 2.
     section .text
@@ -830,8 +951,17 @@ __prog_default_cpu_and_bits
         %error ERROR_DOSCOM_MEMORY_USAGE_TOO_LARGE
         times -1 nop
       %endif
+    %elif MINIXI86
+      %if _text_size>0xffff
+        %error ERROR_MINIX_CODE_TOO_LARGE
+        times -1 nop
+      %endif
+      %if _rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+MINIX_STACK_SIZE>0xffff
+        %error ERROR_MINIX_DATA_MEMORY_USAGE_TOO_LARGE
+        times -1 nop
+      %endif
     %endif
-    %if MINIXI386+MINIX386VM
+    %if MINIXI386+MINIX386VM+MINIXI86
       _data_start_pagemod equ _rodatastr_size+_rodata_size
     %elif S386BSD+V7X86
       _data_start_pagemod equ 0
@@ -1155,18 +1285,18 @@ __prog_depend exit_, _exit_  ; Will be repeated below to get more dependencies.
 __prog_depend _exit, __exit  ; Repeat it.
 __prog_depend exit_, _exit_  ; Repeat it.
 __prog_depend _isatty, isatty_
-%if XV6I386+WIN32WL+DOSCOM+DOSEXE==0
+%if XV6I386+WIN32WL+DOSCOM+DOSEXE+MINIXI86==0
   __prog_depend isatty_, @ioctl_wrapper
 %endif
 __prog_depend _write, _write_binary
 __prog_depend _write_nonzero, _write_nonzero_binary
 __prog_depend write_, write_binary_
 __prog_depend write_nonzero_, write_nonzero_binary_
-%if DOSCOM+DOSEXE==0
+%if DOSCOM+DOSEXE+MINIXI86==0
   __prog_depend _write_nonzero_binary, _write_binary
   __prog_depend write_nonzero_, write_
 %endif
-%if DOSCOM+DOSEXE+WIN32WL==0
+%if DOSCOM+DOSEXE+WIN32WL+MINIXI86==0
   __prog_depend _write_nonzero, _write
   __prog_depend write_nonzero_binary_, write_binary_
 %endif
@@ -1225,14 +1355,18 @@ __prog_depend write_nonzero_, write_nonzero_binary_
 
 SYS:
 %if XV6I386  ; xv6-i386 syscall numbers, from syscall.h
-.exit equ 2
-.read equ 5
-.write equ 16
-%else  ; Linux i386, FreeBSD i386, NetBSD i386, OpenBSD i386, v7x86, SysV SVR3 i386, SysV SVR4 i386, iBCS2, 386BSD, Minix 1.5--3.2.x (but not Minix 3.2.x) syscall numbers.
-.exit equ 1  ; MM in Minix.
-.read equ 3  ; FS in Minix.
-.write equ 4  ; FS in Minix.
-.ioctl equ 54  ; FS in Minix.
+  .exit equ 2
+  .read equ 5
+  .write equ 16
+%else  ; Linux i386, FreeBSD i386, NetBSD i386, OpenBSD i386, v7x86, SysV SVR3 i386, SysV SVR4 i386, iBCS2, 386BSD, Minix 1.5--3.2.x (but not Minix 3.3.x), ELKS >=0.1.4 syscall numbers.
+  .exit equ 1  ; MM in Minix <3.3.
+  .read equ 3  ; FS in Minix <3.3.
+  .write equ 4  ; FS in Minix <3.3.
+  .ioctl equ 54  ; FS in Minix <3.3.
+  %if MINIXI86+MINIXI386+S386BSD  ; The syscall numbers are also correct forn Linux, FreeBSD and others. We only provide fork(...) and pipe(...) for MINIXI86.
+    .fork equ 2  ; MM in Minix <3.3.
+    .pipe equ 42  ; FS in Minix <3.3.
+  %endif
 %endif
 
 %if MINIXI386+MINIX386VM
@@ -1328,6 +1462,17 @@ IOCTL_Minix1.5:  ; Minix 1.5 i86 and i386.
 IOCTL_Minix1.7:  ; Minix 1.7.0--1.7.2 i86 and i386.
 .TIOCGETP   equ 0x7408  ; There is no struct pointer passed in Minix 1.7.0. isatty(3) uses TIOCGETP.
 
+IOCTL_ELKS:
+; In elks/include/linuxmt/termios.h
+.TCGETS          equ 0x5401  ; ('T'+0x01). sizeof(struct termios) == 36 == 0x24 bytes. isatty(...) uses it.
+.TCGETA          equ 0x5405  ; ('T'+0x05)
+.TIOCGPGRP       equ 0x540f  ; ('T'+0x0f)
+.TIOCGWINSZ      equ 0x5413  ; ('T'+0x13)
+.TIOCGSOFTCAR    equ 0x5419  ; ('T'+0x19)
+.TIOCGSERIAL     equ 0x541e  ; ('T'+0x1e)
+.TIOCGETD        equ 0x5424  ; ('T'+0x24)
+.TIOCGLCKTRMIOS  equ 0x5456  ; ('T'+0x56)
+
 IOCTL_v7x86:  ; v7x86 0.8a in usr/include/sgtty.h
 .TIOCGETP equ 0x7408  ; (('t'<<8)|8).  sizeof(struct sgttyb) == 8. There is no `struct termio' or `struct termios' in Unix V7.
 .TIOCSETP equ 0x7409  ; (('t'<<8)|9).  sizeof(struct sgttyb) == 8.
@@ -1343,6 +1488,10 @@ IOCTL_iBCS2:  ; FreeBSD 3.5 has these in src/sys/i386/ibcs2/ibcs2_termios.h
 .TCGETSC    equ 0x5422  ; Get scan codes.
 .XCGETA     equ 0x695801  ; sizoef(struct termios) == 24. Not implemented in SVR3 or SRV4.
 .OXCGETA    equ 0x7801  ; sizoef(struct termios) == 24. Not implemented in SVR3 or SRV4.
+
+ERRNO_ELKS:
+; In elks-v0.2.0/elks/include/arch/errno.h
+.ENOSYS equ 38  ; Function not implemented
 
 %if ELF
   SYS_Linux:  ; Linux i386 syscalls. Syscall input: EAX: syscall number; EBX: arg1; ECX: arg2; EDX: arg3.
@@ -1663,6 +1812,43 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		stosd  ; STDERR_FILENO.
   %endif
 %endif
+%if MINIXI86
+  .detect_os:  ; Detecct the operating system (Minix i86 or ELKS), and set @os_is_elks to a nonzero value iff ELKS, otherwise set it to 0.
+		push di  ; Save.
+		push ax  ; Save.
+		push cx  ; Save.
+		mov di, sp
+		add di, byte 3*2  ; Skip over the values saved above.
+		mov ax, [di]  ; AX := argc.
+		mov cx, di  ; CX := offset of argc on the stack.
+		times 2 inc ax
+		times 2 add di, ax  ; DX := envp.
+		xor ax, ax  ; AX := 0.
+  .next_denvpi:	scasw
+		jne short .next_denvpi
+		lea di, [di-4]
+		cmp [di], ax
+		jne short .done_denv
+		times 2 dec di  ; If envp is empty, then try to use argv[argc-1].
+		cmp cx, di
+		jne short .done_denv
+		lea di, [di+4]  ; If envp and argv are both empty, then the address after the two NULLs.
+		jmp short .done_denvstr
+  .done_denv:
+		mov di, [di]
+		mov cx, -1
+		repne scasb
+  .done_denvstr:
+		xchg ax, di  ; AX := DI (tnp value); DI := junk.
+		add al, 0xf
+		and al, ~0xf
+		mov [@os_is_elks], al  ; Because of @os_detect_gap, this is nonero for ELKS. It's always zero for Minix i86 1.5--2.0.4, because it rounds a_total up to a multiple of 0x100.
+		pop cx  ; Restore.
+		pop ax  ; Restore.
+		pop di  ; Restore.
+.detect_os_done:
+		and sp, byte ~1  ; ELKS 0.2.0 doesn't align SP to even, so we do it here.
+%endif
 %ifndef __GLOBAL__main
   %ifdef __GLOBAL_G@_main
     __prog_extern_in_text G@_main  ; Make it work even if we don't %include the other .nasm source files.
@@ -1781,13 +1967,21 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		mov [si], ch  ; Change the terminating CR to a terminating NUL. CH is 0 now.
 		push si  ; Fake argv[0]: empty string. We could get the real one after the environment as a far copy.
 		xchg ax, cx  ; AX (argc) := CX (argc); CX := junk.
+  %elif MINIXI86
+		;int 0x77  ; Causes SIGSEGV (Segmentation fault) in elksemu.
+		;int3  ; Causes SIGTRAP in elksemu.
+		pop ax  ; AX := argc.
+		mov dx, sp  ; DX := argv.
+		mov bx, sp  ; BX := argv.
+		times 2 add bx, ax
+		times 2 inc bx  ; BX := envp.
   %else
 		pop eax  ; EAX := argc.
 		mov edx, esp  ; EDX := argv.
 		lea ebx, [esp+eax*4+4]  ; EBX := envp.
   %endif
   %ifdef __GLOBAL__main  ; int __cdecl main(int argc, char **argv, char **envp).
-    %if DOSCOM+DOSEXE
+    %if DOSCOM+DOSEXE+MINIXI86
 		push bx  ; envp for _main.
 		push dx  ; argv for _main.
 		push ax  ; argc for _main.
@@ -1800,7 +1994,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %endif
 %endif
 %ifdef __NEED___argc
-  __argc: __prog_libc_export ''  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this symbol.
+  __argc: __prog_libc_export ''  ; If there is a main function with argc+argv, the OpenWatcom C compiler generates this export.
 %endif
 %ifdef __GLOBAL__main  ; int __cdecl main(...).
   %ifdef __GLOBAL_main_  ; int __watcall main(...).
@@ -1845,9 +2039,18 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		mov ah, 0x4c  ; DOS syscall for _exit(2).
 		int 0x21  ; DOS syscall. Doesn't return.
   %elifdef __NEED___exit
+    %if MINIXI86
+		push ax  ; exit_code argument of __cdecl _exit(...) below.
+		push ax  ; Fake return address.
+    %else
 		push eax  ; exit_code argument of __cdecl _exit(...) below.
 		push eax  ; Fake return address.
+    %endif
 		; Fall through to __cdecl _exit(...).
+  %elif MINIXI86
+		xchg bx, ax  ; BX := AX (exit_code); AX := junk.
+		mov al, SYS.exit
+		; Fall through to @simple_syscall_minixi86.
   %elif MINIXI386+MINIX386VM
 		;mov [@minix_syscall_msg+8], eax  ; .m1_i1, at offset 8 of the struct. Set it to exit_code. This is automatic in @minix_syscall_cont.
 		push byte SYS.exit  ; .m_type, at offset 4 of the struct.
@@ -1899,6 +2102,11 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop ax  ; Discard return address.
 		pop ax  ; AX := exit_code.
 		jmp short _exit_  ; Doesn't return.
+  %elif MINIXI86
+		pop bx  ; Discard return address.
+		pop bx  ; Restore BX := AX (exit_code).
+		mov al, SYS.exit
+		; Fall through to @simple_syscall_minixi86.
   %elif ELF
 		test byte [@oscompat], OSCOMPAT.MINIX3_MASK
 		jz short .not_minix3
@@ -1913,6 +2121,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		int 0x21  ; Minix i386 syscall. It ruins EAX, EBX, ECX and EDX.
   .not_minix3:
 		push byte SYS.exit
+		; Fall through to @simple_syscall3_pop
   %else
 		push byte SYS.exit
 		; Fall through to @simple_syscall3_pop
@@ -1950,8 +2159,42 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		jns short .ret
 		; Now we could get errno from the negative of EAX.
 		; Fall through to .syscall_error.
-%elif WIN32WL
-%elif DOSCOM+DOSEXE
+%elif WIN32WL+DOSCOM+DOSEXE
+%elif MINIXI86
+  ; Inputs: AL: syscall number (SYS.exit, SYS.read, SYS.write, SYS.ioctl, SYS.fork or SYS.pipe); BX: arg1; CX: arg2; DX: arg3.
+  ; Output: AX: nonnegative value on success, negative value (containing -errno) on failure.
+  ; It keeps BX, CX, DX, SI, DI, BP (and also CS, DS, ES, SS and SP) intact. It ruins AX and FLAGS.
+  @simple_syscall_minixi86:
+		cbw  ; AH := 0. This works as long as AL<=0x7f.
+		cmp byte [@os_is_elks], 0
+		je short .minix
+		int 0x80  ; ELKS syscall.
+		ret  ; Now we could set errno to -AX (for both Minix and ELKS).
+  .minix:
+		push bx  ; Save.
+		push cx  ; Save.
+		push dx  ; Save.
+		mov [@minix_syscall_msg+4], bx  ; arg1 exit_code of SYS.exit or arg1 fd of SYS.write, SYS.read and SYS.ioctl.
+		mov bx, @minix_syscall_msg
+		mov [bx+2], ax  ; syscallnr.
+		mov [bx+0xa], cx  ; arg2 buf of SYS.read and SYS.write.
+		mov [bx+6], dx  ; arg3 count of SYS.read and SYS.write.
+		mov [bx+8], cx  ; arg2 request of SYS.ioctl.
+		mov [bx+0x12], dx  ; arg3 arg of SYS.ioctl.
+		add ax, strict word -SYS.fork-1
+		mov ax, 0  ; AX := MM (== 0).
+		adc ax, ax  ; If AX wasn't SYS.exit (== 1) or SYS.fork (== 2), then AX := FS (== 1).
+		mov cx, 3  ; SENDREC.
+		int 0x20  ; Minix i86 syscall. Uses AX, BX and CX. BX must not point to the stack. Ruins AX, BX, CX and DX.
+		pop dx  ; Restore.
+		pop cx  ; Restore.
+		pop bx  ; Restore.
+		test ax, ax
+		jnz short .minix_ret
+		or ax, [@minix_syscall_msg+2]  ; We can't do `or ax, [bx+4]' here, because int 0x20' has already ruined BX (in Minix 1.5 i386 and Minix 1.7.0 i386).
+  .minix_ret:
+		; Now we could set errno to -AX (for both Minix and ELKS).
+  %define __NEED_@sysret 1
 %else
   %if ELF
 		jmp short @simple_syscall3_pop
@@ -2024,6 +2267,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %elif XV6I386
 		int 0x40  ; xv6-i386 syscall.
 		; It directly returns -1 in EAX on error. There is no errno value returned.
+    %define __NEED_@sysret 1
   %elif ELF
 		mov cl, [@oscompat]
 		cmp cl, OSCOMPAT.SYSV
@@ -2061,46 +2305,82 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     times -1 nop
   %endif
 %endif
-%if DOSCOM+DOSEXE==0
-  %if XV6I386==0
+%if DOSCOM+DOSEXE+WIN32WL+XV6I386+MINIXI86==0
   .syscall_error:
 		;neg eax  ; Negation needed only for Linux and Minix 2.x.
 		;mov [errno], eax  ; errno is unused in this program.
 		or eax, byte -1  ; Return -1 to indicate error.
   .ret:
+  %define __NEED_@sysret 1
+%endif
+__prog_depend setmode_, @sysret
+__prog_depend _setmode, @sysret
+%if WIN32WL==0
+  %ifdef __NEED_setmode_
+    setmode_: __prog_libc_export 'void __watcall setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
   %endif
-  %if WIN32WL==0
-    %ifdef __NEED_setmode_
-      setmode_: __prog_libc_export 'void __watcall setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
-    %endif
-    %ifdef __NEED__setmode
-      _setmode: __prog_libc_export 'void __cdecl setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
-    %endif
+  %ifdef __NEED__setmode
+    _setmode: __prog_libc_export 'void __cdecl setmode(int fd, unsigned char mode);'  ; Nonstandard argument types.
   %endif
+  %ifdef __NEED_@sysret
 		ret
+  %endif
 %endif
 
 ; --- Syscall wrappers (except for SYS.exit, which has been done above).
 
+%if MINIXI86
+  %macro do_return_based_on_sign 0
+    %define do_return_based_on_sign jmp short @return_based_on_sign  ; For subsequent incocations.
+    @return_based_on_sign:
+		test ax, ax
+		jns short .ret
+		; Now we could set errno to -AX (for both Minix and ELKS).
+		mov ax, -1
+    .ret:
+		ret
+  %endm
+  %macro do_watcall_syscall3_cont 0
+    %define do_watcall_syscall3_cont jmp short @watcall_syscall3_cont  ; For subsequent incocations.
+    @watcall_syscall3_cont:
+		; Now: CX: syscallnr; AX: fd; DX: buf; BX: count.
+		xchg bx, ax
+		; Now: CX: syscallnr; BX: fd; DX: buf; AX: count.
+		xchg dx, ax
+		; Now: CX: syscallnr; BX: fd; AX: buf; DX: count.
+		xchg cx, ax
+		; Now: AX: syscallnr; BX: fd; CX: buf; DX: count.
+		call @simple_syscall_minixi86
+		pop cx  ; Restore.
+		do_return_based_on_sign
+  %endm
+%endif
+
 %ifdef __NEED_read_
-  %if DOSCOM+DOSEXE
+  %if DOSCOM+DOSEXE+MINIXI86
     read_: __prog_libc_export 'int __watcall read(int fd, void *buf, unsigned count);'
+    %if DOSCOM+DOSEXE
 		push cx  ; Save.
 		xchg ax, bx  ; AX := count; BX := fd.
 		xchg ax, cx  ; CX := count; AX := junk.
 		mov ah, 0x3f  ; DOS syscall for read(2).
-    .common:
+      .common:
 		int 0x21  ; DOS syscall.
 		jnc short .ok
 		sbb ax, ax  ; AX := -1.
-    .ok:
+      .ok:
 		pop cx  ; Restor.
 		ret
+    %elif MINIXI86
+		push cx  ; Save.
+		mov cx, SYS.read
+		do_watcall_syscall3_cont
+    %endif
   %endif
 %endif
 
 %ifdef __NEED__read
-  %if DOSCOM+DOSEXE==0
+  %if DOSCOM+DOSEXE+MINIXI86==0
     _read: __prog_libc_export 'int __cdecl read(int fd, void *buf, unsigned count);'
     %if MINIXI386+MINIX386VM  ; This seems to be correct for Minix 1.5 i386 as well.
 		push ebx  ; Save.
@@ -2161,14 +2441,16 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 
 %ifdef __NEED_write_
-  %if DOSCOM+DOSEXE
+  %if DOSCOM+DOSEXE+MINIXI86
     write_: __prog_libc_export 'int __watcall write(int fd, const void *buf, unsigned count);'
   %endif
   ; Fall through to write_binary_.
 %endif
 %ifdef __NEED_write_binary_
-  %if DOSCOM+DOSEXE
+  %if DOSCOM+DOSEXE+MINIXI86
     write_binary_: __prog_libc_export 'int __watcall write_binary(int fd, const void *buf, unsigned count);'
+  %endif
+  %if DOSCOM+DOSEXE
 		push cx  ; Save.
 		xchg ax, bx  ; AX := count; BX := fd.
 		xchg ax, cx  ; CX := count; AX := junk.
@@ -2187,11 +2469,12 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		pop cx  ; Restore.
 		ret
     %endif
+  %elif MINIXI86
+    ; Fall through to write_nonzero.
   %endif
 %endif
-
 %ifdef __NEED_write_nonzero_
-  %if DOSCOM+DOSEXE
+  %if DOSCOM+DOSEXE+MINIXI86
     %ifdef __NEED_write_
       write_nonzero_: __prog_libc_export_alias write_
     %else
@@ -2202,27 +2485,33 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   ; Fall through to write_binary_.
 %endif
 %ifdef __NEED_write_nonzero_binary_
-  %if DOSCOM+DOSEXE
+  %if DOSCOM+DOSEXE+MINIXI86
     %ifdef __NEED_write_binary_
       write_nonzero_binary_: __prog_libc_export_alias write_binary_
-    %else:
+    %else
       ; This function will misbehave (by truncating the file at the current poisition) when called with count == 0, so don't do it: call write(...) instead.
       write_nonzero_binary_: __prog_libc_export 'int __watcall write_nonzero_binary(int fd, const void *buf, unsigned count);'
+    %endif
+  %endif
+  %if DOSCOM+DOSEXE
 		push cx  ; Save.
 		xchg ax, bx  ; AX := count; BX := fd.
 		xchg ax, cx  ; CX := count; AX := junk.
 		mov ah, 0x40  ; DOS syscall for write(2).
-      %ifdef __NEED_read_
+    %ifdef __NEED_read_
 		jmp short read_.common
-      %else
+    %else
 		int 0x21  ; DOS syscall.
 		jnc short .ok
 		sbb ax, ax  ; AX := -1.
       .ok:
 		pop cx  ; Restore.
 		ret
-      %endif
     %endif
+  %elif MINIXI86
+		push cx  ; Save.
+		mov cx, SYS.write
+		do_watcall_syscall3_cont
   %endif
 %endif
 
@@ -2403,6 +2692,40 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   section _TEXT
 %endif
 
+%ifdef __NEED_fork_
+  %if MINIXI86
+    ; Please note that fork(...) doesn't work in elksemu (<=0.8.1), because
+    ; elksemu implements it incorrectly.
+    fork_: __prog_libc_export 'pid_t __watcall fork(void);'
+		mov ax, SYS.fork
+		call @simple_syscall_minixi86
+		do_return_based_on_sign
+  %endif
+%endif
+
+%ifdef __NEED_pipe_
+  %if MINIXI86
+    pipe_: __prog_libc_export 'int __watcall pipe(int pipefd[2]);'
+		push bx  ; Save.
+		xchg bx, ax  ; BX := arg1 pipefd; AX := junk.
+		mov ax, SYS.pipe  ; Also sets AH := 0.
+		call @simple_syscall_minixi86
+		test ax, ax
+		js short .result_copy_done  ; Jump iff pipe(2) has failed.
+		cmp byte [@os_is_elks], 0
+		jne short .result_copy_done
+		; This is for Minix: copy the 2 fds to pipefd.
+		mov ax, [@minix_syscall_msg+4]  ; .m1_i1.
+		mov [bx], ax  ; pipefd[0].
+		mov ax, [@minix_syscall_msg+6]  ; .m1_i2.
+		mov [bx+2], ax  ; pipefd[1].
+		xor ax, ax  ; Force return value 0. Minix 1.5 needs it.
+    .result_copy_done:
+		pop bx  ; Restore.
+		do_return_based_on_sign
+  %endif
+%endif
+
 %ifdef __NEED_@ioctl_wrapper
   global @ioctl_wrapper  ; The `request' and `arg' is not system-independent, but still making it global to aid debugging.
   @ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
@@ -2419,7 +2742,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		mov eax, [ecx+4*4]  ; fd.
 		;mov [ebx-16+8], eax  ;  ; .m2_i1, at offset 8 of the struct (TTY_LINE == DEVICE == m2_i1 == m_u.m_m2.m2i1 == 8). Set it to fd. This is automatic in @minix_syscall_cont.
 		jmp short @minix_syscall_cont
-  %elif XV6I386+WIN32WL+DOSCOM+DOSEXE
+  %elif XV6I386+WIN32WL+DOSCOM+DOSEXE+MINIXI86
     %error ERROR_ASSERT_NO_IOCTL_WRAPPER  ; This is fine, isatty(2) below is a dummy for xv6-i386.
     times -1 nop
   %else
@@ -2441,7 +2764,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 %ifdef __NEED_isatty_
   isatty_: __prog_libc_export 'int __watcall isatty(int fd);'
-  %if XV6I386+DOSCOM+DOSEXE==0
+  %if XV6I386+DOSCOM+DOSEXE+MINIXI86==0
 		push ecx  ; Save.
 		push edx  ; Save.
   %endif
@@ -2515,6 +2838,43 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
     .done:
 		pop dx  ; Restore.
 		pop bx  ; Restore.
+  %elif MINIXI86
+		push bx  ; Save.
+		push cx  ; Save.
+		push dx  ; Save.
+    ISATTY_TERMIOS_SIZE equ 0x24  ; 0x24 bytes for ELKS, 0x20 bytes for Minix >=1.7.5.
+		sub sp, byte ISATTY_TERMIOS_SIZE
+		mov dx, sp  ; arg3 arg of SYS.ioctl.
+		xchg bx, ax  ; BX := AX (fd); AX := junk.
+		mov ax, SYS.ioctl  ; Also sets AH := 0.
+		cmp [@os_is_elks], ah  ; AH is 0 now.
+		je short .minix
+		mov cx, IOCTL_ELKS.TCGETS
+		call @simple_syscall_minixi86
+		cmp ax, strict word -ERRNO_ELKS.ENOSYS  ; ELKS 0.2.0 libc does the same.
+		jne short .done  ; Jumps for ELKS >=1.0.4, maybe it doesn't jump for some earlier versions.
+		; ELKS 0.2.0 libc makes isatty(2) return true for ENOSYS if fd < 3. We do a shortcut, and always return true here. TODO(pts): Revise this when open(2) is implemented.
+		xor ax, ax  ; We will return true (1).
+		jmp short .done
+    .minix:
+		mov cx, IOCTL_Minix1.5.TCGETS  ; Same as IOCTL_Minix1.7.TIOCGETP.
+		call @simple_syscall_minixi86
+		test ax, ax
+		jns short .done  ; Found a TTY.
+		mov ax, SYS.ioctl
+		mov cx, IOCTL_Minix2.TCGETS&0xffff  ; Alternatively, we could use IOCTL_Minix2.TIOCGETP (Minix 2.0 only) with the smaller sizeof(struct sgttyb) == 8. Or use TIOCGETP (sizeof(int) == 4) everywhere available.
+		call @simple_syscall_minixi86
+    .done:
+		add sp, byte ISATTY_TERMIOS_SIZE
+		pop dx  ; Restore.
+		pop cx  ; Restore.
+		pop bx  ; Restore.
+		; Now convert result AX: negative to 0, everything else to 1.
+		test ax, ax
+		mov ax, 1
+		jns short .have_retval
+		dec ax  ; AX := 0.
+    .have_retval:
   %else  ; ELF.
     ISATTY_TERMIOS_SIZE equ 44  ; Maximum sizeof(struct termios), sizeof(struct termio), sizeof(struct sgttyb) for OSCOMPAT.LINUX, OSCOMPAT.SYSV and OSCOMPAT.MANYBSD.
 		sub esp, byte ISATTY_TERMIOS_SIZE
@@ -2530,7 +2890,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		mov dword [esp+4], IOCTL_Minix2.TCGETS  ; Correct value for OSCOMPAT.MINIX32.
     .ioctl_args_pushed:
   %endif
-  %if XV6I386+WIN32WL+DOSCOM+DOSEXE==0
+  %if XV6I386+WIN32WL+DOSCOM+DOSEXE+MINIXI86==0
 		call @ioctl_wrapper
     .return:
 		add esp, byte 3*4+ISATTY_TERMIOS_SIZE  ; Clean up the arguments of @ioctl_wrapper above from the stack, and also clean up the arg struct.
@@ -2546,7 +2906,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
       .have_retval:
     %endif
   %endif
-  %if XV6I386+DOSCOM+DOSEXE==0
+  %if XV6I386+DOSCOM+DOSEXE+MINIXI86==0
 		pop edx  ; Restore.
 		pop ecx  ; Restore.
   %endif

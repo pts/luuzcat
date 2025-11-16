@@ -9,8 +9,12 @@
 *.coff
 # 386BSD 1.0 executable program.
 *.3b
-# Minix 2.x i386 executable program.
+# Minix 1.5--2.0.4 i86 executable program.
+*.mi8
+# Minix 1.5.10--2.0.4 i386 executable program.
 *.mi3
+# Minix 1.5--1.7.0 i386 vmd executable program.
+*.m3vm
 # v7x86 executable program.
 *.v7x
 # xv6-i386 executable program.
@@ -28,6 +32,8 @@
 /luuzcatc.com
 /luuzcatc.com.[0-9]*
 /kvikdos
+/elksemu
+/elksemu.mini
 /*.try/
 /uncompact.c.orig
 /pcatd

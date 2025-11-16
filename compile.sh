@@ -118,14 +118,17 @@ minicc -ansi -pedantic -march=i386 -Wno-n201 -o luuzcat luuzcat.c unscolzh.c unc
 # 2. Also both `wcc386 -zp=4' and `wcc386' (default) align a struct
 # containing a `short member[3];' to 2, not 4.
 common_wccargs="-q -fr -D_PROGX86 -za -os -s -j -ei -zl -zld -wx -we -wcd=201"  # zsh(1) SH_WORD_SPLIT is needed by $common_wccargs below.
-wcc16args="-bt=dos -0"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16args below.
+wcc16args="-0"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16args below.
+wcc16dosargs="-bt=dos"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16dosargs below.
+wcc16minixargs="-bt=dos -U__DOS__ -D__MINIX__"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16minixargs below.
 wcc32args="-bt=linux -3r -zp=4"  # zsh(1) SH_WORD_SPLIT is needed by $wcc32args below.
 dosdefs="-D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG -D_PROGX86_REUSE -D_PROGX86_DOSMEM -D_PROGX86_CSEQDS -DLUUZCAT_DUCML"  # zsh(1) SH_WORD_SPLIT is needed by $dosdefs below.
+minixi86defs="-D_PROGX86_ONLY_BINARY -D_PROGX86_NOALLOC"  # zsh(1) SH_WORD_SPLIT is needed by $minixi86defs below.
 rm -f -- *_16.o *_32.o *_16.wasm *_32.wasm *_16.nasm *_32.nasm
 
 wcc386 $wcc32args $common_wccargs -fo=luuzcat_32.o -D_PROGX86_ONLY_BINARY luuzcat.c
 wcc386 $wcc32args $common_wccargs -fo=luuzcatw_32.o -D_PROGX86_ONLY_BINARY -DUSE_WRITE_FIX luuzcat.c
-wcc386 $wcc32args $common_wccargs -fo=luuzcatt_32.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
+#wcc386 $wcc32args $common_wccargs -fo=luuzcatt_32.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
 wcc386 $wcc32args $common_wccargs -fo=luuzcatr_32.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF luuzcat.c  # Always prints \r\n (CRLF) to stderr.
 wcc386 $wcc32args $common_wccargs -fo=unscolzh_32.o unscolzh.c
 wcc386 $wcc32args $common_wccargs -fo=uncompact_32.o uncompact.c
@@ -136,34 +139,44 @@ wcc386 $wcc32args $common_wccargs -fo=uncompress_32.o uncompress.c
 wcc386 $wcc32args $common_wccargs -fo=unfreeze_32.o unfreeze.c
 #
 # TODO(pts): Reenable this for Minix i86 and ELKS.
-#wcc    $wcc16args $common_wccargs -fo=luuzcat_16.o -D_PROGX86_ONLY_BINARY luuzcat.c
-#wcc    $wcc16args $common_wccargs -fo=luuzcatt_16.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
-#wcc    $wcc16args $common_wccargs -fo=luuzcatd_16.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG luuzcat.c  # Always prints \r\n (CRLF) to stderr, gets argv from the DOS PSP.
-#wcc    $wcc16args $common_wccargs -fo=unscolzh_16.o unscolzh.c
-#wcc    $wcc16args $common_wccargs -fo=uncompact_16.o uncompact.c
-#wcc    $wcc16args $common_wccargs -fo=unopack_16.o unopack.c
-#wcc    $wcc16args $common_wccargs -fo=unpack_16.o unpack.c
-#wcc    $wcc16args $common_wccargs -fo=undeflate_16.o undeflate.c
-#wcc    $wcc16args $common_wccargs -fo=uncompress_16.o uncompress.c
-#wcc    $wcc16args $common_wccargs -fo=uncompressd_16.o -D_PROGX86_REUSE -D_PROGX86_DOSMEM uncompress.c
-#wcc    $wcc16args $common_wccargs -fo=uncompressn_16.o -D_PROGX86_NOALLOC uncompress.c
-#wcc    $wcc16args $common_wccargs -fo=unfreeze_16.o -D_PROGX86_CSEQDS unfreeze.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=luuzcat_16.o -D_PROGX86_ONLY_BINARY luuzcat.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=luuzcatt_16.o luuzcat.c  # Does \n -> \r\n transformation on stderr. Unused.
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=luuzcatd_16.o -D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG luuzcat.c  # Always prints \r\n (CRLF) to stderr, gets argv from the DOS PSP.
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=unscolzh_16.o unscolzh.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=uncompact_16.o uncompact.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=unopack_16.o unopack.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=unpack_16.o unpack.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=undeflate_16.o undeflate.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=uncompress_16.o uncompress.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=uncompressd_16.o -D_PROGX86_REUSE -D_PROGX86_DOSMEM uncompress.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=uncompressn_16.o -D_PROGX86_NOALLOC uncompress.c
+#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=unfreeze_16.o -D_PROGX86_CSEQDS unfreeze.c
 #
-wcc    $wcc16args $common_wccargs $dosdefs -fo=luuzcatc_16.o luuzcat.c
-wcc    $wcc16args $common_wccargs $dosdefs -fo=unscolzhc_16.o unscolzh.c
-wcc    $wcc16args $common_wccargs $dosdefs -fo=uncompactc_16.o uncompact.c
-wcc    $wcc16args $common_wccargs $dosdefs -fo=unopackc_16.o unopack.c
-wcc    $wcc16args $common_wccargs $dosdefs -fo=unpackc_16.o unpack.c
-wcc    $wcc16args $common_wccargs $dosdefs -fo=undeflatec_16.o undeflate.c
-wcc    $wcc16args $common_wccargs $dosdefs -fo=uncompressc_16.o uncompress.c
-wcc    $wcc16args $common_wccargs $dosdefs -fo=unfreezec_16.o unfreeze.c
+wcc    $wcc16args $wcc16dosargs $common_wccargs $dosdefs -fo=luuzcatc_16.o luuzcat.c
+wcc    $wcc16args $wcc16dosargs $common_wccargs $dosdefs -fo=unscolzhc_16.o unscolzh.c
+wcc    $wcc16args $wcc16dosargs $common_wccargs $dosdefs -fo=uncompactc_16.o uncompact.c
+wcc    $wcc16args $wcc16dosargs $common_wccargs $dosdefs -fo=unopackc_16.o unopack.c
+wcc    $wcc16args $wcc16dosargs $common_wccargs $dosdefs -fo=unpackc_16.o unpack.c
+wcc    $wcc16args $wcc16dosargs $common_wccargs $dosdefs -fo=undeflatec_16.o undeflate.c
+wcc    $wcc16args $wcc16dosargs $common_wccargs $dosdefs -fo=uncompressc_16.o uncompress.c
+wcc    $wcc16args $wcc16dosargs $common_wccargs $dosdefs -fo=unfreezec_16.o unfreeze.c
+#
+wcc    $wcc16args $wcc16minixargs $common_wccargs $minixi86defs -fo=luuzcatm_16.o luuzcat.c
+wcc    $wcc16args $wcc16minixargs $common_wccargs $minixi86defs -fo=unscolzhm_16.o unscolzh.c
+wcc    $wcc16args $wcc16minixargs $common_wccargs $minixi86defs -fo=uncompactm_16.o uncompact.c
+wcc    $wcc16args $wcc16minixargs $common_wccargs $minixi86defs -fo=unopackm_16.o unopack.c
+wcc    $wcc16args $wcc16minixargs $common_wccargs $minixi86defs -fo=unpackm_16.o unpack.c
+wcc    $wcc16args $wcc16minixargs $common_wccargs $minixi86defs -fo=undeflatem_16.o undeflate.c
+wcc    $wcc16args $wcc16minixargs $common_wccargs $minixi86defs -fo=uncompressm_16.o uncompress.c
+wcc    $wcc16args $wcc16minixargs $common_wccargs $minixi86defs -fo=unfreezem_16.o unfreeze.c
 
 perl=tools/miniperl-5.004.04.upx
 "$perl" -e0 || perl=perl  # Use the system perl(1) if tools is not available.
 fi=0
 # luuzcat_16.o               luuzcatt_16.o luuzcatd_16.o unscolzh_16.o uncompact_16.o unopack_16.o unpack_16.o undeflate_16.o uncompress_16.o uncompressd_16.o uncompressn_16.o unfreeze_16.o
-for f in luuzcat_32.o  luuzcatw_32.o luuzcatt_32.o luuzcatr_32.o unscolzh_32.o  uncompact_32.o  unopack_32.o  unpack_32.o  undeflate_32.o  uncompress_32.o  unfreeze_32.o \
-                                                   luuzcatc_16.o unscolzhc_16.o uncompactc_16.o unopackc_16.o unpackc_16.o undeflatec_16.o uncompressc_16.o unfreezec_16.o; do
+for f in luuzcat_32.o  luuzcatw_32.o luuzcatr_32.o unscolzh_32.o  uncompact_32.o  unopack_32.o  unpack_32.o  undeflate_32.o  uncompress_32.o  unfreeze_32.o \
+                                     luuzcatc_16.o unscolzhc_16.o uncompactc_16.o unopackc_16.o unpackc_16.o undeflatec_16.o uncompressc_16.o unfreezec_16.o \
+                                     luuzcatm_16.o unscolzhm_16.o uncompactm_16.o unopackm_16.o unpackm_16.o undeflatem_16.o uncompressm_16.o unfreezem_16.o; do
   fi=$((fi+1))  # For local variables.
   wdis -a -fi -fu -i=@ "$f" >"${f%.*}.wasm"
   if test "$f" = uncompressc_16.o; then
@@ -189,7 +202,7 @@ ibcs-us ./luuzcatx.elf <test_C1_new9.Z >test_C1.bin
 
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcat_32y.o luuzcat_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatw_32y.o luuzcatw_32.nasm
-nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatt_32y.o luuzcatt_32.nasm
+#nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatt_32y.o luuzcatt_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o luuzcatr_32y.o luuzcatr_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o unscolzh_32y.o unscolzh_32.nasm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -o uncompact_32y.o uncompact_32.nasm
@@ -241,7 +254,61 @@ ibcs-us ./luuzcaty.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 # We pass -DFULL_BSS so that global_insize, global_inptr and global_total_read_size will be zero-initialized.
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSCOM -DFULL_BSS -o luuzcat.com   progx86.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressm_16.nasm','luuzcatm_16.nasm','unscolzhm_16.nasm','uncompactm_16.nasm','unopackm_16.nasm','unpackm_16.nasm','undeflatem_16.nasm','unfreezem_16.nasm'" -DMINIXI86 -o luuzcat.mi8 progx86.nasm
+chmod +x luuzcat.mi8  # elksemu needs it.
+test -s luuzcat.mi8
+# elksemu.mini and elksemu seem to be unreliable: out of 1000 atempts, 6..14 encounter SIGSTOP.
+# for i in $(seq 1 1000); do echo -n "$i "; env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_pack.z >test_C1.bin; done
+# So we don't run any of these here.
+if false; then
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <XFileMgro.sz >XFileMgro
+      cmp XFileMgro.good XFileMgro
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1.bin.C >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_pack.z >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_pack_old.z >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1.advdef.gz >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1.advdef.qz >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1.advdef.zlib >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 -r <test_C1.advdef.deflate >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 -r <test_C1.advdef.gz >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old.F >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1.F >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1.zip >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_split.zip >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new9.Z >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new13.Z >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new14.Z >test_C1.bin  # !! Add support.
+  #    cmp test_C1.good test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new15.Z >test_C1.bin  # !! Add support. It won't work in elksemu, because elksemu <=0.8.1 has fork(2) implemented incorrectly.
+  #    cmp test_C1.good test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new16.Z >test_C1.bin
+  #    cmp test_C1.good test_C1.bin
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old13.Z >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old14.Z >test_C1.bin  # !! Add support.
+  #    cmp test_C1.good test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old15.Z >test_C1.bin  # !! Add support. It won't work in elksemu, because elksemu <=0.8.1 has fork(2) implemented incorrectly.
+  #    cmp test_C1.good test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old16.Z >test_C1.bin
+  #    cmp test_C1.good test_C1.bin
+fi
+
+# We pass -DFULL_BSS so that global_insize, global_inptr and global_total_read_size will be zero-initialized.
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSCOM -DFULL_BSS -o luuzcat.com progx86.nasm
 "$perl" shorten_to_bss.pl luuzcat.com  # luuzcat.com allocates extra memory in uncompress.c.
 ./kvikdos luuzcat.com <XFileMgro.sz >XFileMgro
     cmp XFileMgro.good XFileMgro
@@ -313,7 +380,7 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nas
 #./kvikdos luuzcatn.com r <test_C1.advdef.deflate >test_C1.bin
 #    cmp test_C1.good test_C1.bin
 
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSEXE -DFULL_BSS -o luuzcatd.exe  progx86.nasm
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nasm','luuzcatc_16.nasm','unscolzhc_16.nasm','uncompactc_16.nasm','unopackc_16.nasm','unpackc_16.nasm','undeflatec_16.nasm','unfreezec_16.nasm'" -DDOSEXE -DFULL_BSS -o luuzcatd.exe progx86.nasm
 ./kvikdos luuzcatd.exe <test_C1_new16.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcatd.exe r <test_C1.advdef.deflate >test_C1.bin

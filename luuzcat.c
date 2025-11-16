@@ -181,20 +181,20 @@ main0() {
     /* !! Skip over NUL bytes. */
     if (b == 0x1f) {
       if ((b = try_byte()) == 0xa0) {
-        decompress_scolzh_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
+        decompress_scolzh_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
       } else if (b == 0x8b) {
-        decompress_gzip_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
+        decompress_gzip_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
       } else if (b == 0xa1) {
-        decompress_quasijarus_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
+        decompress_quasijarus_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
       } else if (b == 0xff) {  /* This is the less common signature for Compact. */
         do_compact: decompress_compact_nohdr();
-        do_invalidate: DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE;
+        do_invalidate: invalidate_deflate_crc32_table();
       } else if (b == 0x1e) {
         decompress_pack_nohdr(); goto do_invalidate;
       } else if (b == 0x1f) {
         decompress_opack_nohdr(); goto do_invalidate;
       } else if (b == 0x9d) {
-        decompress_compress_nohdr();  /* This doesn't use big, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
+        decompress_compress_nohdr();  /* This doesn't use big, no need for invalidate_deflate_crc32_table(). */
       } else if (b == 0x9e) {
         decompress_freeze1_nohdr(); goto do_invalidate;
       } else if (b == 0x9f) {
@@ -210,13 +210,13 @@ main0() {
       }
     } else if ((flags & MAIN_FLAG_RAW_DEFLATE) != 0) {  /* The file formats below this are ambigious with raw Deflate. The latter takes precedence iff the -r flag has been specified. */
       --global_inptr;  /* Unread the first byte (b). */
-      decompress_deflate();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
+      decompress_deflate();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
     } else if ((b & 0xf) == 8 && (b >> 4) < 8) {  /* CM byte for zlib. Valid values are 0x08, 0x18, ..., 0x78. Check that CM == 8, check that CINFO <= 7, otherwise ignore CINFO (sliding window size). */
       if (((b = get_byte()) & 0x20)) goto bad_signature;  /* FLG byte. Check that FDICT == 0. Ignore FLEVEL and FCHECK. */
-      decompress_zlib_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
+      decompress_zlib_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
     } else if (b == 0x50) {  /* 'P'. */
       if ((b = try_byte()) == 0x4b) {  /* 'K'. */
-        decompress_zip_struct_nohdr();  /* This is based on Deflate, no need for DOS_16_INVALIDATE_DEFLATE_CRC32_TABLE. */
+        decompress_zip_struct_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
       } else {
         goto bad_signature;
       }

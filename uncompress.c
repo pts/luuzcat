@@ -266,7 +266,7 @@
 #if IS_X86_16 && (!IS_DOS_16 || defined(_PROGX86_NOALLOC))
   /* This implementation supports maxbits <= 13 (so it doesn't support 14, 15 or 16), but it keeps the data segment under 64 KiB. For DOS .com programs, it keeps code+data under 64 KiB. */
 #  define BITS 13
-#  define UNCOMPRESS_WRITE_BUFFER_SIZE (1U << 13)
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE (1U << 13)  /* !! Make it 1 << 4 for Minix. */
 #  define lzw_stack big.compress.stack_supplement
 #  define tab_suffixof(code) ((uc8*)(uncompress_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256))[code]  /* In uncompress_write_buffer, after the UNCOMPRESS_WRITE_BUFFER_SIZE bytes. */
 #  define tab_prefixof(code) ((um16*)(uncompress_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256 + (1 << BITS)) - 256)[code]  /* In uncompress_write_buffer, after tab_suffixof. */
@@ -288,7 +288,7 @@
    */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE uncompress_ducml_write_buffer_size
-#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
 #  if 0
 #    define tab_suffix_seg  (*(__segment*)0xfc0c)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
 #    define tab_prefix0_seg (*(__segment*)0xfc0e)
@@ -360,7 +360,7 @@
   /* !! Check for out-of-memory for DOS .com program (also for other DOS .com targets). Doesn't DOS already check at program load time that there is 64 KiB free? */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
   static um16 tab_prefix_get(um16 code);
   /* tab_prefix_get(...) works with __modify [__es] and __modify [__es __bx], but it doesn't work with __modify __exact [es __bx] */
@@ -413,7 +413,7 @@
    */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
 #  if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
     static um16 tab_prefix_get(um16 code) { return *((const um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))); }  /* Indexes 0 <= code < 256 are invalid and unused. */
@@ -497,7 +497,7 @@
    */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static uc8  __far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
   static um16 __far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
   static um16 __far tab_prefix1_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for odd  codes. */
@@ -521,7 +521,7 @@
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
 #  include <dos.h>  /* For Turbo C++ allocmem(...), MK_FP(...) and FP_SEG(...). */
-#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static uc8 far *tab_suffix_fptr;  /* [(1UL << BITS) - 256U]. For each code, it contains the last byte. */
   um16 far *tab_prefix_fptr_ary[2];  /* [((1UL << BITS) - 256U) >> 1]. [0] is prefix for even codes, [1] is prefix for odd codes. */
 #  define tab_prefixof(code) tab_prefix_fptr_ary[(code) & 1][(code) >> 1]  /* Indexes 0 <= code < 256 are invalid and unused. */
@@ -558,7 +558,7 @@
    */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static uc8  far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
   static um16 far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
   static um16 far tab_prefix1_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for odd  codes. */

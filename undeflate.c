@@ -27,7 +27,7 @@
 #define CRC32_GEN_VALUE_LOW 0x8320U
 #define CRC32_GEN_VALUE_HIGH 0xedb8U
 
-#if IS_DOS_16  /* Otherwise data (DGROUP) too large, it doesn't fit 64 KiB anymore. */
+#if IS_X86_16  /* Otherwise data (DGROUP) too large, it doesn't fit 64 KiB anymore. */
 #  define crc32_table big.deflate.crc32_table
 #else
   static um32 crc32_table[256];  /* By putting it outside `big', we can keep it across different decompressor calls. */
@@ -48,7 +48,7 @@ static void build_crc32_table_if_needed_inline(um32 __near *our_crc32_table);
     unsigned int u, biti;
     um32 value;
 
-    /* Return if already built. This is also correct for IS_DOS_16 (with
+    /* Return if already built. This is also correct for IS_X86_16 (with
      * big.deflate.crc32_table): the caller has set it to zero when it
      * called a non-Deflate decompressor.
      */

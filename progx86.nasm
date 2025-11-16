@@ -35,7 +35,7 @@
 ;   [ibcs-us](https://ibcs-us.sourceforge.io/) running on Linux i386.
 ; * prog.3b (-DS386BSD):
 ;   386BSD >=1.0 (tested on 386BSD 1.0 (1994-10-27)).
-; * prog.m23 (-DMINIX2I386):
+; * prog.mi3 (-DMINIXI386):
 ;   Minix 1.5--3.2.x i386 (tested on Minix 1.5 i386 (~1990),
 ;   Minix 1.7.0 i386 (1995-05-30),
 ;   [Minix 1.7.0 i386 vmd](https://web.archive.org/web/20240914234222/https://www.minix-vmd.org/pub/Minix-vmd/1.7.0/)
@@ -95,7 +95,6 @@
 ; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
 ; Docker or WSL).
 ;
-; !! Rename MINIX2I386 TO MINIXI386.
 ; !! Add 16-bit targets MINIXI86 and ELKS.
 ; !! Add Xenix/86 (large model) and Xenix/386 targets.
 ; !! Add FreeBSD 2.0.5 (1995-07-10) with the a.out executable format.
@@ -135,10 +134,10 @@
 %else
   %define S386BSD 0
 %endif
-%ifdef MINIX2I386
-  %define MINIX2I386 1
+%ifdef MINIXI386
+  %define MINIXI386 1
 %else
-  %define MINIX2I386 0
+  %define MINIXI386 0
 %endif
 %ifdef MINIX386VM
   %define MINIX386VM 1
@@ -170,10 +169,10 @@
 %else
   %define DOSEXE 0
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+MINIX386VM+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE==0
+%if COFF+ELF+S386BSD+MINIXI386+MINIX386VM+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE==0
   %define ELF 1  ; Default.
 %endif
-%if COFF+ELF+S386BSD+MINIX2I386+MINIX386VM+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE>1
+%if COFF+ELF+S386BSD+MINIXI386+MINIX386VM+V7X86+XV6I386+WIN32WL+DOSCOM+DOSEXE>1
   %error ERROR_MULTIPLE_SYSTEMS_SPECIFIED
   times -1 nop
 %endif
@@ -428,14 +427,14 @@ __prog_default_cpu_and_bits
     .a_entry:	dd _start  ; Virtual address (vaddr) of entry point.
     .a_trsize:	dd 0  ; Text relocation size.
     .a_drsize:	dd 0  ; Data relocation size.
-  %elif MINIX2I386+MINIX386VM
+  %elif MINIXI386+MINIX386VM
     %ifndef MINIX_I386_STACK
       %define MINIX_I386_STACK 0x4000  ; 16 KiB. Minix i386 programs (such as cat(1)) use this value. This is just a hint, the actual stack usage will be smaller.
     %endif
     %if MINIX_I386_STACK<0x1000  ; Must include argv and environ strings.
       %define MINIX_I386_STACK 0x1000
     %endif
-    %if MINIX2I386
+    %if MINIXI386
       section .header align=1 valign=1 start=0 vstart=-0x20  ; -0x20 to make the relative jmp correct in __prog_j_start blow.
       section .text align=1 valign=1 follows=.header vstart=(__prog_j_start.end-__prog_j_start)
       ; It would be more traditional to group .rodata.str and .rodata together
@@ -464,7 +463,7 @@ __prog_default_cpu_and_bits
     section .header
     minix_i386_exec:  ; `struct exec' in usr/include/a.out.h
     .a_magic: db 1, 3  ; Signature (magic number).
-    %if MINIX2I386
+    %if MINIXI386
       .a_flags: db 0x20  ; Flags. 0x20 == A_SEP (text and data share the same virtual address space).
     %elif MINIX386VM
       .a_flags: db 0x23  ; Flags. 0x23 == A_SEP (text and data share the same virtual address space) | A_UZP (== 1, unmapped zero page) | A_PAL (== 2, page-aligned executable).
@@ -479,7 +478,7 @@ __prog_default_cpu_and_bits
     .a_text: dd _text_size  ; Size of text segement in bytes.
     .a_data: dd _rodatastr_size+_rodata_size+_data_size  ; Size of data segment in bytes.
     .a_bss: dd _data_endalign_extra+_bss_size  ; Size of bss segment in bytes.
-    %if MINIX2I386
+    %if MINIXI386
       .a_entry: dd 0  ; Virtual address (vaddr) of entry point. It will start at __prog_j_start below. Minix 1.5--1.7.0 i386 ignores this value, and always uses 0.
     %elif MINIX386VM
       .a_entry: dd 0x1020  ; Repurposed to be checksum field, its value must be (UZP ? page_size : 0) + (PAL ? a_hdrlen : 0). The entry point virtual address is always 0.
@@ -691,7 +690,7 @@ __prog_default_cpu_and_bits
     _data_endu:
     section .text
 
-    %if MINIX2I386+MINIX386VM
+    %if MINIXI386+MINIX386VM
       %if _data_endu==_data_start && _rodata_endu==_rodata_start  ; Both .rodata and .data are empty.
         _rodatastr_endalign equ 0  ; For S386BSD this wouldn't make a difference because of the page-alignment of nonempty data. For compatibility, we make everything a multiple of 4 in COFF.
       %else
@@ -766,7 +765,7 @@ __prog_default_cpu_and_bits
     %endif
     section .text
     _text_end:
-    _text_size equ $-_text_start  ; $$ is different from _text_start for MINIX2I386+MINIX386VM. _text_start has the correct value.
+    _text_size equ $-_text_start  ; $$ is different from _text_start for MINIXI386+MINIX386VM. _text_start has the correct value.
     section .rodata.str
     times _rodatastr_endalign db 0
     _rodatastr_end:
@@ -832,7 +831,7 @@ __prog_default_cpu_and_bits
         times -1 nop
       %endif
     %endif
-    %if MINIX2I386+MINIX386VM
+    %if MINIXI386+MINIX386VM
       _data_start_pagemod equ _rodatastr_size+_rodata_size
     %elif S386BSD+V7X86
       _data_start_pagemod equ 0
@@ -1236,7 +1235,7 @@ SYS:
 .ioctl equ 54  ; FS in Minix.
 %endif
 
-%if MINIX2I386+MINIX386VM
+%if MINIXI386+MINIX386VM
 MINIX_WHO:  ; include/lib.h . Minix syscall ``who'' subsystems.
 .MM equ 0
 .FS equ 1
@@ -1623,7 +1622,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		mov [@first_empty_seg], ax
   %endif
 %endif
-%if ELF+S386BSD  ; Not needed for COFF+MINIX2I386+MINIX386VM+V7X86+XV6I386, because they don't do page-aligned mapping of the executable program file.
+%if ELF+S386BSD  ; Not needed for COFF+MINIXI386+MINIX386VM+V7X86+XV6I386, because they don't do page-aligned mapping of the executable program file.
 		; Now we clear the .bss part of the last page of .data.
 		; 386BSD 1.0 and some early Linux kernels put junk there if
 		; there is junk at the end of the ELF-32 executable program
@@ -1849,7 +1848,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push eax  ; exit_code argument of __cdecl _exit(...) below.
 		push eax  ; Fake return address.
 		; Fall through to __cdecl _exit(...).
-  %elif MINIX2I386+MINIX386VM
+  %elif MINIXI386+MINIX386VM
 		;mov [@minix_syscall_msg+8], eax  ; .m1_i1, at offset 8 of the struct. Set it to exit_code. This is automatic in @minix_syscall_cont.
 		push byte SYS.exit  ; .m_type, at offset 4 of the struct.
 		push byte MINIX_WHO.MM
@@ -1886,7 +1885,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %endif
 %ifdef __NEED___exit
   __exit: __prog_libc_export '__noreturn void __cdecl _exit(int exit_code);'
-  %if MINIX2I386+MINIX386VM
+  %if MINIXI386+MINIX386VM
 		pop eax  ; Discard return address.
 		pop eax  ; EAX := exit_code.
 		;mov [@minix_syscall_msg+8], eax  ; .m1_i1, at offset 8 of the struct. Set it to exit_code. This is automatic in @minix_syscall_cont.
@@ -1923,7 +1922,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   section .text  ; Back from .startsec to .text.
 %endif
 
-%if MINIX2I386+MINIX386VM
+%if MINIXI386+MINIX386VM
   section .bss
   resb ($$-$)&3
   @minix_syscall_msg: resb 36  ; In Minix 1.5 i386, passing syscall arguments doesn't work on the stack. So we use this global variable instead.
@@ -2103,7 +2102,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %ifdef __NEED__read
   %if DOSCOM+DOSEXE==0
     _read: __prog_libc_export 'int __cdecl read(int fd, void *buf, unsigned count);'
-    %if MINIX2I386+MINIX386VM  ; This seems to be correct for Minix 1.5 i386 as well.
+    %if MINIXI386+MINIX386VM  ; This seems to be correct for Minix 1.5 i386 as well.
 		push ebx  ; Save.
 		push byte SYS.read  ; .m_type, at offset 4 of the struct.
       %ifdef __NEED__write
@@ -2279,7 +2278,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %if DOSCOM+DOSEXE==0
     _write_binary: __prog_libc_export 'int __cdecl write_binary(int fd, const void *buf, unsigned count);'
     _write_nonzero_binary: __prog_libc_export 'int __cdecl write_nonzero_binary(int fd, const void *buf, unsigned count);'
-    %if MINIX2I386+MINIX386VM  ; This seems to be correct for Minix 1.5 i386 as well.
+    %if MINIXI386+MINIX386VM  ; This seems to be correct for Minix 1.5 i386 as well.
 		push ebx  ; Save.
 		push byte SYS.write
       _write.common: equ $0
@@ -2407,7 +2406,7 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 %ifdef __NEED_@ioctl_wrapper
   global @ioctl_wrapper  ; The `request' and `arg' is not system-independent, but still making it global to aid debugging.
   @ioctl_wrapper:  ; int __cdecl ioctl_wrapper(int fd, unsigned long request, void *arg);
-  %if MINIX2I386+MINIX386VM  ; This is correct for Minix 1.5--2.0.4 i386. Please note that the TCGETS constant is different for Minix 1.5 from the rest, also in Minix 1.5 don't have to set the pointer to the message struct.
+  %if MINIXI386+MINIX386VM  ; This is correct for Minix 1.5--2.0.4 i386. Please note that the TCGETS constant is different for Minix 1.5 from the rest, also in Minix 1.5 don't have to set the pointer to the message struct.
 		push ebx  ; Save.
 		push byte SYS.ioctl
 		push byte MINIX_WHO.FS
@@ -2458,8 +2457,8 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		push esp  ; Argument 3 arg of @ioctl_wrapper.
 		push strict dword IOCTL_386BSD.TIOCGETA
 		push eax  ; Argument fd of this isatty(...).
-  %elif MINIX2I386+MINIX386VM
-    ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIX2I386+MINIX386VM.
+  %elif MINIXI386+MINIX386VM
+    ISATTY_TERMIOS_SIZE equ 36  ; sizeof(struct termio) == 36 on MINIXI386+MINIX386VM.
 		sub esp, byte ISATTY_TERMIOS_SIZE
 		; Minix 2.0 has a different ioctl from Minix 1.5--1.7, so we try both, and if any of them returns nonnegative, then it's a TTY.
 		push esp  ; Argument 3 arg of @ioctl_wrapper.

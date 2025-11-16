@@ -363,11 +363,11 @@ chmod +x luuzcat.3b
 # We can't run luuzcat.3b on Linux i386 directly, so we just check for the file size.
 test -s luuzcat.3b
 
-rm -f luuzcat.m23
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'" -DMINIX2I386                           -o luuzcat.m23   progx86.nasm
-chmod +x luuzcat.m23
-# We can't run luuzcat.m23 on Linux i386 directly, so we just check for the file size.
-test -s luuzcat.m23
+rm -f luuzcat.mi3
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'" -DMINIXI386                            -o luuzcat.mi3   progx86.nasm
+chmod +x luuzcat.mi3
+# We can't run luuzcat.mi3 on Linux i386 directly, so we just check for the file size.
+test -s luuzcat.mi3
 
 rm -f luuzcat.m3vm
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcat_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'" -DMINIX386VM                           -o luuzcat.m3vm  progx86.nasm

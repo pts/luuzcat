@@ -5,7 +5,7 @@
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -o hello.elf progx86.nasm && chmod +x hello.elf
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DCOFF -DCOFF_PROGRAM_NAME="'hello'" -o hello.coff progx86.nasm && chmod +x hello.coff
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DS386BSD -o hello.3b progx86.nasm && printf ThereIsJunk >>hello.3b && chmod +x hello.3b
-; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DMINIX2I386 -o hello.m23 progx86.nasm && printf ThereIsJunk >>hello.m23 && chmod +x hello.m23
+; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DMINIXI386 -o hello.mi3 progx86.nasm && printf ThereIsJunk >>hello.m23 && chmod +x hello.m23
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DV7X86 -o hello.v7x progx86.nasm && printf ThereIsJunk >>hello.v7x && chmod +x hello.v7x
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'hello.nasm'" -DXV6I386 -o hello.x63 progx86.nasm && printf ThereIsJunk >>hello.x63 && chmod +x hello.x63
 ; Compile with: nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES="'hello.nasm'" -DWIN32WL -o hellop.o progx86.nasm && wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 1080 op noext op d op nored op start=_start n hellop.exe f hellop.o

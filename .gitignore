@@ -10,7 +10,7 @@
 # 386BSD 1.0 executable program.
 *.3b
 # Minix 2.x i386 executable program.
-*.m23
+*.mi3
 # v7x86 executable program.
 *.v7x
 # xv6-i386 executable program.

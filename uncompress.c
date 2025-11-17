@@ -1042,7 +1042,7 @@ typedef unsigned int uint;
     clrend = 255;
     if (hdrbyte & 0x80) ++clrend;
     /* maxbits 0..8 is not supported. (n)compress supports decompressing it, but there is no compressor released to generate such a file; also such a file would provide a terrible compression ratio */
-    if (maxbits < 9 || maxbits > 16) die(DSTATUS_CORRUPTED_INPUT);  /* check for valid maxbits */
+    if ((BITS < 8 && maxbits < 9) || maxbits > 16) die(DSTATUS_CORRUPTED_INPUT);  /* check for valid maxbits */
     ipbufind = READ_BUFFER_SIZE >> 1;  /* Only for pnum < 4. */
 
     /* Fork off an ancestor if necessary - ffork() increments pnum */
@@ -1177,9 +1177,13 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
    * decompressor and gzip-1.14/unlzw.c both accept it, and it's possible to
    * do it without memory corruption.
    */
+#ifdef LUUZCAT_COMPRESS_FORK
+  /* Aborting maxbits > BITS and for maxbits > 16 has been taken care of by the caller. */
+#else
   if (maxbits > 16) fatal_corrupted_input();
-#if BITS < 16  /* Without this, wcc(1) isn't smart enough to omit the string literal from const. */
+#  if BITS < 16  /* Without this, wcc(1) isn't smart enough to omit the string literal from const. */
   if (BITS < 16 && maxbits > BITS) fatal_msg("LZW bits not implemented" LUUZCAT_NL);
+#  endif
 #endif
   tab_init(maxbits);
   rsize = global_insize;

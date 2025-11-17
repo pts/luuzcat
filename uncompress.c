@@ -265,8 +265,8 @@
 #endif
 #if IS_X86_16 && (!IS_DOS_16 || defined(_PROGX86_NOALLOC))
   /* This implementation supports maxbits <= 13 (so it doesn't support 14, 15 or 16), but it keeps the data segment under 64 KiB. For DOS .com programs, it keeps code+data under 64 KiB. */
-#  define BITS 13
-#  define UNCOMPRESS_WRITE_BUFFER_SIZE (1U << 13)  /* !! Make it 1 << 14 for Minix. */
+#  define BITS 13  /* !!! For LUUZCAT_SMALLBUF (on __MINIX__), do BITS 14 here. */
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE (1U << 13)
 #  define lzw_stack big.compress.u.noa.stack_supplement
 #  define tab_suffixof(code) ((uc8*)(uncompress_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256))[code]  /* In uncompress_write_buffer, after the UNCOMPRESS_WRITE_BUFFER_SIZE bytes. */
 #  define tab_prefixof(code) ((um16*)(uncompress_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256 + (1 << BITS)) - 256)[code]  /* In uncompress_write_buffer, after tab_suffixof. */
@@ -672,19 +672,23 @@ typedef unsigned int uint;
 
 #ifdef LUUZCAT_COMPRESS_FORK
   /* This code is based on decomp16 (decompress 16bit compressed files on a
-   * 16bit Intel processor) bu John N. White and Will Rose, version 1.3 on
+   * 16bit Intel processor) by John N. White and Will Rose, version 1.3 on
    * 1992-03-25.
    *
    * History:
    *
-   * * Written by John N. White on 6/30/91 and is Public Domain.
-   * * Patched to run under news by Will Rose, Feb 92.
-   * * J N White's (earlier) patches added by Will Rose, 20 Feb 92.
-   * * Unsigned int increment/wrap bug fixed by Will Rose, 24 Mar 92.
-   * * Argument bug fixed, stdio generalised by Will Rose, 25 Mar 92.
-   * * 2025-11-17 by pts: improved portability, added error propagation,
-   *   added extra error handling, made calls to dup(...) in fork(...)
-   *   more resilient, made it part of luuzcat.
+   * * v1.00 1991-06-30 by John N. White: Original, public domain decomp16.c.
+   * * v1.10 1992-02 by Will Rose: Patched to run under news by Will Rose.
+   * * v1.11 1992-02-20 by John N. White: Earlier patches
+   *   applied by Will Rose.
+   * * v1.2  1992-03-24 by Will Rose: Unsigned int increment/wrap bug fixed.
+   * * v1.3  1992-03-25 by Will Rose: Argument bug fixed, stdio generalized.
+   * * v1.4  2025-11-18 by Peter Szabo (pts): Improved portability; added
+   *   error propagation to parent; added extra error handling; made calls
+   *   to dup(...) in ffork(...) more resilient; made it part of luuzcat;
+   *   reduced fork() count (pnum) for maxbits <= 15, saving memory.
+   *
+   * Below you can read the explanantion of decomp16 1.3.
    *
    * decomp16 can use as as little as 512 bytes of stack; since it forks
    * four additional copies, it's probably worth using minimum stack rather
@@ -852,15 +856,17 @@ typedef unsigned int uint;
     exit(1);
   }
 
-  /* Fork off the previous pass - the parent reads from the child. */
-  static int ffork(void) {
+  /* Fork off the previous pass - the parent reads from the child. Returns 0 for the parent, and the positive new pnum for the child. */
+  static um8 ffork(void) {
     int j, pfd[2];
 
     if (pipe(pfd) == -1) die(DSTATUS_PIPE_ERROR);
     if ((j = fork()) == -1) die(DSTATUS_FORK_ERROR);
     if (j == 0) {  /* this is the child process */
+#if 0
+      (void)!write(STDERR_FILENO, "C", 1);  /* For debugging, indicate that a child has been successfully forked. */
+#endif
       /* !! Fix `fork() error' on ELKS 0.4.0 (`exec luuzcat' works, it gets rid of sh(1). It's because of out of memory. How much more memory is needed? How much more is needed on ELKS 0.1.4 and 0.2.0? */
-      /* !! fork() 1 less for maxbits == 15; fork() 2 less for maxbits == 14. */
       pipe_fd_out = pfd[1];  /* Make die(...) propagate the error code to the parent. */
       if (pfd[1] != 1  /* STDOUT_FILENO */) {
         if (close(1) == -1) {
@@ -1041,25 +1047,44 @@ typedef unsigned int uint;
     maxbits = hdrbyte & 0x1f;
     clrend = 255;
     if (hdrbyte & 0x80) ++clrend;
+    ipbufind = READ_BUFFER_SIZE >> 1;  /* Isn't used by the bottom child (pnum == 4). */
     /* maxbits 0..8 is not supported. (n)compress supports decompressing it, but there is no compressor released to generate such a file; also such a file would provide a terrible compression ratio */
     if ((BITS < 8 && maxbits < 9) || maxbits > 16) die(DSTATUS_CORRUPTED_INPUT);  /* check for valid maxbits */
-    ipbufind = READ_BUFFER_SIZE >> 1;  /* Only for pnum < 4. */
-
-    /* Fork off an ancestor if necessary - ffork() increments pnum */
-    if (ffork() && ffork() && ffork()) ffork();
+#  if BITS >= 16
+#    error BITS too large, decompress_compress_with_fork(...) is unnecessary.  /* If the caller can handle BITS >= 16, decompress_compress_with_fork(...) is unnecessary. */
+#  else
+#    if BITS == 15  /* maxbits == 16 ensured by the caller. */
+    if (ffork() && ffork() && ffork()) ffork();  /* Fork off children as needed. ffork() increments pnum. */
+#    else
+#      if BITS == 14  /* maxbits == 15 || maxbits == 16 ensured by the caller. */
+    curend = maxbits - 12;  /* (maxbits == 16) ? 4 : 3. Number of child processes to fork(). In the main loop below, it will be the dictionary size. */
+    while (pnum < curend && ffork()) {}  /* Fork off children as needed. ffork() increments pnum. */
+#      else
+#        if BITS == 13  /* maxbits == 14 || maxbits == 15 || maxbits == 16 ensured by the caller. */
+    curend = (maxbits > 15) ? 4 : (maxbits == 15) ? 3 : 2;  /* Number of child processes to fork(). In the main loop below, it will be the dictionary size. */
+    while (pnum < curend && ffork()) {}  /* Fork off children as needed. ffork() increments pnum. */
+#        else
+#          error BITS too small for decompress_compress_with_fork(...).  /* The caller should cover this with an alternative, faster implementation. */
+#        endif
+#      endif
+#    endif
+#  endif
 
     /* Preliminary inits. Note: end/maxend/curend are highest, not highest + 1. */
     base = COMPRESS_FORK_DICTSZ * pnum + 256;
     locend = base + COMPRESS_FORK_DICTSZ - 1;
     maxend = (1 << maxbits) - 1;
     if (maxend > locend) maxend = locend;
+#  if BITS < 15
+    if (pnum == curend) pnum = 4;  /* For the `if (pnum === 4)' check for the bottom child in the main loop below. */
+#  endif
 #  ifdef USE_DEBUG
     /* pnum=0 maxend=13311; pnum=1 maxend=26367; pnum=2 maxend=39423; pnum=3 maxend=52479; pnum=4 maxend=65535. */
     fprintf(stderr, "pnum=%u maxend=%u\n", pnum, maxend);
 #  endif
 
     for (;;) {
-      curend = clrend;  /* init dictionary */
+      curend = clrend;  /* Initialize dictionary size. */
       dcharp = COMPRESS_FORK_DICTSZ;  /* flag for none needed */
       curbits = 9;    /* init curbits (for copy 0) */
       for (;;) {    /* for each index in input */

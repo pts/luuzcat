@@ -103,7 +103,7 @@ for $_ (@lines) {
   } else {
     if (m@^([_a-zA-Z]\w*)(?::|\s+LABEL\s)@) { print(exists($globals{$1}) ? "G\@$1:\n" : exists($locals{$1}) ? "L\@$fi\@$1:\n" : "$1:\n") }
     elsif (m@^\@\$(\d+)(?::|\s+LABEL\s)@) { print("L\@$fi\@$1:\n") }
-    elsif (m@^    D[BWD]\s+@) { s@^\s+@\t\t@; die("bad quote: $_\n") if m@["\x27]@; if (s@\boffset (?:FLAT:)?@@g) { s@\@\$(\d+)\b@L\x40$fi\x40$1@g; s@\b([_a-zA-Z]\w*)(?!\@)@ exists($globals{$1}) ? "G\x40$1" : exists($locals{$1}) ? "L\x40$fi\x40$1" : $1 @ge }
+    elsif (m@^    D[BWD]\s+@) { s@^\s+@\t\t@; die("bad quote: $_\n") if m@["\x27]@; if (s@\boffset (?:FLAT:|DGROUP:)?@@g) { s@\@\$(\d+)\b@L\x40$fi\x40$1@g; s@\b([_a-zA-Z]\w*)(?!\@)@ exists($globals{$1}) ? "G\x40$1" : exists($locals{$1}) ? "L\x40$fi\x40$1" : $1 @ge }
         die("fatal: unexpected characters in output line: $_\n") if y@\x27"~`\\;!^=\#\$%&/|<>?(){}@@;
         print($_, "\n") }
     elsif (m@^    ORG\s+(\d[\da-f]*)(H?)@) { die("bad ofs: $_\n") if !defined($ofs); my $oldofs = $ofs; $ofs = $2 ? hex($1) : int($1); print("\t\tRESB $oldofs\n") if ($oldofs = $ofs - $oldofs) > 0; }

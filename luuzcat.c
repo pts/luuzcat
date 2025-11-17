@@ -69,17 +69,24 @@ void read_force_eof(void) {
    * For LUUZCAT_DUCML, read_byte(...) is implemented in uncompress.c.
    */
 #else
-  uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT];
+#  ifndef LUUZCAT_SMALLBUF
+    uc8 global_read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT];
+#  endif
   ub8 global_read_had_eof;  /* Was there an EOF already when reading? */
   unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
   unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
   um32 global_total_read_size;  /* read_byte(...) increses it after each read from the filehandle to global_read_buffer. */
 
-  unsigned int read_byte(ub8 is_eof_ok) {
+  unsigned int read_byte(um8 is_eof_ok) {
     int got;
     if (global_inptr < global_insize) return global_read_buffer[global_inptr++];
     if (global_read_had_eof) goto already_eof;
-    if ((got = read(STDIN_FILENO, (char*)global_read_buffer, (int)READ_BUFFER_SIZE)) < 0) fatal_read_error();
+    if ((got = read(STDIN_FILENO, (char*)global_read_buffer, (int)READ_BUFFER_SIZE)) < 0) {
+#ifdef LUUZCAT_COMPRESS_FORK
+      if (is_eof_ok > 1) return BRDERR;
+#endif
+      fatal_read_error();
+    }
     if (got == 0) {
       ++global_read_had_eof;  /* = 1. */
      already_eof:
@@ -99,7 +106,9 @@ unsigned int get_le16(void) {
 
 /* --- Writing. */
 
-uc8 global_write_buffer[WRITE_BUFFER_SIZE];
+#ifndef LUUZCAT_SMALLBUF
+  uc8 global_write_buffer[WRITE_BUFFER_SIZE];
+#endif
 
 #ifdef LUUZCAT_DUCML  /* For LUUZCAT_DUCML, flush_write_buffer(...) is implemented in uncompress.c. */
 #else

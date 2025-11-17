@@ -266,8 +266,8 @@
 #if IS_X86_16 && (!IS_DOS_16 || defined(_PROGX86_NOALLOC))
   /* This implementation supports maxbits <= 13 (so it doesn't support 14, 15 or 16), but it keeps the data segment under 64 KiB. For DOS .com programs, it keeps code+data under 64 KiB. */
 #  define BITS 13
-#  define UNCOMPRESS_WRITE_BUFFER_SIZE (1U << 13)  /* !! Make it 1 << 4 for Minix. */
-#  define lzw_stack big.compress.stack_supplement
+#  define UNCOMPRESS_WRITE_BUFFER_SIZE (1U << 13)  /* !! Make it 1 << 14 for Minix. */
+#  define lzw_stack big.compress.u.noa.stack_supplement
 #  define tab_suffixof(code) ((uc8*)(uncompress_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256))[code]  /* In uncompress_write_buffer, after the UNCOMPRESS_WRITE_BUFFER_SIZE bytes. */
 #  define tab_prefixof(code) ((um16*)(uncompress_write_buffer + UNCOMPRESS_WRITE_BUFFER_SIZE - 256 + (1 << BITS)) - 256)[code]  /* In uncompress_write_buffer, after tab_suffixof. */
 #  if BITS > 14
@@ -288,7 +288,7 @@
    */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE uncompress_ducml_write_buffer_size
-#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.u.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
 #  if 0
 #    define tab_suffix_seg  (*(__segment*)0xfc0c)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
 #    define tab_prefix0_seg (*(__segment*)0xfc0e)
@@ -360,7 +360,7 @@
   /* !! Check for out-of-memory for DOS .com program (also for other DOS .com targets). Doesn't DOS already check at program load time that there is 64 KiB free? */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.u.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
   static um16 tab_prefix_get(um16 code);
   /* tab_prefix_get(...) works with __modify [__es] and __modify [__es __bx], but it doesn't work with __modify __exact [es __bx] */
@@ -413,7 +413,7 @@
    */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.u.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
 #  if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
     static um16 tab_prefix_get(um16 code) { return *((const um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))); }  /* Indexes 0 <= code < 256 are invalid and unused. */
@@ -497,7 +497,7 @@
    */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.u.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static uc8  __far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
   static um16 __far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
   static um16 __far tab_prefix1_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for odd  codes. */
@@ -521,7 +521,7 @@
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
 #  include <dos.h>  /* For Turbo C++ allocmem(...), MK_FP(...) and FP_SEG(...). */
-#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.u.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static uc8 far *tab_suffix_fptr;  /* [(1UL << BITS) - 256U]. For each code, it contains the last byte. */
   um16 far *tab_prefix_fptr_ary[2];  /* [((1UL << BITS) - 256U) >> 1]. [0] is prefix for even codes, [1] is prefix for odd codes. */
 #  define tab_prefixof(code) tab_prefix_fptr_ary[(code) & 1][(code) >> 1]  /* Indexes 0 <= code < 256 are invalid and unused. */
@@ -558,7 +558,7 @@
    */
 #  define BITS 16
 #  define UNCOMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.compress.u.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
   static uc8  far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
   static um16 far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
   static um16 far tab_prefix1_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for odd  codes. */
@@ -670,7 +670,462 @@ static void abort_line(unsigned int line) {
  */
 typedef unsigned int uint;
 
-void decompress_compress_nohdr(void) {
+#ifdef LUUZCAT_COMPRESS_FORK
+  /* This code is based on decomp16 (decompress 16bit compressed files on a
+   * 16bit Intel processor) bu John N. White and Will Rose, version 1.3 on
+   * 1992-03-25.
+   *
+   * History:
+   *
+   * * Written by John N. White on 6/30/91 and is Public Domain.
+   * * Patched to run under news by Will Rose, Feb 92.
+   * * J N White's (earlier) patches added by Will Rose, 20 Feb 92.
+   * * Unsigned int increment/wrap bug fixed by Will Rose, 24 Mar 92.
+   * * Argument bug fixed, stdio generalised by Will Rose, 25 Mar 92.
+   * * 2025-11-17 by pts: improved portability, added error propagation,
+   *   added extra error handling, made calls to dup(...) in fork(...)
+   *   more resilient, made it part of luuzcat.
+   *
+   * decomp16 can use as as little as 512 bytes of stack; since it forks
+   * four additional copies, it's probably worth using minimum stack rather
+   * than the 8192 byte Minix default.  To reduce memory still further,
+   * change BUFSZ below to 256; it is currently set to 1024 for speed.  The
+   * minimal decomp16 needs about 280k to run in pipe mode (56k per copy).
+   *
+   * This program acts as a filter:
+   *    decomp16 < compressed_file > decompressed_file
+   * The arguments -0 to -4 run only the corresponding pass.
+   * Thus:
+   *    decomp16 -4 < compressed_file > 3;
+   *    decomp16 -3 < 3 > 2;
+   *    decomp16 -2 < 2 > 1;
+   *    decomp16 -1 < 1 > 0;
+   *    decomp16 -0 < 0 > decompressed_file
+   * will also work, as will connecting the passes by explicit pipes if
+   * there is enough memory to do so.  File name arguments can also be
+   * given directly on the command line.
+   *
+   * Compress uses a modified LZW compression algorithm. A compressed file
+   * is a set of indices into a dictionary of strings. The number of bits
+   * used to store each index depends on the number of entries currently
+   * in the dictionary. If there are between 257 and 512 entries, 9 bits
+   * are used. With 513 entries, 10 bits are used, etc. The initial dictionary
+   * consists of 0-255 (which are the corresponding chars) and 256 (which
+   * is a special CLEAR code). As each index in the compressed file is read,
+   * a new entry is added to the dictionary consisting of the current string
+   * with the first char of the next string appended. When the dictionary
+   * is full, no further entries are added. If a CLEAR code is received,
+   * the dictionary will be completely reset. The first two bytes of the
+   * compressed file are a magic number, and the third byte indicates the
+   * maximum number of bits, and whether the CLEAR code is used (older versions
+   * of compress didn't have CLEAR).
+   *
+   * This program works by forking four more copies of itself. The five
+   * programs form a pipeline. Copy 0 writes to stdout, and forks copy 1
+   * to supply its input, which in turn forks and reads from copy 2, etc.
+   * This sequence is used so that when the program exits, all writes
+   * are completed and a program that has exec'd uncompress (such as news)
+   * can immediately use the uncompressed data when the wait() call returns.
+   *
+   * If given a switch -#, where # is a digit from 0 to 4 (example: -2), the
+   * program will run as that copy, reading from stdin and writing to stdout.
+   * This allows decompressing with very limited RAM because only one of the
+   * five passes is in memory at a time.
+   *
+   * The compressed data is a series of string indices (and a header at
+   * the beginning and an occasional CLEAR code). As these indices flow
+   * through the pipes, each program decodes the ones it can. The result
+   * of each decoding will be indices that the following programs can handle.
+   *
+   * Each of the 65536 strings in the dictionary is an earlier string with
+   * some character added to the end (except for the the 256 predefined
+   * single char strings). When new entries are made to the dictionary,
+   * the string index part will just be the last index to pass through.
+   * But the char part is the first char of the next string, which isn't
+   * known yet. So the string can be stored as a pair of indices. When
+   * this string is specified, it is converted to this pair of indices,
+   * which are flagged so that the first will be decoded in full while
+   * the second will be decoded to its first char. The dictionary takes
+   * 256k to store (64k strings of 2 indices of 2 bytes each). This is
+   * too big for a 64k data segment, so it is divided into 5 equal parts.
+   * Copy 4 of the program maintains the high part and copy 0 holds the
+   * low part.
+   */
+
+#  if READ_BUFFER_SIZE & 0x1f
+#    error For LUUZCAT_COMPRESS_FORK, READ_BUFER_SIZE must be divisible by 0x20.
+#  endif
+
+  typedef char assert_sizeof_us16_for_uncompress[sizeof(us16) == 2 ? 1 : -1];  /* The byte order doesn't matter. */
+
+  static unsigned int myputc_obufind;  /* output buffer zero-initialized; index; also used by myputc(...) and die(...) */
+  static unsigned int ipbufind;    /* pipe buffer indices; no need to initialize */
+  static unsigned int opbufind;  /* output buffer word pipe index; zero-initialized; */
+  static um8 pnum;  /* ID of this copy: 0..4; zero-initialized; also used by ffork() and die(...) */
+  static unsigned int iindex;  /* no need to initialize; holds index being processed */
+  static unsigned int base;      /* where in global dict local dict starts; no need to initialize; also used by getpipe() */
+  static unsigned int curend;    /* current end of global dict; no need to initialize; also used by getpipe() */
+  static unsigned int curbits;      /* number of bits for getbits() to read: 9..16; no need to initialize */
+  static um8 inmod;      /* mod 8 for getbits(); zero-initialized; also used by getbits() */
+  static us16 getpipe_flags;  /* no need to initialize */
+  static um8 getpipe_flagn;    /* number of flags in flags: 0..15; zero-initialized */
+  static us16 putpipe_flags;  /* also used by putpipe(...); no need to initialize */
+  static us16 *putpipe_flagp;  /* also used by putpipe(...); no need to initialize */
+  static um8 putpipe_flagn;    /* number of flags in flags: 0..16; zero-initialized */
+  static um8 getbits_curbyte;  /* byte having bits extracted from it; zero-initialized */
+  static um8 getbits_left;    /* how many bits are left in getbits_curbyte: 0..8; zero-initialized */
+  static int pipe_fd_out;  /* no need to initialize */
+
+#  define DSTATUS_OK 0
+#  define DSTATUS_BAD_STDIN_READ 1
+#  define DSTATUS_BAD_STDOUT_WRITE 2
+#  define DSTATUS_UNEXPECTED_EOF 3
+#  define DSTATUS_CORRUPTED_INPUT 4
+#  define DSTATUS_PIPE_ERROR 5
+#  define DSTATUS_FORK_ERROR 6
+#  define DSTATUS_CLOSE_0_ERROR 7
+#  define DSTATUS_CLOSE_1_ERROR 8
+#  define DSTATUS_DUP_0_ERROR 9
+#  define DSTATUS_DUP_1_ERROR 10
+#  define DSTATUS_BAD_PIPE_READ 11
+#  define DSTATUS_SHORT_PIPE_READ 12
+#  define DSTATUS_BAD_PIPE_WRITE 13
+  /**/
+#  define DSTATUS_MAX 13U
+
+  static const char * const error_messages[] = {
+      /* DSTATUS_PIPE_ERROR: */  "pipe() error\n",
+      /* DSTATUS_FORK_ERROR: */  "fork() error\n",
+      /* DSTATUS_CLOSE_0_ERROR: */  "close(0) error\n",
+      /* DSTATUS_CLOSE_1_ERROR: */  "close(1) error\n",
+      /* DSTATUS_DUP_0_ERROR: */  "dup(0) error\n",
+      /* DSTATUS_DUP_1_ERROR: */  "dup(1) error\n",
+      /* DSTATUS_BAD_PIPE_READ: */  "bad pipe read\n",
+      /* DSTATUS_SHORT_PIPE_READ: */  "short pipe read\n",
+      /* DSTATUS_BAD_PIPE_WRITE: */  "bad pipe write\n",
+  };
+
+  static ub8 flush_obuf_to(int fd) {
+    char *p;
+    unsigned int p_remaining;
+    int got;
+
+    for (p = (char*)big.compress.u.sf.write_buffer, p_remaining = myputc_obufind; p_remaining != 0; p += got, p_remaining -= got) {
+      if ((got = write(fd, p, p_remaining)) <= 0) return 0;  /* Indicate error. */
+    }
+    myputc_obufind = 0;
+    return 1;  /* Indicate success. */
+  }
+
+  /* If s is a message, write it to stderr. Flush buffers if needed. Then exit. */
+  static __noreturn void die(unsigned int dstatus) {
+    if (pnum == 0) {  /* Write error directly to stderr. */
+      if (!flush_obuf_to(STDOUT_FILENO) && !dstatus) dstatus = DSTATUS_BAD_STDOUT_WRITE;  /* Flush stdout buffer if needed. */
+      /* !! size optimization: Make this shorter in assembly, using register AL instead of BX etc. */
+      if (dstatus == DSTATUS_OK) exit(EXIT_SUCCESS);
+      if (dstatus == DSTATUS_BAD_STDIN_READ) fatal_read_error();
+      if (dstatus == DSTATUS_BAD_STDOUT_WRITE) fatal_write_error();
+      if (dstatus == DSTATUS_UNEXPECTED_EOF) fatal_unexpected_eof();
+      if (dstatus == DSTATUS_CORRUPTED_INPUT) fatal_corrupted_input();
+      fatal_msg((error_messages - DSTATUS_PIPE_ERROR)[dstatus]);
+    } else {
+#  ifdef USE_DEBUG
+      fprintf(stderr, "die propagating dstatus=%u\n", dstatus);
+#  endif
+      dstatus = ~dstatus;
+      do {
+        if (putpipe_flagn == 0) {  /* if we need to reserve a flag entry */
+          putpipe_flags = 0;
+          putpipe_flagp = (us16*)big.compress.u.sf.write_buffer + opbufind;
+          opbufind++;
+        }
+        do {
+          ((us16*)big.compress.u.sf.write_buffer)[opbufind++] = dstatus;  /* add large enough dstatus value to the buffer. */
+          putpipe_flags = putpipe_flags << 1;  /* Add flag value 0. */
+        } while (++putpipe_flagn < 15);
+        putpipe_flagn = 0;
+        *putpipe_flagp = putpipe_flags;  /* insert flags entry */
+      } while (opbufind != (READ_BUFFER_SIZE >> 1));
+      myputc_obufind = READ_BUFFER_SIZE;
+      flush_obuf_to(pipe_fd_out);  /* Flush pipe. Ignore error while flushing. */
+    }
+    exit(1);
+  }
+
+  /* Fork off the previous pass - the parent reads from the child. */
+  static int ffork(void) {
+    int j, pfd[2];
+
+    if (pipe(pfd) == -1) die(DSTATUS_PIPE_ERROR);
+    if ((j = fork()) == -1) die(DSTATUS_FORK_ERROR);
+    if (j == 0) {  /* this is the child process */
+      /* !! Fix `fork() error' on ELKS 0.4.0 (`exec luuzcat' works, it gets rid of sh(1). It's because of out of memory. How much more memory is needed? How much more is needed on ELKS 0.1.4 and 0.2.0? */
+      /* !! fork() 1 less for maxbits == 15; fork() 2 less for maxbits == 14. */
+      pipe_fd_out = pfd[1];  /* Make die(...) propagate the error code to the parent. */
+      if (pfd[1] != 1  /* STDOUT_FILENO */) {
+        if (close(1) == -1) {
+          j = dup(pfd[1]);
+          if (j == 0) {
+            j = dup(pfd[1]);
+            if (j != 1) goto close1_error;
+            (void)!close(0);
+          } else if (j != 1) { close1_error:
+            die(DSTATUS_CLOSE_1_ERROR);
+          }
+        } else {
+          if (dup(pfd[1]) != 1) die(DSTATUS_DUP_1_ERROR);
+        }
+        pipe_fd_out = 1  /* STDOUT_FILENO */;
+        (void)!close(pfd[1]);
+      }
+      (void)close(pfd[0]);
+      return ++pnum;
+    } else {  /* this is still the parent process */
+      if (pfd[0] != 0  /* STDIN_FILENO */) {
+        if (close(0) == -1) die(DSTATUS_CLOSE_0_ERROR);
+        if (dup(pfd[0]) != 0) die(DSTATUS_DUP_0_ERROR);
+        (void)!close(pfd[0]);
+      }
+      (void)close(pfd[1]);
+      return 0;
+    }
+  }
+
+  /* Put a char to stdout. */
+  static void myputc(uc8 c) {
+    big.compress.u.sf.write_buffer[myputc_obufind++] = c;
+    if (myputc_obufind == READ_BUFFER_SIZE) {  /* if stdout buffer full */
+      if (!flush_obuf_to(STDOUT_FILENO)) die(DSTATUS_BAD_STDOUT_WRITE);
+    }
+  }
+
+#  ifdef __WATCOMC__
+#    define myinline __inline
+#  else
+#    define myinline
+#  endif
+
+  /* Get a char from stdin. If EOF, then die(...) and exit. */
+  static myinline unsigned int mygetc(unsigned int dstatus_on_eof) {
+    unsigned int b = read_byte(2  /* is_eof_ok */);
+    if (b >= BRDERR) die(b == BRDERR ? DSTATUS_BAD_STDIN_READ : dstatus_on_eof);
+    return b;
+  }
+
+  /* Put curbits bits into iindex from stdin. Note: only copy 4 uses this.
+   * The bits within a byte are in the correct order. But when the bits
+   * cross a byte boundry, the lowest bits will be in the higher part of
+   * the current byte, and the higher bits will be in the lower part of
+   * the next byte.
+   */
+  static void getbits(void) {
+    unsigned int have;
+    unsigned int dstatus_on_eof;
+
+    ++inmod;  /* count input mod 8 */
+    iindex = getbits_curbyte;
+    have = getbits_left;
+    if (curbits > have + 8) {
+      iindex |= mygetc(DSTATUS_OK) << have;
+      have += 8;
+      dstatus_on_eof = DSTATUS_UNEXPECTED_EOF;
+    } else {
+      dstatus_on_eof = DSTATUS_OK;
+    }
+    iindex |= ((getbits_curbyte = mygetc(dstatus_on_eof)) << have) & ~(0xffffU << curbits);
+#  if 0  /* Simulate an error in the middle. */
+    if (curbits == 16 && iindex == 29891) die(DSTATUS_DUP_1_ERROR);
+#  endif
+#  ifdef USE_DEBUG
+    fprintf(stderr, "getbits(%u) == %u == 0x%x\n", curbits, iindex, iindex);
+#  endif
+    getbits_curbyte >>= curbits - have;
+    getbits_left = 8 + have - curbits;
+  }
+
+  /* put an index into the pipeline. */
+  static void putpipe(um16 u, ub8 flag) {
+    char *p;
+    unsigned int p_remaining;
+    int got;
+
+    if (pnum == 0) {    /* if we should write to stdout */
+#  ifdef USE_DEBUG
+      if (u > 255) { wi_too_large: fprintf(stderr, "fatal: assert: written index too large: pnum=%u index=%u\n", pnum, u); exit(99); }
+#  endif
+      myputc(u);    /* index will be the char value */
+      return;
+    }
+    if (putpipe_flagn == 0) {  /* if we need to reserve a flag entry */
+      putpipe_flags = 0;
+      putpipe_flagp = (us16*)big.compress.u.sf.write_buffer + opbufind;
+      opbufind++;
+    }
+#  ifdef USE_DEBUG
+    if ((pnum == 1 && u > 13311) || (pnum == 2 && u > 26367) || (pnum == 3 && u > 39423) || (pnum == 4 && u > 52479)) goto wi_too_large;  /* Smaller values are OK. */
+#  endif
+    ((us16*)big.compress.u.sf.write_buffer)[opbufind++] = u;  /* add index to buffer */
+    putpipe_flags = (putpipe_flags << 1) | flag;  /* add firstonly flag */
+    if (++putpipe_flagn == 15) {    /* if block of 15 indices */
+      putpipe_flagn = 0;
+      *putpipe_flagp = putpipe_flags;    /* insert flags entry */
+      if (opbufind == (READ_BUFFER_SIZE >> 1)) {  /* if pipe out buffer full */
+        opbufind = 0;
+        p = (char*)big.compress.u.sf.write_buffer; p_remaining = READ_BUFFER_SIZE;
+        do {
+          if ((got = write(STDOUT_FILENO, p, p_remaining)) <= 0) die(DSTATUS_BAD_PIPE_WRITE);
+          p += got;
+        } while ((p_remaining -= got) > 0);
+      }
+    }
+  }
+
+  /* Get an index from the pipeline. If flagged firstonly, handle it here. */
+  static void getpipe(void) {
+#  ifdef USE_DEBUG
+    static unsigned int max_iindex;
+#  endif
+    char *p;
+    unsigned int p_remaining;
+    int got;
+
+    for (;;) {    /* while index with firstonly flag set */
+      if (getpipe_flagn == 0) {
+        if (ipbufind >= (READ_BUFFER_SIZE >> 1)) {  /* if pipe input buffer empty */
+          p = (char*)global_read_buffer; p_remaining = READ_BUFFER_SIZE;
+          do {
+            if ((got = read(STDIN_FILENO, p, p_remaining)) <= 0) die(got == 0 ? DSTATUS_SHORT_PIPE_READ : DSTATUS_BAD_PIPE_READ);
+            p += got;
+          } while ((p_remaining -= got) > 0);
+          ipbufind = 0;
+        }
+        getpipe_flags = ((us16*)global_read_buffer)[ipbufind++];
+#  ifdef USE_DEBUG
+        if (getpipe_flags >= 0x8000U) { fprintf(stderr, "fatal: assert: getpipe_flags too large: %u\n", getpipe_flags); exit(98); }
+#  endif
+        getpipe_flagn = 15;
+      }
+      iindex = ((us16*)global_read_buffer)[ipbufind++];
+      if (iindex >= (~DSTATUS_MAX & 0xffffU)) {
+#  ifdef USE_DEBUG
+        fprintf(stderr, "pnum=%u max_iindex=%u\n", pnum, max_iindex);
+#  endif
+        die(~iindex & 0xffffU);  /* Propagate dstatus to parent process or user. */
+      }
+#  ifdef USE_DEBUG
+      if (iindex > max_iindex) max_iindex = iindex;
+      /* Maximum values for curend here: pnum=0 max_curend=13311; pnum=1 max_curend=26367; pnum=2 max_curend=39423; pnum=3 max_curend=52479; not reached for pnum=4. */
+#  endif
+      if (iindex > curend) die(DSTATUS_CORRUPTED_INPUT);
+      getpipe_flags <<= 1;
+      getpipe_flagn--;
+      if ((getpipe_flags & 0x8000U) != 0) {  /* if firstonly flag for index is not set */
+        while (iindex >= base) iindex = big.compress.u.sf.dindex[iindex - base];
+        putpipe(iindex, 1);
+      } else
+        return;    /* return with valid non-firstonly index */
+    }
+  }
+
+  static __noreturn void decompress_compress_with_fork(um8 hdrbyte) {
+    unsigned int clrend;  /* end of global dict at clear time; no need to initialize */
+    unsigned int tbase;
+    unsigned int maxbits;  /* limit on number of bits */
+    unsigned int dcharp;  /* ptr to dchar that needs next index entry */
+    unsigned int locend;  /* where in global dict local dict ends */
+    unsigned int maxend;  /* max end of global dict */
+    unsigned int tindex1;  /* Temporary variable based on iindex. */
+    unsigned int tindex2;  /* Temporary variable based on iindex. */
+
+    /* Check header of compressed file */
+    maxbits = hdrbyte & 0x1f;
+    clrend = 255;
+    if (hdrbyte & 0x80) ++clrend;
+    /* maxbits 0..8 is not supported. (n)compress supports decompressing it, but there is no compressor released to generate such a file; also such a file would provide a terrible compression ratio */
+    if (maxbits < 9 || maxbits > 16) die(DSTATUS_CORRUPTED_INPUT);  /* check for valid maxbits */
+    ipbufind = READ_BUFFER_SIZE >> 1;  /* Only for pnum < 4. */
+
+    /* Fork off an ancestor if necessary - ffork() increments pnum */
+    if (ffork() && ffork() && ffork()) ffork();
+
+    /* Preliminary inits. Note: end/maxend/curend are highest, not highest + 1. */
+    base = COMPRESS_FORK_DICTSZ * pnum + 256;
+    locend = base + COMPRESS_FORK_DICTSZ - 1;
+    maxend = (1 << maxbits) - 1;
+    if (maxend > locend) maxend = locend;
+#  ifdef USE_DEBUG
+    /* pnum=0 maxend=13311; pnum=1 maxend=26367; pnum=2 maxend=39423; pnum=3 maxend=52479; pnum=4 maxend=65535. */
+    fprintf(stderr, "pnum=%u maxend=%u\n", pnum, maxend);
+#  endif
+
+    for (;;) {
+      curend = clrend;  /* init dictionary */
+      dcharp = COMPRESS_FORK_DICTSZ;  /* flag for none needed */
+      curbits = 9;    /* init curbits (for copy 0) */
+      for (;;) {    /* for each index in input */
+        if (pnum == 4) {  /* get index using mygetc(...) and getbits() */
+          if (curbits < maxbits && (1U << curbits) <= curend) {
+            /* Curbits needs to be increased */
+            /* Due to uglyness in compress, these
+             * indices in the compressed file are
+             * wasted */
+            while (inmod & 7) getbits();
+            curbits++;
+          }
+          getbits();
+        } else
+          getpipe();  /* get next index */
+
+        if (iindex == 256 && clrend == 256) {
+          if (pnum > 0) putpipe(iindex, 0);
+          /* Due to uglyness in compress, these indices
+           * in the compressed file are wasted */
+          while (inmod & 7) getbits();
+          break;
+        }
+        tindex1 = iindex;
+        /* Convert the index part, ignoring spawned chars */
+        while (tindex1 >= base) tindex1 = big.compress.u.sf.dindex[tindex1 - base];
+        /* Pass on the index */
+        putpipe(tindex1, 0);
+        /* Save the char of the last added entry, if any */
+        if (dcharp < COMPRESS_FORK_DICTSZ) big.compress.u.sf.dchar[dcharp++] = tindex1;
+        if (curend < maxend && ++curend >= base)
+          big.compress.u.sf.dindex[dcharp = (curend - base)] = iindex;
+
+        /* Do spawned chars. They are naturally produced in
+         * the wrong order. To get them in the right order
+         * without using memory, a series of passes,
+         * progressively less deep, are used */
+        tbase = base;
+        while ((tindex1 = iindex) >= tbase) {/* for each char to spawn */
+          while ((tindex2 = big.compress.u.sf.dindex[tindex1 - base]) >= tbase)
+            tindex1 = tindex2;    /* scan to desired char */
+          putpipe(big.compress.u.sf.dchar[tindex1 - base], 1); /* put it to the pipe */
+          tbase = tindex1 + 1;
+          if (tbase == 0) break;  /* it's a wrap */
+        }
+      }
+    }
+  }
+
+#  define decompress_noreturn __noreturn
+  decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte);
+  void decompress_compress_nohdr(void) {
+    um8 hdrbyte;
+
+    hdrbyte = get_byte();
+    if ((hdrbyte & LZW_RESERVED) != 0) fatal_corrupted_input();  /* A reserved bit is 1. No known (current or earlier) version of (n)compress in 2025 sets that. */
+    if ((hdrbyte & BITMASK) > BITS) decompress_compress_with_fork(hdrbyte);
+    decompress_compress_nohdr_low(hdrbyte);  /* This is faster for small maxbits values. */
+  }
+#  define read_force_eof() exit(EXIT_SUCCESS)
+#else
+#  define decompress_compress_nohdr_low(arg) decompress_compress_nohdr(void)
+#  define decompress_noreturn
+#endif
+
+decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
   uint code, incode, oldcode;  /* 0 <= ... <= 0ffffU. */
   ub8 is_very_first_code;
   uc8 finchar;
@@ -694,12 +1149,18 @@ void decompress_compress_nohdr(void) {
   uint w_skip;  /* 0 <= w_skip <= 0xffffU. */
   uc8 *stack_top;
 
+#ifdef LUUZCAT_COMPRESS_FORK
+  maxbits = hdrbyte;
+#else
   maxbits = get_byte();
+#endif
   block_mode = (maxbits & BLOCK_MODE) ? 1 : 0;
 #ifdef USE_DEBUG
   fprintf(stderr, "COMPRESSED maxbits=%u block_mode=is_3plus=%u reserved=%u\n", maxbits & BITMASK, block_mode, (maxbits & LZW_RESERVED) != 0 ? 1 : 0);
 #endif
+#ifndef LUUZCAT_COMPRESS_FORK  /* For LUUZCAT_COMPRESS_FORK, it's already checked in decompress_compress_nohdr(void) above. */
   if ((maxbits & LZW_RESERVED) != 0) fatal_corrupted_input();  /* A reserved bit is 1. No known (current or earlier) version of (n)compress in 2025 sets that. */
+#endif
   maxbits &= BITMASK;
 #if defined(__i386__) && defined(__amd64__) || defined(__386__) || defined(_M_I86) || defined(_M_I386)
   maxmaxcode1 = (1U << maxbits) - 1U;  /* On x86, it's OK to shift a 16-bit value by 16 and get 0. */

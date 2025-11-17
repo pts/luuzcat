@@ -957,7 +957,13 @@ __prog_default_cpu_and_bits
         times -1 nop
       %endif
       %if _rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+_bss_size+MINIX_STACK_SIZE>0xffff
-        %error ERROR_MINIX_DATA_MEMORY_USAGE_TOO_LARGE
+        %assign ERROR_VALUE1 _rodatastr_size
+        %assign ERROR_VALUE2 _rodata_size
+        %assign ERROR_VALUE3 _data_size
+        %assign ERROR_VALUE4 _data_endalign_extra
+        %assign ERROR_VALUE5 _bss_size
+        %assign ERROR_VALUE6 MINIX_STACK_SIZE
+        %error ERROR_MINIX_DATA_MEMORY_USAGE_TOO_LARGE ERROR_VALUE1 ERROR_VALUE2 ERROR_VALUE3 ERROR_VALUE4 ERROR_VALUE5 ERROR_VALUE6
         times -1 nop
       %endif
     %endif
@@ -1273,6 +1279,12 @@ __prog_libc_declare memcpy_
 __prog_libc_declare progx86_para_alloc_
 __prog_libc_declare progx86_para_reuse_
 __prog_libc_declare progx86_main_returns_void
+%if MINIXI86
+  __prog_libc_declare fork_
+  __prog_libc_declare close_
+  __prog_libc_declare dup_
+  __prog_libc_declare pipe_
+%endif
 
 __prog_depend _exit, __exit  ; Will be repeated below to get more dependencies.
 __prog_depend exit_, _exit_  ; Will be repeated below to get more dependencies.
@@ -1365,6 +1377,8 @@ SYS:
   .ioctl equ 54  ; FS in Minix <3.3.
   %if MINIXI86+MINIXI386+S386BSD  ; The syscall numbers are also correct forn Linux, FreeBSD and others. We only provide fork(...) and pipe(...) for MINIXI86.
     .fork equ 2  ; MM in Minix <3.3.
+    .close equ 6  ; FS in Minix <3.3.
+    .dup equ 41  ; FS in Minix <3.3.
     .pipe equ 42  ; FS in Minix <3.3.
   %endif
 %endif
@@ -2373,7 +2387,7 @@ __prog_depend _setmode, @sysret
 		ret
     %elif MINIXI86
 		push cx  ; Save.
-		mov cx, SYS.read
+		mov cl, SYS.read
 		do_watcall_syscall3_cont
     %endif
   %endif
@@ -2510,7 +2524,7 @@ __prog_depend _setmode, @sysret
     %endif
   %elif MINIXI86
 		push cx  ; Save.
-		mov cx, SYS.write
+		mov cl, SYS.write
 		do_watcall_syscall3_cont
   %endif
 %endif
@@ -2700,6 +2714,24 @@ __prog_depend _setmode, @sysret
 		mov ax, SYS.fork
 		call @simple_syscall_minixi86
 		do_return_based_on_sign
+  %endif
+%endif
+
+%ifdef __NEED_close_
+  %if MINIXI86
+    close_: __prog_libc_export 'int __watcall close(int fd);'
+		push cx  ; Save.
+		mov cl, SYS.close
+		do_watcall_syscall3_cont
+  %endif
+%endif
+
+%ifdef __NEED_dup_
+  %if MINIXI86
+    dup_: __prog_libc_export 'int __watcall dup(int fd);'
+		push cx  ; Save.
+		mov cl, SYS.dup
+		do_watcall_syscall3_cont
   %endif
 %endif
 

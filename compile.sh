@@ -120,7 +120,7 @@ minicc -ansi -pedantic -march=i386 -Wno-n201 -o luuzcat luuzcat.c unscolzh.c unc
 common_wccargs="-q -fr -D_PROGX86 -za -os -s -j -ei -zl -zld -wx -we -wcd=201"  # zsh(1) SH_WORD_SPLIT is needed by $common_wccargs below.
 wcc16args="-0"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16args below.
 wcc16dosargs="-bt=dos"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16dosargs below.
-wcc16minixargs="-bt=dos -U__DOS__ -D__MINIX__"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16minixargs below.
+wcc16minixargs="-bt=dos -U__DOS__ -D__MINIX__ -DLUUZCAT_SMALLBUF -DLUUZCAT_COMPRESS_FORK"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16minixargs below.
 wcc32args="-bt=linux -3r -zp=4"  # zsh(1) SH_WORD_SPLIT is needed by $wcc32args below.
 dosdefs="-D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG -D_PROGX86_REUSE -D_PROGX86_DOSMEM -D_PROGX86_CSEQDS -DLUUZCAT_DUCML"  # zsh(1) SH_WORD_SPLIT is needed by $dosdefs below.
 minixi86defs="-D_PROGX86_ONLY_BINARY -D_PROGX86_NOALLOC"  # zsh(1) SH_WORD_SPLIT is needed by $minixi86defs below.
@@ -469,6 +469,7 @@ wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -o
 wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o uncompress.c
 wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=.o unfreeze.c
 wlink op q form dos com op d op nored op start=_comstart_ n luuzcatc.com f luuzcat.o f unscolzh.o f uncompact.o f unopack.o f unpack.o f undeflate.o f uncompress.o f unfreeze.o
+# luuzcatc.com is >100 bytes shorter than luuzcat.com, but luuzcat.com uses less memory for LZW decompression, especially with maxbits <= 14.
 "$perl" shorten_to_bss.pl luuzcatc.com
 rm -f luuzcat.o unscolzh.o uncompact.o unopack.o unpack.o undeflate.o unfreeze.o
 ./kvikdos luuzcatc.com <XFileMgro.sz >XFileMgro

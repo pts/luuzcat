@@ -18,6 +18,13 @@
 
 #include "luuzcat.h"
 
+#if 0x8000U > WRITE_BUFFER_SIZE
+# error Write buffer too small.
+#endif
+#if !WRITE_BUFFER_SIZE || (WRITE_BUFFER_SIZE) & (WRITE_BUFFER_SIZE - 1)
+#  error Size of write buffer is not a power of 2.  /* This is needed for `& (WRITE_BUFFER_SIZE - 1U)' below. */
+#endif
+
 /* CRC-32 uses polynomial
  * x^32+x^26+x^23+x^22+x^16+x^12+x^11+x^10+x^8+x^7+x^5+x^4+x^2+x+1 over
  * GF(2). The corresponding 32-bit CRC32_GEN_VALUE is (taking the terms from

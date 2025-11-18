@@ -762,10 +762,10 @@ typedef unsigned int uint;
 
   typedef char assert_sizeof_us16_for_uncompress[sizeof(us16) == 2 ? 1 : -1];  /* The byte order doesn't matter. */
 
-  static unsigned int myputc_obufind;  /* output buffer zero-initialized; index; also used by myputc(...) and die(...) */
+  static unsigned int myputc_obufind;  /* output buffer zero-initialized; index; also used by myputc(...) and done_with_fork(...) */
   static unsigned int ipbufind;    /* pipe buffer indices; no need to initialize */
   static unsigned int opbufind;  /* output buffer word pipe index; zero-initialized; */
-  static um8 pnum;  /* ID of this copy: 0..4; zero-initialized; also used by ffork() and die(...) */
+  static um8 pnum;  /* ID of this copy: 0..4; zero-initialized; also used by ffork() and done_with_fork(...) */
   static unsigned int iindex;  /* no need to initialize; holds index being processed */
   static unsigned int base;      /* where in global dict local dict starts; no need to initialize; also used by getpipe() */
   static unsigned int curend;    /* current end of global dict; no need to initialize; also used by getpipe() */
@@ -822,7 +822,7 @@ typedef unsigned int uint;
   }
 
   /* If s is a message, write it to stderr. Flush buffers if needed. Then exit. */
-  static __noreturn void die(unsigned int dstatus) {
+  static __noreturn void done_with_fork(unsigned int dstatus) {
     if (pnum == 0) {  /* Write error directly to stderr. */
       if (!flush_obuf_to(STDOUT_FILENO) && !dstatus) dstatus = DSTATUS_BAD_STDOUT_WRITE;  /* Flush stdout buffer if needed. */
       /* !! size optimization: Make this shorter in assembly, using register AL instead of BX etc. */
@@ -860,15 +860,15 @@ typedef unsigned int uint;
   static um8 ffork(void) {
     int j, pfd[2];
 
-    if (pipe(pfd) == -1) die(DSTATUS_PIPE_ERROR);
-    if ((j = fork()) == -1) die(DSTATUS_FORK_ERROR);
+    if (pipe(pfd) == -1) done_with_fork(DSTATUS_PIPE_ERROR);
+    if ((j = fork()) == -1) done_with_fork(DSTATUS_FORK_ERROR);
     if (j == 0) {  /* this is the child process */
 #if 0
       (void)!write(STDERR_FILENO, "C", 1);  /* For debugging, indicate that a child has been successfully forked. */
 #endif
       /* !! Fix `fork() error' on ELKS 0.2.0 and ELSK 0.1.4. Not even the 3 forks for maxbits == 13 work. Is this even possible? */
       /* !!! Reorganize memory, reduce read and write buffers to 1 KiB for LZW decompression only; add support for BITS == 14 without fork()ing (slow because no lzw_stack); add back fast BITS <= 13 with lzw_stack. */
-      pipe_fd_out = pfd[1];  /* Make die(...) propagate the error code to the parent. */
+      pipe_fd_out = pfd[1];  /* Make done_with_fork(...) propagate the error code to the parent. */
       if (pfd[1] != 1  /* STDOUT_FILENO */) {
         if (close(1) == -1) {
           j = dup(pfd[1]);
@@ -877,10 +877,10 @@ typedef unsigned int uint;
             if (j != 1) goto close1_error;
             (void)!close(0);
           } else if (j != 1) { close1_error:
-            die(DSTATUS_CLOSE_1_ERROR);
+            done_with_fork(DSTATUS_CLOSE_1_ERROR);
           }
         } else {
-          if (dup(pfd[1]) != 1) die(DSTATUS_DUP_1_ERROR);
+          if (dup(pfd[1]) != 1) done_with_fork(DSTATUS_DUP_1_ERROR);
         }
         pipe_fd_out = 1  /* STDOUT_FILENO */;
         (void)!close(pfd[1]);
@@ -889,8 +889,8 @@ typedef unsigned int uint;
       return ++pnum;
     } else {  /* this is still the parent process */
       if (pfd[0] != 0  /* STDIN_FILENO */) {
-        if (close(0) == -1) die(DSTATUS_CLOSE_0_ERROR);
-        if (dup(pfd[0]) != 0) die(DSTATUS_DUP_0_ERROR);
+        if (close(0) == -1) done_with_fork(DSTATUS_CLOSE_0_ERROR);
+        if (dup(pfd[0]) != 0) done_with_fork(DSTATUS_DUP_0_ERROR);
         (void)!close(pfd[0]);
       }
       (void)close(pfd[1]);
@@ -902,7 +902,7 @@ typedef unsigned int uint;
   static void myputc(uc8 c) {
     big.compress.u.sf.write_buffer[myputc_obufind++] = c;
     if (myputc_obufind == READ_BUFFER_SIZE) {  /* if stdout buffer full */
-      if (!flush_obuf_to(STDOUT_FILENO)) die(DSTATUS_BAD_STDOUT_WRITE);
+      if (!flush_obuf_to(STDOUT_FILENO)) done_with_fork(DSTATUS_BAD_STDOUT_WRITE);
     }
   }
 
@@ -912,10 +912,10 @@ typedef unsigned int uint;
 #    define myinline
 #  endif
 
-  /* Get a char from stdin. If EOF, then die(...) and exit. */
+  /* Get a char from stdin. If EOF, then done_with_fork(...) and exit. */
   static myinline unsigned int mygetc(unsigned int dstatus_on_eof) {
     unsigned int b = read_byte(2  /* is_eof_ok */);
-    if (b >= BRDERR) die(b == BRDERR ? DSTATUS_BAD_STDIN_READ : dstatus_on_eof);
+    if (b >= BRDERR) done_with_fork(b == BRDERR ? DSTATUS_BAD_STDIN_READ : dstatus_on_eof);
     return b;
   }
 
@@ -941,7 +941,7 @@ typedef unsigned int uint;
     }
     iindex |= ((getbits_curbyte = mygetc(dstatus_on_eof)) << have) & ~(0xffffU << curbits);
 #  if 0  /* Simulate an error in the middle. */
-    if (curbits == 16 && iindex == 29891) die(DSTATUS_DUP_1_ERROR);
+    if (curbits == 16 && iindex == 29891) done_with_fork(DSTATUS_DUP_1_ERROR);
 #  endif
 #  ifdef USE_DEBUG
     fprintf(stderr, "getbits(%u) == %u == 0x%x\n", curbits, iindex, iindex);
@@ -980,7 +980,7 @@ typedef unsigned int uint;
         opbufind = 0;
         p = (char*)big.compress.u.sf.write_buffer; p_remaining = READ_BUFFER_SIZE;
         do {
-          if ((got = write(STDOUT_FILENO, p, p_remaining)) <= 0) die(DSTATUS_BAD_PIPE_WRITE);
+          if ((got = write(STDOUT_FILENO, p, p_remaining)) <= 0) done_with_fork(DSTATUS_BAD_PIPE_WRITE);
           p += got;
         } while ((p_remaining -= got) > 0);
       }
@@ -1001,7 +1001,7 @@ typedef unsigned int uint;
         if (ipbufind >= (READ_BUFFER_SIZE >> 1)) {  /* if pipe input buffer empty */
           p = (char*)global_read_buffer; p_remaining = READ_BUFFER_SIZE;
           do {
-            if ((got = read(STDIN_FILENO, p, p_remaining)) <= 0) die(got == 0 ? DSTATUS_SHORT_PIPE_READ : DSTATUS_BAD_PIPE_READ);
+            if ((got = read(STDIN_FILENO, p, p_remaining)) <= 0) done_with_fork(got == 0 ? DSTATUS_SHORT_PIPE_READ : DSTATUS_BAD_PIPE_READ);
             p += got;
           } while ((p_remaining -= got) > 0);
           ipbufind = 0;
@@ -1017,13 +1017,13 @@ typedef unsigned int uint;
 #  ifdef USE_DEBUG
         fprintf(stderr, "pnum=%u max_iindex=%u\n", pnum, max_iindex);
 #  endif
-        die(~iindex & 0xffffU);  /* Propagate dstatus to parent process or user. */
+        done_with_fork(~iindex & 0xffffU);  /* Propagate dstatus to parent process or user. */
       }
 #  ifdef USE_DEBUG
       if (iindex > max_iindex) max_iindex = iindex;
       /* Maximum values for curend here: pnum=0 max_curend=13311; pnum=1 max_curend=26367; pnum=2 max_curend=39423; pnum=3 max_curend=52479; not reached for pnum=4. */
 #  endif
-      if (iindex > curend) die(DSTATUS_CORRUPTED_INPUT);
+      if (iindex > curend) done_with_fork(DSTATUS_CORRUPTED_INPUT);
       getpipe_flags <<= 1;
       getpipe_flagn--;
       if ((getpipe_flags & 0x8000U) != 0) {  /* if firstonly flag for index is not set */
@@ -1050,7 +1050,7 @@ typedef unsigned int uint;
     if (hdrbyte & 0x80) ++clrend;
     ipbufind = READ_BUFFER_SIZE >> 1;  /* Isn't used by the bottom child (pnum == 4). */
     /* maxbits 0..8 is not supported. (n)compress supports decompressing it, but there is no compressor released to generate such a file; also such a file would provide a terrible compression ratio */
-    if ((BITS < 8 && maxbits < 9) || maxbits > 16) die(DSTATUS_CORRUPTED_INPUT);  /* check for valid maxbits */
+    if ((BITS < 8 && maxbits < 9) || maxbits > 16) done_with_fork(DSTATUS_CORRUPTED_INPUT);  /* check for valid maxbits */
 #  if BITS >= 16
 #    error BITS too large, decompress_compress_with_fork(...) is unnecessary.  /* If the caller can handle BITS >= 16, decompress_compress_with_fork(...) is unnecessary. */
 #  else

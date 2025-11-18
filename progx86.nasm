@@ -1286,6 +1286,10 @@ __prog_libc_declare _memset
 __prog_libc_declare memset_
 __prog_libc_declare _memcpy
 __prog_libc_declare memcpy_
+__prog_libc_declare _memcpy_backward
+__prog_libc_declare memcpy_backward_
+__prog_libc_declare _memmove
+__prog_libc_declare memmove_
 __prog_libc_declare progx86_para_alloc_
 __prog_libc_declare progx86_para_reuse_
 __prog_libc_declare progx86_main_returns_void
@@ -3060,7 +3064,7 @@ __prog_depend _setmode, @sysret
 ; --- System-independent libc functions.
 
 %ifdef __NEED__strlen  ; Longer code than strlen_.
-  %if DOSCOM+DOSEXE==0
+  %if DOSCOM+DOSEXE+MINIXI86==0
     _strlen: __prog_libc_export 'size_t __cdecl strlen(const char *s);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
@@ -3077,7 +3081,7 @@ __prog_depend _setmode, @sysret
 
 %ifdef __NEED_strlen_
   strlen_: __prog_libc_export 'size_t __watcall strlen(const char *s);'
-  %if DOSCOM+DOSEXE
+  %if DOSCOM+DOSEXE+MINIXI86
     %if 0  ; This is 1 byte shorter (or 1+2 byte shorter with `pop es') than the alternative, but slower.
 		push si
 		xchg si, ax  ; SI := AX, AX := junk.
@@ -3116,7 +3120,7 @@ __prog_depend _setmode, @sysret
 %endif
 
 %ifdef __NEED__memset  ; Longer code than memset_.
-  %if DOSCOM+DOSEXE==0
+  %if DOSCOM+DOSEXE+MINIXI86==0
     _memset: __prog_libc_export 'void * __cdecl memset(void *s, int c, size_t n);'
 		push edi
 		mov edi, [esp+8]  ; Argument s.
@@ -3132,7 +3136,7 @@ __prog_depend _setmode, @sysret
 
 %ifdef __NEED_memset_
   memset_: __prog_libc_export 'void * __watcall memset(void *s, int c, size_t n);'
-  %if DOSCOM+DOSEXE
+  %if DOSCOM+DOSEXE+MINIXI86
 		push ds
 		pop es  ; This code is needed, unless ES == DS is guaranteed.
 		push di  ; Save.
@@ -3158,9 +3162,10 @@ __prog_depend _setmode, @sysret
 		ret
 %endif
 
-%ifdef __NEED__memcpy  ; Longer code than memcpy_.
-  %if DOSCOM+DOSEXE==0
-    _memcpy: __prog_libc_export 'void * __cdecl memcpy(void *dest, const void *src, size_t n);'
+%ifdef __NEED__memcpy  ; Longer code than memcpy_. Typically not needed because of __WATCOMC__`#pragma intrinsic (memmove)'.
+  %ifndef __NEED__memmove
+    %if DOSCOM+DOSEXE+MINIXI86==0
+      _memcpy: __prog_libc_export 'void * __cdecl memcpy(void *dest, const void *src, size_t n);'
 		push edi
 		push esi
 		mov ecx, [esp+0x14]
@@ -3172,25 +3177,84 @@ __prog_depend _setmode, @sysret
 		pop esi
 		pop edi
 		ret
+    %endif
+  %else
+		; Fall through to _memmove.
   %endif
 %endif
 
-%ifdef __NEED_memcpy_
+%ifdef __NEED__memcpy_backward  ; Longer code than memcpy_backward_. Not a standard C function.
+  %ifndef __NEED__memmove
+    %if DOSCOM+DOSEXE+MINIXI86==0
+      _memcpy_backward: __prog_libc_export 'void * __cdecl memcpy_backward(void *dest, const void *src, size_t n);'
+		push edi
+		push esi
+		mov ecx, [esp+0x14]
+		mov esi, [esp+0x10]
+		mov edi, [esp+0xc]
+		push edi
+		add esi, ecx
+		add edi, ecx
+		dec esi
+		dec edi
+		std
+		rep movsb
+		cld
+		pop eax  ; Result: pointer to dest.
+		pop esi
+		pop edi
+		ret
+    %endif
+  %else
+              ; Fall through to _memmove.
+  %endif
+%endif
+
+%ifdef __NEED__memmove
+  _memmove: __prog_libc_export 'void * __watcall memmove(void *dest, const void *src, size_t n);'
+  %if DOSCOM+DOSEXE+MINIXI86==0
+		push edi
+		push esi
+		mov ecx, [esp+0x14]
+		mov esi, [esp+0x10]
+		mov edi, [esp+0xc]
+		push edi
+		cmp edi, esi
+		jb short .rep_movsb
+		add esi, ecx
+		add edi, ecx
+		dec esi
+		dec edi
+		std
+    .rep_movsb:
+		rep movsb
+		cld
+		pop eax  ; Result: pointer to dest.
+		pop esi
+		pop edi
+		ret
+  %endif
+%endif
+
+%ifdef __NEED_memcpy_  ; Typically not needed because of __WATCOMC__`#pragma intrinsic (memmove)'.
   memcpy_: __prog_libc_export 'void * __watcall memcpy(void *dest, const void *src, size_t n);'
-  %if DOSCOM+DOSEXE
+  %ifndef __NEED__memmove
+    %if DOSCOM+DOSEXE+MINIXI86
+      %if DOSCOM+DOSEXE
 		push ds
 		pop es  ; This code is needed, unless ES == DS is guaranteed.
+      %endif
 		push di
-		xchg si, dx
-		xchg di, ax  ; EDI := dest; EAX := junk.
-		xchg cx, bx
+		xchg si, dx  ; SI := argument dest; DX := orig SI.
+		xchg di, ax  ; DI := dest; AX := junk.
+		xchg cx, bx  ; CX := argument n; BX := orig CX.
 		push di
 		rep movsb
 		pop ax  ; Will return dest.
-		xchg cx, bx  ; Restore CX from BX; BX := junk. And BX is scratch, we don't care what we put there.
+		xchg cx, bx  ; Restore CX from BX; BX := junk. BX in __watcall is scratch, we don't care what we put there.
 		xchg si, dx  ; Restore SI.
 		pop di
-  %else
+    %else
 		push edi
 		xchg esi, edx
 		xchg edi, eax  ; EDI := dest; EAX := junk.
@@ -3198,7 +3262,108 @@ __prog_depend _setmode, @sysret
 		push edi
 		rep movsb
 		pop eax  ; Will return dest.
-		xchg ecx, ebx  ; Restore ECX from BX; BX := junk. Ans BX is scratch, we don't care what we put there.
+		xchg ecx, ebx  ; Restore ECX from EBX; EBX := junk. EBX in __watcall is scratch, we don't care what we put there.
+		xchg esi, edx  ; Restore ESI.
+		pop edi
+    %endif
+		ret
+  %else
+              ; Fall through to _memmove.
+  %endif
+%endif
+
+%ifdef __NEED_memcpy_backward_  ; Not a standard C function.
+  memcpy_backward_: __prog_libc_export 'void * __watcall memcpy_backward(void *dest, const void *src, size_t n);'
+  %ifndef __NEED__memmove
+    %if DOSCOM+DOSEXE+MINIXI86
+      %if DOSCOM+DOSEXE  ; !! `%if DOSCOM+DOSEXE && __PROG_IS_ESEQDS==0  ; (-D_PROGX86_ESEQDS). Also remove the `PUSH DS ++ POP ES' from *m_16.nasm in wasm2nasm.pl. Do it everywhere.
+		push ds
+		pop es  ; This code is needed, unless ES == DS is guaranteed.
+      %endif
+		push di
+		xchg si, dx  ; SI := argument dest; DX := orig SI.
+		xchg di, ax  ; DI := dest; AX := junk.
+		xchg cx, bx  ; CX := argument n; BX := orig CX.
+		push di
+		add si, cx
+		add di, cx
+		dec si
+		dec di
+		std
+		rep movsb
+		cld
+		pop ax  ; Will return dest.
+		xchg cx, bx  ; Restore CX from BX; BX := junk. BX in __watcall is scratch, we don't care what we put there.
+		xchg si, dx  ; Restore SI.
+		pop di
+    %else
+		push edi
+		xchg esi, edx
+		xchg edi, eax  ; EDI := dest; EAX := junk.
+		xchg ecx, ebx
+		push edi
+		add esi, ecx
+		add edi, ecx
+		dec esi
+		dec edi
+		std
+		rep movsb
+		cld
+		pop eax  ; Result: pointer to dest.
+		xchg ecx, ebx  ; Restore ECX from EBX; EBX := junk. EBX in __watcall is scratch, we don't care what we put there.
+		xchg esi, edx  ; Restore ESI.
+		pop edi
+    %endif
+		ret
+  %else
+              ; Fall through to _memmove.
+  %endif
+%endif
+
+%ifdef __NEED_memmove_
+  memmove_: __prog_libc_export 'void * __watcall memmove(void *dest, const void *src, size_t n);'
+  %if DOSCOM+DOSEXE+MINIXI86
+    %if DOSCOM+DOSEXE
+		push ds
+		pop es  ; This code is needed, unless ES == DS is guaranteed.
+    %endif
+		push di
+		xchg si, dx  ; SI := argument dest; DX := orig SI.
+		xchg di, ax  ; DI := dest; AX := junk.
+		xchg cx, bx  ; CX := argument n; BX := orig CX.
+		push di
+		cmp di, si
+		jb short .rep_movsb
+		add si, cx
+		add di, cx
+		dec si
+		dec di
+		std
+    .rep_movsb:
+		rep movsb
+		cld
+		pop ax  ; Will return dest.
+		xchg cx, bx  ; Restore CX from BX; BX := junk. BX in __watcall is scratch, we don't care what we put there.
+		xchg si, dx  ; Restore SI.
+		pop di
+  %else
+		push edi
+		xchg esi, edx  ; ESI := argument dest; EDX := orig ESI.
+		xchg edi, eax  ; EDI := dest; EAX := junk.
+		xchg ecx, ebx  ; ECX := argument n; EBX := orig ECX.
+		push edi
+		cmp edi, esi
+		jb short .rep_movsb
+		add esi, ecx
+		add edi, ecx
+		dec esi
+		dec edi
+		std
+    .rep_movsb:
+		rep movsb
+		cld
+		pop eax  ; Result: pointer to dest.
+		xchg ecx, ebx  ; Restore ECX from EBX; EBX := junk. EBX in __watcall is scratch, we don't care what we put there.
 		xchg esi, edx  ; Restore ESI.
 		pop edi
   %endif

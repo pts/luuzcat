@@ -92,6 +92,8 @@
   /* To prevent wlink: Error! E2028: strlen_ is an undefined reference */
   void *memset(void *s, int c, unsigned int n);
   void *memcpy(void *dest, const void *src, unsigned n);
+  void *memcpy_backward(void *dest, const void *src, unsigned n);  /* Not a standard C function. */
+  void *memmove(void *dest, const void *src, unsigned n);
 #  if IS_X86_16
 #    if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
 #      pragma intrinsic(strlen)  /* This generates shorter code than the libc implementation. */
@@ -100,6 +102,7 @@
 #    endif
 #    pragma intrinsic(memset)  /* This generates shorter code than the libc implementation. */
 #    pragma intrinsic(memcpy)  /* This generates shorter code than the libc implementation. */
+#    pragma intrinsic(memmove)  /* No effect, __WATCOMC__ can't generate memmove(3) code as intrinsic. */
     /* It must not modify `bp', otherwise the OpenWatcom C compiler omits the
      * `pop bp' between the `mov sp, bp' and the `ret'.
      */

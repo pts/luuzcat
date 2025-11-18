@@ -457,20 +457,20 @@ __prog_default_cpu_and_bits
     ;     a_total+rounding. Rounding is up to 0x10 for ELKS and up to 0x100 for
     ;     Minix.
     ;   * If a_total != 0 && a_version == 1 && ELKS >=0.4.0:
-    ;     a_data+a_bss+a_total+argv_envp_size+rounding. Rounding is up to 0x10
-    ;     for ELKS and up to 0x100 for Minix. argv_envp_size is the total size
-    ;     of argc (2 bytes), argv pointers, envp pointers, argv strings and envp
-    ;     strings.
+    ;     a_data+a_bss+a_total+argv_environ_size+rounding. Rounding is up to
+    ;     0x10 for ELKS and up to 0x100 for Minix. argv_environ_size is the
+    ;     total size of argc (2 bytes), argv pointers, environ pointers,
+    ;     argv strings and environ strings.
     ;
     ; Notes:
     ;
     ; * The ELKS >=0.3.0 kernel (in elks/fs/exec.c) source uses mh.chmem as
     ;   struct_exec.a_total.
     ; * The ELKS 0.4.0 kernel (but not 0.3.0 or 0.5.0) with a_version == 0
-    ;   requires a_total >= a_data+a_bss+0x1000+argv_envp_size. (See the `if
+    ;   requires a_total >= a_data+a_bss+0x1000+argv_environ_size. (See the `if
     ;   (heap < INIT_STACK)' check in elks/fs/exec.c, also INIT_STACK == 4096 ==
     ;   0x1000). This means that the heap and the stack (excluding argv and
-    ;   envp) must be at least 0x1000 bytes.
+    ;   environ strings) must be at least 0x1000 bytes.
     ;
     ; Memory layout of data for ELKS with a_version == 0 and Minix i86:
     ;
@@ -520,17 +520,20 @@ __prog_default_cpu_and_bits
     ; * Because of @os_detect_gap in our OS detection implementation, we want
     ;   precise control over the data segment size modulo 0x100. This is
     ;   impossible with a_version == 1 (because we have no control over
-    ;   argv_envp_size), so we use a_version == 0. a_version == 0 is also useful
-    ;   for Minix and ELKS <0.4.0 compatibility.
+    ;   argv_environ_size), so we use a_version == 0. a_version == 0 is also
+    ;   useful for Minix and ELKS <0.4.0 compatibility.
     ; * Our heap is empty, it has size 0.
     ; * For ELKS 0.4.0 support, we want STACK_SIZE >= 0x1400. This includes the
     ;   INIT_STACK == 0x1000,and 0x400 bytes (== 1 KiB) reserved for argv and
-    ;   envp.
+    ;   environ strings.
 
     %ifndef MINIX_STACK_SIZE
-      %define MINIX_STACK_SIZE 0x1400  ; Includes argv and environ strings. Minix i386 programs (such as cat(1)) use 16 KiB. We don't need that much. ELKS 0.4.0 (but not <=0.3.0 or >=0.5.0) needs at least 0x1000 bytes excluding argv and environ strings.
+      %define MINIX_STACK_SIZE 0x1400  ; Includes argv and environ strings. Minix i386 programs (such as cat(1)) use 16 KiB. We don't need that much. ELKS 0.4.0 (but not <=0.3.0 or >=0.5.0) needs at least 0x1000 bytes excluding argv and environ strings, but we have a workaround.
     %endif
-    %if MINIX_STACK_SIZE<0x1400  ; Must include argv and environ strings.
+    %if MINIXI86 && MINIX_STACK_SIZE<0x600  ; Includes argv and environ strings. A reasonable minimum value.
+      %define MINIX_STACK_SIZE 0x600
+    %endif
+    %if MINIXI86==0 && MINIX_STACK_SIZE<0x1400  ; Includes argv and environ strings. A reasonable minimum value.
       %define MINIX_STACK_SIZE 0x1400
     %endif
     %if MINIXI386+MINIXI86
@@ -559,6 +562,12 @@ __prog_default_cpu_and_bits
     _data_start:
     section .bss align=4 follows=.data nobits
     _bss_start:
+    %if MINIXI86
+      @os_is_elks: resb 1  ; 0 for Minix i86, nonzero for ELKS.
+      resb ($$-$)&1
+      @minix_syscall_msg: resb 24  ; Put it early in .bss, because Minix 1.5 i86 (and also i386) refuses to execute a system call if this buffer is not within .a_bss.
+      @program_bss_start:
+    %endif
     section .header
     minix_struct_exec:  ; Minix and ELKS a.out header. `struct exec' in usr/include/a.out.h
     .a_magic: db 1, 3  ; Signature (magic number).
@@ -583,7 +592,11 @@ __prog_default_cpu_and_bits
     .a_version: dw 0  ; Version stamp. Unused for Minix. Setting it 1 would make ELKS >=0.4.0 calculate the data segment size differently. See above why we set it to 0.
     .a_text: dd _text_size  ; Size of text segement in bytes.
     .a_data: dd _rodatastr_size+_rodata_size+_data_size  ; Size of data segment in bytes.
-    .a_bss: dd _data_endalign_extra+_bss_size  ; Size of bss segment in bytes.
+    %if MINIXI86
+      .a_bss: dd @program_bss_start-_bss_start  ; _data_endalign_extra+_bss_size  ; Size of bss segment in bytes. Specifying a small .a_bss (near 0) is a workaround for ELKS 0.4.0 (but not <=0.3.0 or >=0.5.0), which needs at least 0x1000 bytes of stack excluding argv and environ strings.
+    %else
+      .a_bss: dd _data_endalign_extra+_bss_size  ; Size of bss segment in bytes.
+    %endif
     %if MINIXI386+MINIXI86
       .a_entry: dd 0  ; Virtual address (vaddr) of entry point. It will start at __prog_j_start below. Minix 1.5--1.7.0 (but not >=1.7.1) and ELKS <=0.2.1 (but not >=0.3.0) ignore the .a_entry value and use 0 instead.
     %elif MINIX386VM
@@ -913,9 +926,6 @@ __prog_default_cpu_and_bits
       %endif
     %endif
     %if MINIXI86
-      @os_is_elks: resb 1  ; 0 for Minix i86, nonzero for ELKS.
-      resb ($$-$)&1
-      @minix_syscall_msg: resb 24
       @os_detect_gap: resb -(_rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+($-$$)+MINIX_STACK_SIZE)&0xf  ; Round to a multiple of 0x10.
     %endif
     resb ($$-$)&(__prog_general_alignment-1)  ; Align end of section to a multiple of 2 or 4. !! Is this (and all alignment in .bss) correct, even if _data_endalign_extra is 1?
@@ -1827,12 +1837,14 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
   %endif
 %endif
 %if MINIXI86
+; For debugging: On Minix 1.5 i86 and i386, here is how to trigger a process exit with a signal from assembly code:
+  ; %define trigger_SIGILL dw 0xb0f
+  ; %define trigger_SIGEMT int3
+  ; %define trigger_SIGFPE aam 0  ; There are other ways such as division by zero (e.g. `xor bx, bx ++ div bx').
+  ; %define trigger_SIGSEGV out dx, al  ; "Memory fault". All kinds of invalid memeory accesses also trigger it. Also `int 0xfa' triggers it.
+  ; Also an infinite loop can be used.
   .detect_os:  ; Detecct the operating system (Minix i86 or ELKS), and set @os_is_elks to a nonzero value iff ELKS, otherwise set it to 0.
-		push di  ; Save.
-		push ax  ; Save.
-		push cx  ; Save.
 		mov di, sp
-		add di, byte 3*2  ; Skip over the values saved above.
 		mov ax, [di]  ; AX := argc.
 		mov cx, di  ; CX := offset of argc on the stack.
 		times 2 inc ax
@@ -1857,11 +1869,33 @@ _start:  ; __noreturn __no_return_address void __cdecl start(int argc, ...);
 		add al, 0xf
 		and al, ~0xf
 		mov [@os_is_elks], al  ; Because of @os_detect_gap, this is nonero for ELKS. It's always zero for Minix i86 1.5--2.0.4, because it rounds a_total up to a multiple of 0x100.
-		pop cx  ; Restore.
-		pop ax  ; Restore.
-		pop di  ; Restore.
-.detect_os_done:
+  .detect_os_done:
 		and sp, byte ~1  ; ELKS 0.2.0 doesn't align SP to even, so we do it here.
+		mov di, _rodatastr_size+_rodata_size+_data_size+_data_endalign_extra+(@program_bss_start-_bss_start)  ; Always even.
+		mov cx, _bss_size-(@program_bss_start-_bss_start)  ; Always even.
+		add cx, di
+		cmp cx, sp
+		jna short .zero_bss
+  .start_oom:  ; Out-of-memory detected at process startup. This can only happen if the argv and environ strings are larger than expected.
+		mov ax, 'm'+(10<<8)
+		push ax
+		mov ax, 'Me'
+		push ax
+		mov ax, 'No'
+		push ax
+		mov ax, SYS.write
+		mov bx, 2  ; STDERR_FILENO.
+		mov cx, sp  ; Offset of "NoMem\n" just pushed.
+		mov dx, 6
+		call @simple_syscall_minixi86  ; (void)!write(STDERR_FILENO, "NoMem\n", 6);
+		mov al, 127  ; Exit code to indicate out-of-memory.
+  %define __NEED_exit_
+		jmp short exit_
+  .zero_bss:
+		sub cx, di
+		shr cx, 1
+		xor ax, ax
+		rep stosw  ; Zero-initialize _bss. This doesn't overwrite @os_is_elks. This is part of the workaround for ELKS 0.4.0.
 %endif
 %ifndef __GLOBAL__main
   %ifdef __GLOBAL_G@_main

@@ -866,7 +866,8 @@ typedef unsigned int uint;
 #if 0
       (void)!write(STDERR_FILENO, "C", 1);  /* For debugging, indicate that a child has been successfully forked. */
 #endif
-      /* !! Fix `fork() error' on ELKS 0.4.0 (`exec luuzcat' works, it gets rid of sh(1). It's because of out of memory. How much more memory is needed? How much more is needed on ELKS 0.1.4 and 0.2.0? */
+      /* !! Fix `fork() error' on ELKS 0.2.0 and ELSK 0.1.4. Not even the 3 forks for maxbits == 13 work. Is this even possible? */
+      /* !!! Reorganize memory, reduce read and write buffers to 1 KiB for LZW decompression only; add support for BITS == 14 without fork()ing (slow because no lzw_stack); add back fast BITS <= 13 with lzw_stack. */
       pipe_fd_out = pfd[1];  /* Make die(...) propagate the error code to the parent. */
       if (pfd[1] != 1  /* STDOUT_FILENO */) {
         if (close(1) == -1) {

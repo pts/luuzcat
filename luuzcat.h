@@ -534,8 +534,8 @@ __noreturn void fatal_unsupported_feature(void);
 #  ifdef LUUZCAT_DUCML
 #    error LUUZCAT_SMALLBUF conflicts with LUUZCAT_SMALLBUF.
 #  endif
-#  define READ_BUFFER_SIZE 0xc00  /* Unfortunately, 0x1000 bytes doesn't fit for Minix i86. */
-#  define WRITE_BUFFER_SIZE 0x8000
+#  define READ_BUFFER_SIZE  0x2000  /* Decreasing this to <=0x1c00 would only make Minix i86 .a_total 576 bytes smaller. The difference may be important for LZW decompression (decompress_compress_with_fork(...) with maxbits == 16 on ELKS 0.4.0. */
+#  define WRITE_BUFFER_SIZE 0x8000  /* >=0x8000 is required by decompress_deflate(). */
 #endif
 
 /* --- Reading. */
@@ -598,9 +598,8 @@ __noreturn void fatal_unsupported_feature(void);
 #endif
 
 #define BEOF (-1U)  /* Returned by read_byte(1) and try_byte(). */
-#define BRDERR (-2U)  /* Returned by read_byte(2) with LUUZCAT_COMPRESS_FORK. */
 
-unsigned int read_byte(um8 is_eof_ok);
+unsigned int read_byte(ub8 is_eof_ok);
 void read_force_eof(void);
 unsigned int get_le16(void);
 
@@ -617,20 +616,14 @@ unsigned int get_le16(void);
 #  define WRITE_BUFFER_SIZE 0x8000U
 #endif
 
-#undef IS_CRC32_IN_BIG
 #ifdef LUUZCAT_SMALLBUF
-#  define IS_CRC32_IN_BUG 1
 #  define global_read_buffer  big.deflate.read_buffer
 #  define global_write_buffer big.deflate.write_buffer
-#  define READ_BUFFER_DEF uc8 read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT + (-(READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT) & 3)];
-#  define CRC32_TABLE_AND_WRITE_BUFFER_DEF um32 crc32_table[256]; uc8 write_buffer[WRITE_BUFFER_SIZE];
-#  define CRC32_TABLE_DUMMY_AND_WRITE_BUFFER_DEF um32 crc32_table_dummy[256]; uc8 write_buffer[WRITE_BUFFER_SIZE];
+#  define RW_BUFFER_DEF uc8 write_buffer[WRITE_BUFFER_SIZE]; uc8 read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT + (-(READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT) & 3)];
 #else
   extern uc8 global_read_buffer[];
   extern uc8 global_write_buffer[];
-#  define READ_BUFFER_DEF
-#  define CRC32_TABLE_AND_WRITE_BUFFER_DEF CRC32_TABLE_DEF
-#  define CRC32_TABLE_DUMMY_AND_WRITE_BUFFER_DEF CRC32_TABLE_DUMMY
+#  define RW_BUFFER_DEF
 #endif
 
 unsigned int flush_write_buffer(unsigned int size);
@@ -642,20 +635,14 @@ unsigned int flush_write_buffer(unsigned int size);
 /* Value is this because build_crc32_table_if_needed(...) checks crc32_table[1] != 0. */
 #define CRC32_TABLE_DUMMY_SIZE (sizeof(um32) << 1)
 
-#if IS_CRC32_IN_BIG
+#if IS_X86_16
 #  define CRC32_TABLE_DEF um32 crc32_table[256];  /* Replaces CRC32_TABLE_DUMMY. */
 #  define CRC32_TABLE_DUMMY uc8 crc32_table_dummy[CRC32_TABLE_DUMMY_SIZE];
-#  define invalidate_deflate_crc32_table() do {} while (0)
+#  define invalidate_deflate_crc32_table() do { ((um8*)big.deflate.crc32_table)[sizeof(um32)] = 0; } while (0)  /* This makes `(um8)crc32_table[1] != 0' false in build_crc32_table_if_needed(...). */
 #else
-#  if IS_X86_16
-#    define CRC32_TABLE_DEF um32 crc32_table[256];  /* Replaces CRC32_TABLE_DUMMY. */
-#    define CRC32_TABLE_DUMMY uc8 crc32_table_dummy[CRC32_TABLE_DUMMY_SIZE];
-#    define invalidate_deflate_crc32_table() do { ((um8*)big.deflate.crc32_table)[sizeof(um32)] = 0; } while (0)  /* This makes `(um8)crc32_table[1] != 0' false in build_crc32_table_if_needed(...). */
-#  else
-#    define CRC32_TABLE_DEF
-#    define CRC32_TABLE_DUMMY
-#    define invalidate_deflate_crc32_table() do {} while (0)
-#  endif
+#  define CRC32_TABLE_DEF
+#  define CRC32_TABLE_DUMMY
+#  define invalidate_deflate_crc32_table() do {} while (0)
 #endif
 
 #define SCOLZH_NC (255 + 1 + 256 + 2 - 3)
@@ -663,8 +650,7 @@ unsigned int flush_write_buffer(unsigned int size);
 
 /* We specify this struct in the .h file so what we overlap it in memory with other big struct in `big' below. */
 struct scolzh_big {
-  READ_BUFFER_DEF
-  CRC32_TABLE_DUMMY_AND_WRITE_BUFFER_DEF
+  RW_BUFFER_DEF CRC32_TABLE_DUMMY
   um16 left[ 2 * SCOLZH_NC - 1];
   um16 right[2 * SCOLZH_NC - 1];
 
@@ -704,8 +690,7 @@ struct compact_node {
 };
 
 struct compact_big {
-  READ_BUFFER_DEF
-  CRC32_TABLE_DUMMY_AND_WRITE_BUFFER_DEF
+  RW_BUFFER_DEF CRC32_TABLE_DUMMY
   struct compact_node dict[COMPACT_NF];
   struct compact_fpoint in[COMPACT_NF];
   struct compact_index dir[COMPACT_NF << 1];
@@ -714,16 +699,14 @@ struct compact_big {
 #define OPACK_TREESIZE 1024
 
 struct opack_big {
-  READ_BUFFER_DEF
-  CRC32_TABLE_DUMMY_AND_WRITE_BUFFER_DEF
+  RW_BUFFER_DEF CRC32_TABLE_DUMMY
   um16 tree[OPACK_TREESIZE];
 };
 
 #define PACK_EOF_IDX 256
 
 struct pack_big {
-  READ_BUFFER_DEF
-  CRC32_TABLE_DUMMY_AND_WRITE_BUFFER_DEF
+  RW_BUFFER_DEF CRC32_TABLE_DUMMY
   um16 leaf_count[24];  /* leaf_count[i] is the number of leaves on level i. Can be 0..257. */
   um8 intnode_count[24];  /* intnode_count[i] is the number of internal nodes on level i. Can be 0..254. */
   um16 byte_indexes[24];  /* This is an index in .bytes (0..255), or 1 more to indicate EOF. Even a valid index can be EOF if there are less bytes. */
@@ -736,30 +719,31 @@ typedef um8 deflate_huffman_bit_count_t;
 #define DEFLATE_BIT_COUNT_ARY_SIZE 318
 
 struct deflate_big {
-  READ_BUFFER_DEF
-  CRC32_TABLE_AND_WRITE_BUFFER_DEF
+  RW_BUFFER_DEF CRC32_TABLE_DEF
   um16 huffman_trees_ary[DEFLATE_MAX_TREE_SIZE];
   deflate_huffman_bit_count_t huffman_bit_count_ary[DEFLATE_BIT_COUNT_ARY_SIZE];
 };
 
 
 #ifdef LUUZCAT_COMPRESS_FORK
-#  define COMPRESS_FORK_DICTSZ 13056U  /* # of local dictionary entries */
+  /* ELKS PIPE_BUFSIZ values: 0.1.4--0.3.0: PIPE_BUF == PAGE_SIZE == 512; 0.4.0: 512; 0.5.0--0.8.1: 80. */
+#  define COMPRESS_FORK_BUFSIZE 0x400  /* !!! Make it as large as possible (for faster char reversing) without increasing .a_total for Minix i86 and ELKS. */
+#  define COMPRESS_FORK_DICTSIZE 13056U  /* # of local dictionary entries */
+
   struct compress_sf {
-    CRC32_TABLE_DUMMY
-    uc8 write_buffer[READ_BUFFER_SIZE];
-    us16 dindex[COMPRESS_FORK_DICTSZ];  /* dictionary: index to substring; no need to initialize; 25.5 KiB. */
-    us16 dchar[COMPRESS_FORK_DICTSZ];  /* dictionary: last char of string; no need to initialize; 25.5 KiB. */
+    uc8 sf_read_buffer [COMPRESS_FORK_BUFSIZE];
+    uc8 sf_write_buffer[COMPRESS_FORK_BUFSIZE];
+    us16 dindex[COMPRESS_FORK_DICTSIZE];  /* dictionary: index to substring;  no need to initialize; 25.5 KiB. */
+    us16 dchar [COMPRESS_FORK_DICTSIZE];  /* dictionary: last char of string; no need to initialize; 25.5 KiB. */
   };
 #endif
 
 struct compress_noa {
-  CRC32_TABLE_DUMMY_AND_WRITE_BUFFER_DEF  /* crc32_table is also used as a placeholder for a sizeof(...) < ~64 KiB check. compress doesn't have any big data structures to contribute. */
+  RW_BUFFER_DEF CRC32_TABLE_DUMMY  /* crc32_table is also used as a placeholder for a sizeof(...) < ~64 KiB check. compress doesn't have any big data structures to contribute. */
   uc8 stack_supplement[(1U << 13) - 254U];  /* For the 16-bit CPU, noalloc, small `#define BITS 13' support in uncompress.c. Doesn't consume extra memory, because other fields of `big' are larger. */
 };
 
 union compress_u {
-  CRC32_TABLE_DUMMY
   struct compress_noa noa;
 #ifdef LUUZCAT_COMPRESS_FORK  /* fork(...) multiple processes, connect them with pipe(...)s to do high-bits decompress_compress_nohdr(...) */
   struct compress_sf sf;
@@ -767,7 +751,6 @@ union compress_u {
 };
 
 struct compress_big {
-  READ_BUFFER_DEF
   union compress_u u;
 };
 
@@ -775,8 +758,7 @@ struct compress_big {
 #define FREEZE_T2 2043
 
 struct freeze_big {
-  READ_BUFFER_DEF
-  CRC32_TABLE_DUMMY_AND_WRITE_BUFFER_DEF
+  RW_BUFFER_DEF CRC32_TABLE_DUMMY
   um16 freq[FREEZE_T2 + 1];  /* Frequency table. */
   um16 child[FREEZE_T2];  /* Points to child node (child[i], child[i+1]). */
   um16 parent[FREEZE_T2 + FREEZE_N_CHAR2];  /* Points to parent node. */

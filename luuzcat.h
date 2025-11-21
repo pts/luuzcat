@@ -727,14 +727,29 @@ struct deflate_big {
 
 #ifdef LUUZCAT_COMPRESS_FORK
   /* ELKS PIPE_BUFSIZ values: 0.1.4--0.3.0: PIPE_BUF == PAGE_SIZE == 512; 0.4.0: 512; 0.5.0--0.8.1: 80. */
-#  define COMPRESS_FORK_BUFSIZE 0x400  /* !!! Make it as large as possible (for faster char reversing) without increasing .a_total for Minix i86 and ELKS. */
+#  define COMPRESS_FORK_BUFSIZE 0x400  /* As large as possible (for faster char reversing) without increasing .a_total for Minix i86 and ELKS. !!! Increase it to 0x800, 0xc00, 0x1000 etc. if it fits for ELKS 0.4.0 and 0.8.1. */
 #  define COMPRESS_FORK_DICTSIZE 13056U  /* # of local dictionary entries */
 
   struct compress_sf {
-    uc8 sf_read_buffer [COMPRESS_FORK_BUFSIZE];
+    uc8 sf_read_buffer [COMPRESS_FORK_BUFSIZE];  /* Must be at the beginning. */
     uc8 sf_write_buffer[COMPRESS_FORK_BUFSIZE];
     us16 dindex[COMPRESS_FORK_DICTSIZE];  /* dictionary: index to substring;  no need to initialize; 25.5 KiB. */
     us16 dchar [COMPRESS_FORK_DICTSIZE];  /* dictionary: last char of string; no need to initialize; 25.5 KiB. */
+  };
+#endif
+
+#ifdef LUUZCAT_SMALLBUF
+#  define COMPRESS_SMALLBUF_READ_BUFFER_SIZE 0x400
+#  define COMPRESS_SMALLBUF_WRITE_BUFFER_SIZE 0x1200  /* As large as possible (for faster char reversing) without increasing .a_total for Minix i86 and ELKS. */
+#  define COMPRESS_SMALLBUF_BITS 14
+#  if defined(COMPRESS_FORK_BUFSIZE) && COMPRESS_FORK_BUFSIZE != COMPRESS_SMALLBUF_READ_BUFFER_SIZE
+#    error COMPRESS_FORK_BUFSIZE must be the same as COMPRESS_SMALLBUF_READ_BUFFER_SIZE.
+#  endif
+  struct compress_sn {
+    uc8 sn_read_buffer [COMPRESS_SMALLBUF_READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT + (-(COMPRESS_SMALLBUF_READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT) & 3)];  /* Must be at the beginning. */
+    uc8 sn_write_buffer[COMPRESS_SMALLBUF_WRITE_BUFFER_SIZE];
+    us16 tab_prefix_ary[1 << COMPRESS_SMALLBUF_BITS];
+    uc8 tab_suffix_ary[1 << COMPRESS_SMALLBUF_BITS];
   };
 #endif
 
@@ -744,9 +759,13 @@ struct compress_noa {
 };
 
 union compress_u {
+  uc8 dummy_stack[1];
   struct compress_noa noa;
 #ifdef LUUZCAT_COMPRESS_FORK  /* fork(...) multiple processes, connect them with pipe(...)s to do high-bits decompress_compress_nohdr(...) */
   struct compress_sf sf;
+#endif
+#ifdef LUUZCAT_SMALLBUF
+  struct compress_sn sn;
 #endif
 };
 

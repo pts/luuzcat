@@ -121,7 +121,7 @@
 #      pragma aux main __value [__ax] __modify [__bx __cx __dx __si __di __es]
 #    endif
 #  endif
-#  if IS_X86_16 && !defined(_PROGX86_NOALLOC)
+#  if IS_DOS_16
     /* Allocates para_count << 4 bytes of memory, aligned to 16 (paragraph)
      * boundary, and returns the segment register value pointing to the
      * beginning of it. Returns 0 on out-of-memory.
@@ -516,9 +516,6 @@ __noreturn void fatal_unsupported_feature(void);
 #  ifdef _DOSCOMSTART_UNCOMPRC
 #    error LUUZCAT_DUCML conflicts with _DOSCOMSTART_UNCOMPRC.
 #  endif
-#  ifdef _PROGX86_NOALLOC
-#    error LUUZCAT_DUCML conflicts with _PROGX86_NOALLOC.
-#  endif
 #  ifdef LUUZCAT_SMALLBUF
 #    error LUUZCAT_DUCML conflicts with LUUZCAT_SMALLBUF.
 #  endif
@@ -729,9 +726,9 @@ struct deflate_big {
 #ifdef LUUZCAT_COMPRESS_FORK
   /* ELKS PIPE_BUFSIZ values: 0.1.4--0.3.0: PIPE_BUF == PAGE_SIZE == 512; 0.4.0: 512; 0.5.0--0.8.1: 80. */
 #  define COMPRESS_FORK_BUFSIZE 0x400  /* As large as possible (for faster char reversing) without increasing .a_total for Minix i86 and ELKS. !!! Increase it to 0x800, 0xc00, 0x1000 etc. if it fits for ELKS 0.4.0 and 0.8.1. */
-#  define COMPRESS_FORK_DICTSIZE 13056U  /* # of local dictionary entries */
+#  define COMPRESS_FORK_DICTSIZE 13056U  /* # of local dictionary entries: ((1UL << 16) - 256U) == 13056U * 5U. */
 
-  struct compress_sf {
+  struct compress_big_sf {
     uc8 sf_read_buffer [COMPRESS_FORK_BUFSIZE];  /* Must be at the beginning. */
     uc8 sf_write_buffer[COMPRESS_FORK_BUFSIZE];
     us16 dindex[COMPRESS_FORK_DICTSIZE];  /* dictionary: index to substring;  no need to initialize; 25.5 KiB. */
@@ -741,38 +738,18 @@ struct deflate_big {
 
 #ifdef LUUZCAT_SMALLBUF
 #  define COMPRESS_SMALLBUF_READ_BUFFER_SIZE 0x400
-#  define COMPRESS_SMALLBUF_WRITE_BUFFER_SIZE 0x1200  /* As large as possible (for faster char reversing) without increasing .a_total for Minix i86 and ELKS. */
+#  define COMPRESS_SMALLBUF_WRITE_BUFFER_SIZE 0x1400  /* As large as possible (for faster char reversing) without increasing .a_total for Minix i86 and ELKS. */
 #  define COMPRESS_SMALLBUF_BITS 14
 #  if defined(COMPRESS_FORK_BUFSIZE) && COMPRESS_FORK_BUFSIZE != COMPRESS_SMALLBUF_READ_BUFFER_SIZE
 #    error COMPRESS_FORK_BUFSIZE must be the same as COMPRESS_SMALLBUF_READ_BUFFER_SIZE.
 #  endif
-  struct compress_sn {
+  struct compress_big_sn {
     uc8 sn_read_buffer [COMPRESS_SMALLBUF_READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT + (-(COMPRESS_SMALLBUF_READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT) & 3)];  /* Must be at the beginning. */
     uc8 sn_write_buffer[COMPRESS_SMALLBUF_WRITE_BUFFER_SIZE];
-    us16 tab_prefix_ary[1 << COMPRESS_SMALLBUF_BITS];
-    uc8 tab_suffix_ary[1 << COMPRESS_SMALLBUF_BITS];
+    us16 tab_prefix_ary[(1U << COMPRESS_SMALLBUF_BITS) - 256U];
+    uc8  tab_suffix_ary[(1U << COMPRESS_SMALLBUF_BITS) - 256U];
   };
 #endif
-
-struct compress_noa {
-  RW_BUFFER_DEF CRC32_TABLE_DUMMY  /* crc32_table is also used as a placeholder for a sizeof(...) < ~64 KiB check. compress doesn't have any big data structures to contribute. */
-  uc8 stack_supplement[(1U << 13) - 254U];  /* For the 16-bit CPU, noalloc, small `#define BITS 13' support in uncompress.c. Doesn't consume extra memory, because other fields of `big' are larger. */
-};
-
-union compress_u {
-  uc8 dummy_stack[1];
-  struct compress_noa noa;
-#ifdef LUUZCAT_COMPRESS_FORK  /* fork(...) multiple processes, connect them with pipe(...)s to do high-bits decompress_compress_nohdr(...) */
-  struct compress_sf sf;
-#endif
-#ifdef LUUZCAT_SMALLBUF
-  struct compress_sn sn;
-#endif
-};
-
-struct compress_big {
-  union compress_u u;
-};
 
 #define FREEZE_N_CHAR2 511
 #define FREEZE_T2 2043
@@ -796,8 +773,14 @@ extern union big_big {
   struct opack_big opack;
   struct pack_big pack;
   struct deflate_big deflate;
-  struct compress_big compress;
   struct freeze_big freeze;
+  uc8 unused_dummy[1];  /* Used as lzw_stack in the never-taken `if (use_lzw_stack(maxbits))' branch in decompres_compress_nohdr(....). */
+#ifdef LUUZCAT_COMPRESS_FORK  /* fork(...) multiple processes, connect them with pipe(...)s to do high-bits decompress_compress_nohdr(...). */
+  struct compress_big_sf compress_sf;
+#endif
+#ifdef LUUZCAT_SMALLBUF
+  struct compress_big_sn compress_sn;
+#endif
 } big;
 
 /* This is always true, otherwise there is no way to communicate the write_idx. !! Add global_write_idx. */

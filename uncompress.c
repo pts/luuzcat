@@ -218,7 +218,7 @@
 #  ifdef LUUZCAT_SMALLBUF
 #    define COMPRESS_READ_BUFFER_SIZE COMPRESS_SMALLBUF_READ_BUFFER_SIZE
 #    define compress_read(fd, buf, count) read(fd, buf, count)
-#    define compress_write_buffer big.compress.u.sn.sn_write_buffer
+#    define compress_write_buffer big.compress_sn.sn_write_buffer
 #  else
 #    define COMPRESS_READ_BUFFER_SIZE READ_BUFFER_SIZE
 #    define compress_read(fd, buf, count) read(fd, buf, count)
@@ -262,6 +262,8 @@
    * finchar, 0xff00 codes pointing back, 1 literal code.
    */
   static uc8 lzw_stack[(1UL << BITS) - 254U];
+#  define lzw_stack_size sizeof(lzw_stack)
+#  define use_lzw_stack(maxbits) 1
   static uc8  tab_suffix_ary[(1UL << BITS) - 256U];  /* ~64 KiB. For each code, it contains the last byte. */
   static um16 tab_prefix_ary[(1UL << BITS) - 256U];  /* ~128 KiB. Prefix for each code. */
 #  define tab_prefixof(code) (tab_prefix_ary - 256)[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
@@ -273,34 +275,21 @@
 #endif
 #if defined(LUUZCAT_SMALLBUF)
 #  define BITS COMPRESS_SMALLBUF_BITS  /* 14. */
-#  define COMPRESS_WRITE_BUFFER_SIZE COMPRESS_SMALLBUF_WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.u.dummy_stack  /* Small size, so no stack, so slow decompression. */
-#  define tab_prefixof(code) (big.compress.u.sn.tab_prefix_ary - 256)[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_suffixof(code) (big.compress.u.sn.tab_suffix_ary - 256)[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
-#  define tab_init(maxbits) do {} while (0)
-  /* !!! speed optimization: add back fast BITS <= 13 with lzw_stack. */
-#endif
-#if IS_X86_16 && !defined(LUUZCAT_SMALLBUF) && (!IS_DOS_16 || defined(_PROGX86_NOALLOC))
-  /* This implementation supports maxbits <= 13 (so it doesn't support 14, 15 or 16), but it keeps the data segment under 64 KiB. For DOS .com programs, it keeps code+data under 64 KiB. */
-#  define BITS 13
-#  define COMPRESS_WRITE_BUFFER_SIZE (1U << 13)
-#  define lzw_stack big.compress.u.noa.stack_supplement
-#  define tab_suffixof(code) ((uc8*)(compress_write_buffer + COMPRESS_WRITE_BUFFER_SIZE - 256))[code]  /* In compress_write_buffer, after the COMPRESS_WRITE_BUFFER_SIZE bytes. */
-#  define tab_prefixof(code) ((um16*)(compress_write_buffer + COMPRESS_WRITE_BUFFER_SIZE - 256 + (1 << BITS)) - 256)[code]  /* In compress_write_buffer, after tab_suffixof. */
-#  if BITS > 14
-#    error BITS too large for 16-bit noalloc uncompress.
+#  if BITS < 14
+#    error LZW decompression with LUUZCAT_SMALLBUF needs BITS >= 14.  /* For example, for lzw_stack below. */
 #  endif
-  typedef char assert_write_buffer_size_for_uncompress[sizeof(compress_write_buffer) >= COMPRESS_WRITE_BUFFER_SIZE + (3U << BITS) - 3U * 256 ? 1 : -1];
-  typedef char assert_stack_size_for_uncompress[sizeof(lzw_stack) >= (1U << BITS) - 254U ? 1 : -1];
+#  define COMPRESS_WRITE_BUFFER_SIZE COMPRESS_SMALLBUF_WRITE_BUFFER_SIZE
+#  define lzw_stack ((uc8*)&big.compress_sn.tab_suffix_ary[(1U << 13) - 256U])  /* Works for maxbits <= 13. For maxbits <= 13, (1U << 13) - 254U bytes are needed, and 1U << 13 bytes are available, good. Also works with .tab_prefix_ary. */
+#  define lzw_stack_size ((1U << 13) - 254U)
+#  define use_lzw_stack(maxbits) ((maxbits) <= 13)
+#  define tab_prefixof(code) (big.compress_sn.tab_prefix_ary - 256)[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
+#  define tab_suffixof(code) (big.compress_sn.tab_suffix_ary - 256)[(code)]  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_get(code) tab_prefixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_suffix_get(code) tab_suffixof(code)  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init(maxbits) do {} while (0)
 #endif
-#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && defined(LUUZCAT_DUCML) && defined(_PROGX86) && defined(_PROGX86_DOSMEM) && defined(_PROGX86_HAVE_PARA_REUSE_START) && defined(__SMALL__) && !defined(_DOSCOMSTART_UNCOMPRC) && !defined(_DOSCOMSTART) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
+#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && defined(LUUZCAT_DUCML) && defined(_PROGX86) && defined(_PROGX86_DOSMEM) && defined(_PROGX86_HAVE_PARA_REUSE_START) && defined(__SMALL__) && !defined(_DOSCOMSTART_UNCOMPRC) && !defined(_DOSCOMSTART) && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the optimized far pointer implementation of the large arrays
    * for LUUZCAT_DUCML (using the OpenWatcom C compiler targeting DOS 8086).
    * This allocates heap memory only for bits == 15 and 16, and it allocates
@@ -308,7 +297,9 @@
    */
 #  define BITS 16
 #  define COMPRESS_WRITE_BUFFER_SIZE uncompress_ducml_write_buffer_size
-#  define lzw_stack big.compress.u.noa.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.unused_dummy  /* static uc8 lzw_stack[1]; */
+#  define lzw_stack_size sizeof(lzw_stack)
+#  define use_lzw_stack(maxbits) 0
 #  if 0
 #    define tab_suffix_seg  (*(__segment*)0xfc0c)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
 #    define tab_prefix0_seg (*(__segment*)0xfc0e)
@@ -368,7 +359,7 @@
     }
   }
 #endif
-#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && !defined(LUUZCAT_DUCML) && defined(_DOSCOMSTART_UNCOMPRC) && defined(_DOSCOMSTART) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
+#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && !defined(LUUZCAT_DUCML) && defined(_DOSCOMSTART_UNCOMPRC) && defined(_DOSCOMSTART) && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the optimized far pointer implementation of the large arrays in
    * uncomprc.com for the OpenWatcom C compiler targeting DOS 8086.
    *
@@ -383,7 +374,9 @@
   /* !! Check for out-of-memory for DOS .com program (also for other DOS .com targets). Doesn't DOS already check at program load time that there is 64 KiB free? */
 #  define BITS 16
 #  define COMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.u.noa.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.unused_dummy  /* static uc8 lzw_stack[1]; */
+#  define lzw_stack_size sizeof(lzw_stack)
+#  define use_lzw_stack(maxbits) 0
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
   static um16 tab_prefix_get(um16 code);
   /* tab_prefix_get(...) works with __modify [__es] and __modify [__es __bx], but it doesn't work with __modify __exact [es __bx] */
@@ -430,13 +423,15 @@
     }
   }
 #endif
-#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && !defined(LUUZCAT_DUCML) && !defined(_DOSCOMSTART_UNCOMPRC) && !defined(_PROGX86_NOALLOC) && defined(__WATCOMC__) && !defined(__TURBOC__)
+#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && !defined(LUUZCAT_DUCML) && !defined(_DOSCOMSTART_UNCOMPRC) && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the optimized far pointer implementation of the large arrays
    * for the OpenWatcom C compiler targeting DOS 8086.
    */
 #  define BITS 16
 #  define COMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.u.noa.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.unused_dummy  /* static uc8 lzw_stack[1]; */
+#  define lzw_stack_size sizeof(lzw_stack)
+#  define use_lzw_stack(maxbits) 0
   static __segment tab_prefix0_seg, tab_prefix1_seg, tab_suffix_seg;
 #  if !(defined(__SMALL__) || defined(__MEDIUM__))  /* This works in any memory model. */
     static um16 tab_prefix_get(um16 code) { return *((const um16 __far*)(((code & 1 ? tab_prefix1_seg : tab_prefix0_seg) :> (code & ~1U)))); }  /* Indexes 0 <= code < 256 are invalid and unused. */
@@ -507,7 +502,7 @@
     tab_suffix_seg  = segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4) * 2;  /* For each code, it contains the last byte. */
   }
 #endif
-#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && !defined(_PROGX86_NOALLOC) && 0 && defined(__WATCOMC__) && !defined(__TURBOC__)
+#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && 0 && defined(__WATCOMC__) && !defined(__TURBOC__)
   /* This is the basic (unoptimized but working) far pointer implementation
    * of the larger arrays with the DOS 8086 target. Currently it works with
    * the OpenWatcom C compiler, but with some work it could be made work for
@@ -520,7 +515,9 @@
    */
 #  define BITS 16
 #  define COMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.u.noa.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.unused_dummy  /* static uc8 lzw_stack[1]; */
+#  define lzw_stack_size sizeof(lzw_stack)
+#  define use_lzw_stack(maxbits) 0
   static uc8  __far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
   static um16 __far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
   static um16 __far tab_prefix1_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for odd  codes. */
@@ -532,7 +529,7 @@
 #  define tab_prefix_suffix_set(code, prefix, suffix) (tab_prefixof(code) = (prefix), tab_suffixof(code) = (suffix))  /* Indexes 0 <= code < 256 are invalid and unused. */
 #  define tab_init(maxbits) do { tab_prefix_fptr_ary[0] = tab_prefix0_ary; tab_prefix_fptr_ary[1] = tab_prefix1_ary; } while (0)
 #endif
-#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && !defined(_PROGX86_NOALLOC) && !defined(__WATCOMC__) && defined(__TURBOC__)
+#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && !defined(__WATCOMC__) && defined(__TURBOC__)
   /* This is the memory-optimized (but not speed-optimized) far pointer
    * implementation of the large arrays for the Turbo C++ 1.00 or 1.01
    * compilers targeting DOS 8086. Don't specify the `-A' flag at compile
@@ -544,7 +541,9 @@
 #  define BITS 16
 #  define COMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
 #  include <dos.h>  /* For Turbo C++ allocmem(...), MK_FP(...) and FP_SEG(...). */
-#  define lzw_stack big.compress.u.noa.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.unused_dummy  /* static uc8 lzw_stack[1]; */
+#  define lzw_stack_size sizeof(lzw_stack)
+#  define use_lzw_stack(maxbits) 0
   static uc8 far *tab_suffix_fptr;  /* [(1UL << BITS) - 256U]. For each code, it contains the last byte. */
   um16 far *tab_prefix_fptr_ary[2];  /* [((1UL << BITS) - 256U) >> 1]. [0] is prefix for even codes, [1] is prefix for odd codes. */
 #  define tab_prefixof(code) tab_prefix_fptr_ary[(code) & 1][(code) >> 1]  /* Indexes 0 <= code < 256 are invalid and unused. */
@@ -568,7 +567,7 @@
     tab_suffix_fptr        = MK_FP(segment - (256U >> 4) + (unsigned short)(((1UL << BITS) - 256U) >> 4) * 2, 0);  /* Prefix for odd codes. */
   }
 #endif
-#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && !defined(_PROGX86_NOALLOC) && 0 && !defined(__WATCOMC__) && defined(__TURBOC__)
+#if IS_DOS_16 && !defined(LUUZCAT_SMALLBUF) && 0 && !defined(__WATCOMC__) && defined(__TURBOC__)
   /* This is the basic (unoptimized but working) far pointer implementation
    * of the large arrays for the Turbo C++ 1.00 or 1.01 compilers targeting
    * DOS 8086. Don't specify the `-A' flag at compile time, it will hide
@@ -581,7 +580,9 @@
    */
 #  define BITS 16
 #  define COMPRESS_WRITE_BUFFER_SIZE WRITE_BUFFER_SIZE
-#  define lzw_stack big.compress.u.noa.crc32_table_dummy  /* static uc8 lzw_stack[1]; */  /* Used only to check its size. */
+#  define lzw_stack big.unused_dummy  /* static uc8 lzw_stack[1]; */
+#  define lzw_stack_size sizeof(lzw_stack)
+#  define use_lzw_stack(maxbits) 0
   static uc8  far tab_suffix_ary[(1UL << BITS) - 256U];  /* For each code, it contains the last byte. */
   static um16 far tab_prefix0_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for even codes. */
   static um16 far tab_prefix1_ary[((1UL << BITS) - 256U) >> 1];  /* Prefix for odd  codes. */
@@ -840,7 +841,7 @@ typedef unsigned int uint;
     unsigned int p_remaining;
     int got;
 
-    for (p = (char*)big.compress.u.sf.sf_write_buffer, p_remaining = fork_obufind; p_remaining != 0; p += got, p_remaining -= got) {
+    for (p = (char*)big.compress_sf.sf_write_buffer, p_remaining = fork_obufind; p_remaining != 0; p += got, p_remaining -= got) {
       if ((got = write(fd, p, p_remaining)) <= 0) return 0;  /* Indicate error. */
     }
     fork_obufind = 0;
@@ -866,11 +867,11 @@ typedef unsigned int uint;
       do {
         if (putpipe_flagn == 0) {  /* if we need to reserve a flag entry */
           putpipe_flags = 0;
-          putpipe_flagp = (us16*)big.compress.u.sf.sf_write_buffer + opbufind;
+          putpipe_flagp = (us16*)big.compress_sf.sf_write_buffer + opbufind;
           opbufind++;
         }
         do {
-          ((us16*)big.compress.u.sf.sf_write_buffer)[opbufind++] = dstatus;  /* add large enough dstatus value to the buffer. */
+          ((us16*)big.compress_sf.sf_write_buffer)[opbufind++] = dstatus;  /* add large enough dstatus value to the buffer. */
           putpipe_flags = putpipe_flags << 1;  /* Add flag value 0. */
         } while (++putpipe_flagn < 15);
         putpipe_flagn = 0;
@@ -928,10 +929,10 @@ typedef unsigned int uint;
     int got;
 
     if (fork_inptr == fork_inend) {
-      if ((got = read(STDIN_FILENO, (char*)big.compress.u.sf.sf_read_buffer, (int)COMPRESS_FORK_BUFSIZE)) < 0) done_with_fork(DSTATUS_BAD_STDIN_READ);
+      if ((got = read(STDIN_FILENO, (char*)big.compress_sf.sf_read_buffer, (int)COMPRESS_FORK_BUFSIZE)) < 0) done_with_fork(DSTATUS_BAD_STDIN_READ);
       if (got == 0) done_with_fork(dstatus_on_eof);
-      fork_inend = big.compress.u.sf.sf_read_buffer + got;
-      fork_inptr = big.compress.u.sf.sf_read_buffer;
+      fork_inend = big.compress_sf.sf_read_buffer + got;
+      fork_inptr = big.compress_sf.sf_read_buffer;
     }
     return *fork_inptr++;
   }
@@ -977,7 +978,7 @@ typedef unsigned int uint;
 #  ifdef USE_DEBUG
       if (u > 255) { wi_too_large: fprintf(stderr, "fatal: assert: written index too large: pnum=%u index=%u\n", pnum, u); exit(99); }
 #  endif
-      big.compress.u.sf.sf_write_buffer[fork_obufind++] = u;
+      big.compress_sf.sf_write_buffer[fork_obufind++] = u;
       if (fork_obufind == COMPRESS_FORK_BUFSIZE) {  /* If stdout buffer full. */
         if (!flush_obuf_to(STDOUT_FILENO)) done_with_fork(DSTATUS_BAD_STDOUT_WRITE);
       }
@@ -985,20 +986,20 @@ typedef unsigned int uint;
     }
     if (putpipe_flagn == 0) {  /* if we need to reserve a flag entry */
       putpipe_flags = 0;
-      putpipe_flagp = (us16*)big.compress.u.sf.sf_write_buffer + opbufind;
+      putpipe_flagp = (us16*)big.compress_sf.sf_write_buffer + opbufind;
       opbufind++;
     }
 #  ifdef USE_DEBUG
     if ((pnum == 1 && u > 13311) || (pnum == 2 && u > 26367) || (pnum == 3 && u > 39423) || (pnum == 4 && u > 52479)) goto wi_too_large;  /* Smaller values are OK. */
 #  endif
-    ((us16*)big.compress.u.sf.sf_write_buffer)[opbufind++] = u;  /* add index to buffer */
+    ((us16*)big.compress_sf.sf_write_buffer)[opbufind++] = u;  /* add index to buffer */
     putpipe_flags = (putpipe_flags << 1) | flag;  /* add firstonly flag */
     if (++putpipe_flagn == 15) {    /* if block of 15 indices */
       putpipe_flagn = 0;
       *putpipe_flagp = putpipe_flags;    /* insert flags entry */
       if (opbufind == (COMPRESS_FORK_BUFSIZE >> 1)) {  /* if pipe out buffer full */
         opbufind = 0;
-        p = (char*)big.compress.u.sf.sf_write_buffer; p_remaining = COMPRESS_FORK_BUFSIZE;
+        p = (char*)big.compress_sf.sf_write_buffer; p_remaining = COMPRESS_FORK_BUFSIZE;
         do {
           if ((got = write(STDOUT_FILENO, p, p_remaining)) <= 0) done_with_fork(DSTATUS_BAD_PIPE_WRITE);
           p += got;
@@ -1019,20 +1020,20 @@ typedef unsigned int uint;
     for (;;) {    /* while index with firstonly flag set */
       if (getpipe_flagn == 0) {
         if (ipbufind >= (COMPRESS_FORK_BUFSIZE >> 1)) {  /* if pipe input buffer empty */
-          p = (char*)big.compress.u.sf.sf_read_buffer; p_remaining = COMPRESS_FORK_BUFSIZE;
+          p = (char*)big.compress_sf.sf_read_buffer; p_remaining = COMPRESS_FORK_BUFSIZE;
           do {
             if ((got = read(STDIN_FILENO, p, p_remaining)) <= 0) done_with_fork(got == 0 ? DSTATUS_SHORT_PIPE_READ : DSTATUS_BAD_PIPE_READ);
             p += got;
           } while ((p_remaining -= got) > 0);
           ipbufind = 0;
         }
-        getpipe_flags = ((us16*)big.compress.u.sf.sf_read_buffer)[ipbufind++];
+        getpipe_flags = ((us16*)big.compress_sf.sf_read_buffer)[ipbufind++];
 #  ifdef USE_DEBUG
         if (getpipe_flags >= 0x8000U) { fprintf(stderr, "fatal: assert: getpipe_flags too large: %u\n", getpipe_flags); exit(98); }
 #  endif
         getpipe_flagn = 15;
       }
-      iindex = ((us16*)big.compress.u.sf.sf_read_buffer)[ipbufind++];
+      iindex = ((us16*)big.compress_sf.sf_read_buffer)[ipbufind++];
       if (iindex >= (~DSTATUS_MAX & 0xffffU)) {
 #  ifdef USE_DEBUG
         fprintf(stderr, "pnum=%u max_iindex=%u\n", pnum, max_iindex);
@@ -1047,15 +1048,15 @@ typedef unsigned int uint;
       getpipe_flags <<= 1;
       getpipe_flagn--;
       if ((getpipe_flags & 0x8000U) != 0) {  /* if firstonly flag for index is not set */
-        while (iindex >= base) iindex = big.compress.u.sf.dindex[iindex - base];
+        while (iindex >= base) iindex = big.compress_sf.dindex[iindex - base];
         putpipe(iindex, 1);
       } else
         return;    /* return with valid non-firstonly index */
     }
   }
 
-  /* Make sure that there is enough room in big.compress.u.sf.dchar for the initial bytes copied from global_read_buffer. */
-  typedef char assert_sizeof_dchar[sizeof(big.compress.u.sf.dchar) >= 3UL * READ_BUFFER_SIZE ? 1 : -1];
+  /* Make sure that there is enough room in big.compress_sf.dchar for the initial bytes copied from global_read_buffer. */
+  typedef char assert_sizeof_dchar[sizeof(big.compress_sf.dchar) >= 3UL * READ_BUFFER_SIZE ? 1 : -1];
 
   static void copy_read_buffer_with_fork(void) {
 #  if !LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS
@@ -1063,14 +1064,14 @@ typedef unsigned int uint;
 #  endif
     const unsigned int size = global_insize - global_inptr;
 
-    fork_inptr = (fork_inend = (uc8*)big.compress.u.sf.dchar + sizeof(big.compress.u.sf.dchar)) - size;
+    fork_inptr = (fork_inend = (uc8*)big.compress_sf.dchar + sizeof(big.compress_sf.dchar)) - size;
     memmove(fork_inptr, global_read_buffer + global_inptr, size);
 #  if 0  /* No initialization needed, it works with arbitrary values. */
-    memset(big.compress.u.sf.dindex, 1, sizeof(big.compress.u.sf.dindex));
-    memset(big.compress.u.sf.dchar,  1, sizeof(big.compress.u.sf.dchar) - size);
+    memset(big.compress_sf.dindex, 1, sizeof(big.compress_sf.dindex));
+    memset(big.compress_sf.dchar,  1, sizeof(big.compress_sf.dchar) - size);
 #  endif
     /* From now, global_read_buffer[...] will be unused, and thus it can overlap with big.compress. */
-    /* From now until the next read(...) call in get_byte_with_fork(...), uncompressed input bytes will be copied from the temporary read buffer in big.compress.u.sf.dchar[...]. */
+    /* From now until the next read(...) call in get_byte_with_fork(...), uncompressed input bytes will be copied from the temporary read buffer in big.compress_sf.dchar[...]. */
   }
 
   static __noreturn void decompress_compress_with_fork(um8 hdrbyte) {
@@ -1114,7 +1115,7 @@ typedef unsigned int uint;
 #  endif
 
     /* Preliminary inits. Note: end/maxend/curend are highest, not highest + 1. */
-    base = COMPRESS_FORK_DICTSIZE * pnum + 256;  /* Using `+ clrend + 1' instead of `+ 256' would also work here, and it would populate big.compress.u.sf.dindex[...] andbig.compress.u.sf.dchar[...] from the beginning. */
+    base = COMPRESS_FORK_DICTSIZE * pnum + 256;  /* Using `+ clrend + 1' instead of `+ 256' would also work here, and it would populate big.compress_sf.dindex[...] andbig.compress_sf.dchar[...] from the beginning. */
     locend = base + COMPRESS_FORK_DICTSIZE - 1;
     maxend = (1 << maxbits) - 1;
     if (maxend > locend) maxend = locend;
@@ -1150,23 +1151,23 @@ typedef unsigned int uint;
       }
       tindex1 = iindex;
       /* Convert the index part, ignoring spawned chars */
-      while (tindex1 >= base) tindex1 = big.compress.u.sf.dindex[tindex1 - base];
+      while (tindex1 >= base) tindex1 = big.compress_sf.dindex[tindex1 - base];
       /* Pass on the index */
       putpipe(tindex1, 0);
       /* Save the char of the last added entry, if any */
-      if (dcharp < COMPRESS_FORK_DICTSIZE) big.compress.u.sf.dchar[dcharp++] = tindex1;
-      if (curend < maxend && ++curend >= base) big.compress.u.sf.dindex[dcharp = (curend - base)] = iindex;
+      if (dcharp < COMPRESS_FORK_DICTSIZE) big.compress_sf.dchar[dcharp++] = tindex1;
+      if (curend < maxend && ++curend >= base) big.compress_sf.dindex[dcharp = (curend - base)] = iindex;
       /* Now: 256U <= base <= iindex <= curend <= maxend <= locend <= 65535. */
 
       /* Do spawned chars. They are naturally produced in
        * the wrong order. To get them in the right order
        * without using memory, a series of passes,
        * progressively less deep, are used */
-      for (tbase1 = base - 1; (tindex1 = iindex) > tbase1; ) {  /* Emit (spawn) each char from big.compress.u.sf.dchar[...]. */  /* !!! speed optimization: This is too slow: O(n**2). */
+      for (tbase1 = base - 1; (tindex1 = iindex) > tbase1; ) {  /* Emit (spawn) each char from big.compress_sf.dchar[...]. */  /* !!! speed optimization: This is too slow: O(n**2). */
         /* Now: 256U <= base <= tbase1 + 1U <= tindex1 == iindex <= curend <= maxend <= locend <= 65535U. */
-        for (; (tindex2 = big.compress.u.sf.dindex[tindex1 - base]) > tbase1; tindex1 = tindex2) {}  /* Scan to desired char. This loop doesn't increase tindex1. */
+        for (; (tindex2 = big.compress_sf.dindex[tindex1 - base]) > tbase1; tindex1 = tindex2) {}  /* Scan to desired char. This loop doesn't increase tindex1. */
         /* Now: 256U <= base <= tbase1 + 1U <= tindex1 <= iindex <= curend <= maxend <= locend <= 65535U. */
-        putpipe(big.compress.u.sf.dchar[tindex1 - base], 1);  /* put it to the pipe */
+        putpipe(big.compress_sf.dchar[tindex1 - base], 1);  /* put it to the pipe */
         tbase1 = tindex1;  /* Stop before tindex1 in the next iteration of this loop. */
       }
     }
@@ -1189,8 +1190,8 @@ typedef unsigned int uint;
 #endif
 
 #ifdef LUUZCAT_SMALLBUF
-  /* Make sure that there is enough room in big.compress.u.sn.tab_prefix_ary for the initial bytes copied from global_read_buffer. */
-  typedef char assert_sizeof_tab_prefix_ary[sizeof(big.compress.u.sn.tab_prefix_ary) >= 3UL * READ_BUFFER_SIZE ? 1 : -1];
+  /* Make sure that there is enough room in big.compress_sn.tab_prefix_ary for the initial bytes copied from global_read_buffer. */
+  typedef char assert_sizeof_tab_prefix_ary[sizeof(big.compress_sn.tab_prefix_ary) >= 3UL * READ_BUFFER_SIZE ? 1 : -1];
 
   static uc8 *compress_incurp, *compress_inendp;
 
@@ -1200,23 +1201,23 @@ typedef unsigned int uint;
 #  endif
     const unsigned int size = global_insize - global_inptr;
 
-    compress_incurp = (compress_inendp = (uc8*)big.compress.u.sn.tab_prefix_ary + sizeof(big.compress.u.sn.tab_prefix_ary)) - size;
+    compress_incurp = (compress_inendp = (uc8*)big.compress_sn.tab_prefix_ary + sizeof(big.compress_sn.tab_prefix_ary)) - size;
     memmove(compress_incurp, global_read_buffer + global_inptr, size);
     /* From now, global_read_buffer[...] will be unused, and thus it can overlap with big.compress. */
-    /* From now until the next compress_read(...) call in decompress_compress_nohdr_low(...), uncompressed input bytes will be copied from the temporary read buffer in big.compress.u.sn.tab_prefix_ary[...]. */
+    /* From now until the next compress_read(...) call in decompress_compress_nohdr_low(...), uncompressed input bytes will be copied from the temporary read buffer in big.compress_sn.tab_prefix_ary[...]. */
     global_write_buffer_to_flush = compress_write_buffer;
   }
 
 #  undef  read_force_eof
 #  define read_force_eof() exit(EXIT_SUCCESS)
-#  define compress_read_buffer big.compress.u.sn.sn_read_buffer
+#  define compress_read_buffer big.compress_sn.sn_read_buffer
 #  define compress_incur compress_incurp[0]
 #  define compress_incurii compress_incurp++[0]
 #  define compress_incurdelta(delta) compress_incurp[(delta)]
 #  define compress_inremaining (compress_inendp - compress_incurp)
 #  define compress_inskip1() (++compress_incurp)
 #  define compress_inskip(n) (compress_incurp += (n))
-#  define compress_inclear() (compress_incurp = compress_inendp = (uc8*)big.compress.u.sn.tab_prefix_ary)
+#  define compress_inclear() (compress_incurp = compress_inendp = (uc8*)big.compress_sn.tab_prefix_ary)
 #  define compress_inreadp compress_inendp
 #  define compress_add_inreadp(delta) (compress_inendp += (delta))
 #  define compress_debug_inptr 0  /* Not useful. */
@@ -1466,8 +1467,8 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
     }
     incode = code;
     /* Good C compilers keep only one of the `if' branches below, eliminating the other one from the executable. */
-    if (sizeof(lzw_stack) >= (1UL << BITS) - 254U) {  /* We use the a faster code string writer implementation. */
-      stack_top = lzw_stack + sizeof(lzw_stack);
+    if (use_lzw_stack(maxbits)) {  /* We use the a faster code string writer implementation. */
+      stack_top = lzw_stack + lzw_stack_size;
       if (code > free_ent1) { /* Special case for KwKwK string. */
         if (code - 1U > free_ent1) fatal_corrupted_input();  /* The `code - 1U' doesn't underflow, because code != 0U is guaranteed by the `if' right above. */
         *--stack_top = finchar;
@@ -1477,15 +1478,15 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
         *--stack_top = tab_suffix_get(code);  /* Generate characters of the code string in reverse order. */
       }
       *--stack_top = finchar = (uc8)code;
-#if 0  /* This works, but it is slow. */
-      while (stack_top != lzw_stack + sizeof(lzw_stack)) {
+#if defined(LUUZCAT_COMPRESS_FORK) && defined(LUUZCAT_SMALLBUF)  /* This works, but it is slower. */
+      while (stack_top != lzw_stack + lzw_stack_size) {
         compress_write_buffer[write_idx++] = *stack_top++;
         if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
       }
 #else
-      w_size = lzw_stack + sizeof(lzw_stack) - stack_top;
+      w_size = lzw_stack + lzw_stack_size - stack_top;
       if (w_size <= 4) {  /* Write a few bytes quickly, without memcpy(...) etc. */
-        while (stack_top != lzw_stack + sizeof(lzw_stack)) {
+        while (stack_top != lzw_stack + lzw_stack_size) {
           compress_write_buffer[write_idx++] = *stack_top++;
           if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
         }

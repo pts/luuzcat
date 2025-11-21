@@ -123,7 +123,7 @@ wcc16dosargs="-bt=dos"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16dosargs below.
 wcc16minixargs="-bt=dos -U__DOS__ -D__MINIX__ -DLUUZCAT_SMALLBUF -DLUUZCAT_COMPRESS_FORK"  # zsh(1) SH_WORD_SPLIT is needed by $wcc16minixargs below.
 wcc32args="-bt=linux -3r -zp=4"  # zsh(1) SH_WORD_SPLIT is needed by $wcc32args below.
 dosdefs="-D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG -D_PROGX86_REUSE -D_PROGX86_DOSMEM -D_PROGX86_CSEQDS -DLUUZCAT_DUCML"  # zsh(1) SH_WORD_SPLIT is needed by $dosdefs below.
-minixi86defs="-D_PROGX86_ONLY_BINARY -D_PROGX86_NOALLOC"  # zsh(1) SH_WORD_SPLIT is needed by $minixi86defs below.
+minixi86defs="-D_PROGX86_ONLY_BINARY"  # zsh(1) SH_WORD_SPLIT is needed by $minixi86defs below.
 rm -f -- *_16.o *_32.o *_16.wasm *_32.wasm *_16.nasm *_32.nasm
 
 wcc386 $wcc32args $common_wccargs -fo=luuzcat_32.o -D_PROGX86_ONLY_BINARY luuzcat.c
@@ -149,7 +149,6 @@ wcc386 $wcc32args $common_wccargs -fo=unfreeze_32.o unfreeze.c
 #wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=undeflate_16.o undeflate.c
 #wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=uncompress_16.o uncompress.c
 #wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=uncompressd_16.o -D_PROGX86_REUSE -D_PROGX86_DOSMEM uncompress.c
-#wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=uncompressn_16.o -D_PROGX86_NOALLOC uncompress.c
 #wcc    $wcc16args $wcc16dosargs $common_wccargs -fo=unfreeze_16.o -D_PROGX86_CSEQDS unfreeze.c
 #
 wcc    $wcc16args $wcc16dosargs $common_wccargs $dosdefs -fo=luuzcatc_16.o luuzcat.c

@@ -1208,19 +1208,16 @@ typedef unsigned int uint;
   /* Make sure that there is enough room in big.compress.u.sn.tab_prefix_ary for the initial bytes copied from global_read_buffer. */
   typedef char assert_sizeof_tab_prefix_ary[sizeof(big.compress.u.sn.tab_prefix_ary) >= 3UL * READ_BUFFER_SIZE ? 1 : -1];
 
-  static uc8 *compress_inbase;  /* !!! Remove compress_inbase by making global_inptr and global_insize pointers. */
+  static uc8 *compress_incurp, *compress_inendp;
 
   static void copy_read_buffer(void) {
 #  if !LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS
 #    error LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS must be true for decompress_compress_nohdr_low(...).
 #  endif
     const unsigned int size = global_insize - global_inptr;
-    uc8 *inend;
 
-    compress_inbase = (inend = (uc8*)big.compress.u.sn.tab_prefix_ary + sizeof(big.compress.u.sn.tab_prefix_ary)) - size;
-    memmove(compress_inbase, global_read_buffer + global_inptr, size);
-    global_inptr = 0;
-    global_insize = size;
+    compress_incurp = (compress_inendp = (uc8*)big.compress.u.sn.tab_prefix_ary + sizeof(big.compress.u.sn.tab_prefix_ary)) - size;
+    memmove(compress_incurp, global_read_buffer + global_inptr, size);
     /* From now, global_read_buffer[...] will be unused, and thus it can overlap with big.compress. */
     /* From now until the next compress_read(...) call in decompress_compress_nohdr_low(...), uncompressed input bytes will be copied from the temporary read buffer in big.compress.u.sn.tab_prefix_ary[...]. */
   }
@@ -1228,14 +1225,30 @@ typedef unsigned int uint;
 #  undef  read_force_eof
 #  define read_force_eof() exit(EXIT_SUCCESS)
 #  define compress_read_buffer big.compress.u.sn.sn_read_buffer
-#  define compress_incur compress_inbase[global_inptr]  /* !!! There is an extra pointer indirection here. */
-#  define compress_incurpp compress_inbase[global_inptr++]  /* !!! There is an extra pointer indirection here. */
-#  define compress_incurdelta(delta) compress_inbase[(delta) + global_inptr]  /* !!! There is an extra pointer indirection here. */
+#  define compress_incur compress_incurp[0]
+#  define compress_incurii compress_incurp++[0]
+#  define compress_incurdelta(delta) compress_incurp[(delta)]
+#  define compress_inremaining (compress_inendp - compress_incurp)
+#  define compress_inskip1() (++compress_incurp)
+#  define compress_inskip(n) (compress_incurp += (n))
+#  define compress_inclear() (compress_incurp = compress_inendp = (uc8*)big.compress.u.sn.tab_prefix_ary)
+#  define compress_inreadp compress_inendp
+#  define compress_add_inreadp(delta) (compress_inendp += (delta))
+#  define compress_debug_inptr 0  /* Not useful. */
+#  define compress_debug_insize compress_inremaining  /* Partially useful. */
 #else
 #  define compress_read_buffer global_read_buffer
 #  define compress_incur global_read_buffer[global_inptr]
-#  define compress_incurpp global_read_buffer[global_inptr++]
+#  define compress_incurii global_read_buffer[global_inptr++]
 #  define compress_incurdelta(delta) global_read_buffer[(delta) + global_inptr]
+#  define compress_inremaining (global_insize - global_inptr)
+#  define compress_inskip1() (++global_inptr)
+#  define compress_inskip(n) (global_inptr += (n))
+#  define compress_inclear() (global_inptr = global_insize = 0)
+#  define compress_inreadp (compress_read_buffer + global_insize)
+#  define compress_add_inreadp(delta) (global_insize += (delta))
+#  define compress_debug_inptr global_inptr
+#  define compress_debug_insize global_insize
 #endif
 
 decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
@@ -1316,51 +1329,58 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
   discard_byte_count = 0;
   code_count_remainder = 0;
   for (;;) {
-    if (global_insize - global_inptr < discard_byte_count) {
-      discard_byte_count -= global_insize - global_inptr;
-      global_inptr = global_insize = 0;
+    if (compress_inremaining < discard_byte_count) {
+      discard_byte_count -= compress_inremaining;
+      compress_inclear();
     } else {
-      global_inptr += discard_byte_count;
+      compress_inskip(discard_byte_count);
       discard_byte_count = 0;
       if (sizeof(unsigned int) > 2) {
-        code_count = (((global_insize - global_inptr) << 3) - posbiti) / n_bits;  /* The `<< 3' won't overflow. Good. */
+        code_count = (((compress_inremaining) << 3) - posbiti) / n_bits;  /* The `<< 3' won't overflow. Good. */
       } else {
-        code_count = divmodcalc(global_insize - global_inptr, n_bits, posbiti);
+        code_count = divmodcalc(compress_inremaining, n_bits, posbiti);
       }
       if (code_count != 0) goto after_read;
       /* Now we have code_count == 0, which implies that there aren't enough
-       * bits remaining for a single code. Thus global_insize - global_inptr
-       * >= 3 is impossible, because that would imply that there are at
+       * bits remaining for a single code. Thus
+       * compress_inremaining == global_insize - global_inptr >= 3
+       * is impossible, because that would imply that there are at
        * least 24 - posbiti bits available, and minimum_bits_needed ==
        * n_bits <= 16 < 17 == 24 - 7 <= 24 - posbiti <= bits_available.
        */
 #ifdef USE_CHECK
-      if (global_insize - global_inptr > 2) abort();
+      if (compress_inremaining > 2) abort();
 #endif
+#ifdef LUUZCAT_SMALLBUF
+      if (compress_incurp != compress_read_buffer) {
+        for (w_idx = 0; compress_incurp + w_idx != compress_inendp; ++w_idx) {  /* No need for memmove(...), since iteration count is <= 2. */
+          compress_read_buffer[w_idx] = compress_incurp[w_idx];
+        }
+        compress_inendp = (compress_incurp = compress_read_buffer) + w_idx;
+      }
+#else
       if (global_insize > READ_BUFFER_EXTRA) {
         global_insize -= global_inptr;  /* After this, global_insize <= 2. */
-#ifdef USE_CHECK
+#  ifdef USE_CHECK
         if (global_insize > READ_BUFFER_EXTRA) abort();  /* This can't happen, because now global_insize <= 2 == READ_BUFFER_EXTRA. */
-#endif
-#ifdef USE_DEBUG
-        fprintf(stderr, "RESET_COPY insize=%lu inptr=%lu n_bits=%lu\n", (unsigned long)global_insize, (unsigned long)global_inptr, (unsigned long)n_bits);
-#endif
+#  endif
+#  ifdef USE_DEBUG
+        fprintf(stderr, "RESET_COPY insize=%lu inptr=%lu n_bits=%lu\n", (unsigned long)compress_debug_insize, (unsigned long)compress_debug_inptr, (unsigned long)n_bits);
+#  endif
         for (w_idx = 0 ; w_idx < global_insize; ++w_idx) {  /* No need for memmove(...), global_insize is small: <= 2. */
           compress_read_buffer[w_idx] = compress_incurdelta(w_idx);
         }
         global_inptr = 0;
       }
-    }
-#ifdef LUUZCAT_SMALLBUF
-    compress_inbase = compress_read_buffer;
 #endif
-    /* Doing == (uint)-1U, because with `(int)... < 0), 0x8000U would fail. */
-    if ((rsize = compress_read(STDIN_FILENO, compress_read_buffer + global_insize, COMPRESS_READ_BUFFER_SIZE)) == (uint)-1U) fatal_read_error();
+    }
+    /* Doing == (uint)-1U, because with `(int)... < 0', 0x8000U would fail. */
+    if ((rsize = compress_read(STDIN_FILENO, compress_inreadp, COMPRESS_READ_BUFFER_SIZE)) == (uint)-1U) fatal_read_error();
 #ifdef USE_DEBUG
     if (1) fprintf(stderr, "READ(%u)=%lu\n", COMPRESS_READ_BUFFER_SIZE, (unsigned long)rsize);
 #endif
     if (rsize == 0) break;
-    global_insize += rsize;
+    compress_add_inreadp(rsize);
     continue;
    after_read:
 #ifdef USE_CHECK
@@ -1368,7 +1388,7 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
 #endif
     code_count_remainder += code_count;
     if (is_very_first_code) {  /* Happens at the very beginning of the input only. */
-      code = compress_incurpp;
+      code = compress_incurii;
       if ((compress_incur & 1) != 0) fatal_corrupted_input();  /* First code must be 0 <= code <= 255. */
       ++posbiti;  /* Advance 9 bits by increasing this from 0 to 1. */
 #ifdef USE_DEBUG
@@ -1381,11 +1401,11 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
     }
    maybe_next_code:
 #ifdef USE_DEBUG
-    if (0) fprintf(stderr, "READ code_count=%lu inptr=%lu %lu/%lu\n", (unsigned long)code_count, (unsigned long)global_inptr, (unsigned long)free_ent1, (unsigned long)(unsigned short)maxcode);
+    if (0) fprintf(stderr, "READ code_count=%lu inptr=%lu %lu/%lu\n", (unsigned long)code_count, (unsigned long)compress_debug_inptr, (unsigned long)free_ent1, (unsigned long)(unsigned short)maxcode);
 #endif
     if ((sizeof(maxcode) > 2) ? (free_ent1 >= maxcode) : (free_ent1 > (uint)(maxcode - 1U))) {
 #ifdef USE_DEBUG
-      fprintf(stderr, "INCBITS inptr=%lu\n", (unsigned long)global_inptr);
+      fprintf(stderr, "INCBITS inptr=%lu\n", (unsigned long)compress_debug_inptr);
 #endif
       ++n_bits;
       bitmask <<= 1; ++bitmask;  /* Faster than bitmask = (1U << n_bits) - 1U; */
@@ -1428,16 +1448,16 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
     /* Read n_bits (9 <= n_bits <= 16) from compress_incur at posbits, advance posbits. */
     if (n_bits == 16)  {  /* Shortcut. Now posbiti == 0. */
       code = LOAD_UINT_16BP(&compress_incur) & 0xffffU;
-      global_inptr += 2;
+      compress_inskip(2);
     } else {
       if (sizeof(unsigned int) > 2) {  /* Works for 1 <= n_bits <= 17, but we only use it for 9 <= n_bits <= 16. */
         code = (LOAD_UINT_24BP(&compress_incur) >> posbiti) & bitmask;
       } else {  /* Works for 9 <= n_bits <= 16. */
         code = ((LOAD_UINT_16BP(&compress_incur) >> posbiti) & 0xffU) | (((LOAD_UINT_16BP(&compress_incurdelta(1)) >> posbiti) & bitmask) << 8);
       }
-      ++global_inptr;
+      compress_inskip1();
       if ((posbiti += n_bits - 8) > 7) {
-        ++global_inptr;
+        compress_inskip1();
         posbiti -= 8;
       }
     }
@@ -1450,7 +1470,7 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
       fprintf(stderr, "CLEAR\n");
 #endif
       /* !! Report unnecessary code in gzip-1.14: clear_tab_prefixof(). The size 256 is also buggy. */
-      if (posbiti != 0) { ++global_inptr; posbiti = 0; }
+      if (posbiti != 0) { compress_inskip1(); posbiti = 0; }
       discard_byte_count = (((code_count_remainder - code_count) & 7) * n_bits + 7) >> 3;
       if ((discard_byte_count %= n_bits) != 0) discard_byte_count = n_bits - discard_byte_count;
       free_ent1 = FIRST - 1 - 1;
@@ -1565,7 +1585,7 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
     oldcode = incode;   /* Remember previous code. */
     if (code_count != 0) goto maybe_next_code;
   }
-  if (global_insize - global_inptr != (posbiti > 0)) fatal_corrupted_input();  /* Unexpected EOF. */
+  if (compress_inremaining != (posbiti > 0)) fatal_corrupted_input();  /* Unexpected EOF. */
   compress_flush_write_buffer(write_idx);
   read_force_eof();
 }

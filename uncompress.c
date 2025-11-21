@@ -214,18 +214,15 @@
 #  define read_force_eof() exit(EXIT_SUCCESS)
 #  define compress_read(fd, buf, count) luuzcat_ducml_read(fd, buf, count)
 #  define compress_write_buffer uncompress_ducml_write_buffer
-#  define compress_flush_write_buffer(write_idx) flush_write_buffer(write_idx)  /* Defined above. */
 #else
 #  ifdef LUUZCAT_SMALLBUF
 #    define COMPRESS_READ_BUFFER_SIZE COMPRESS_SMALLBUF_READ_BUFFER_SIZE
 #    define compress_read(fd, buf, count) read(fd, buf, count)
 #    define compress_write_buffer big.compress.u.sn.sn_write_buffer
-#    define compress_flush_write_buffer(write_idx) compress_smallbuf_flush_write_buffer(write_idx)  /* Defined below. */
 #  else
 #    define COMPRESS_READ_BUFFER_SIZE READ_BUFFER_SIZE
 #    define compress_read(fd, buf, count) read(fd, buf, count)
 #    define compress_write_buffer global_write_buffer
-#    define compress_flush_write_buffer(write_idx) flush_write_buffer(write_idx)  /* Defined in luuzcat.c. */
 #  endif
 #endif  /* #else LUUZCAT_DUCML. */
 
@@ -1192,19 +1189,6 @@ typedef unsigned int uint;
 #endif
 
 #ifdef LUUZCAT_SMALLBUF
-  /* Always returns 0, which is the new buffer write index. */
-  static unsigned int compress_smallbuf_flush_write_buffer(unsigned int size) {
-    /* !!! Avoid code duplication with flush_write_buffer(...) defined in luuzcat.c, by making it use a pointer instead of global_write_buffer. */
-    unsigned int size_i;
-    int got;
-    for (size_i = 0; size_i < size; ) {
-      got = (int)(size - size_i);
-      if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(compress_write_buffer + size_i), got)) <= 0) fatal_write_error();
-      size_i += got;
-    }
-    return 0;
-  }
-
   /* Make sure that there is enough room in big.compress.u.sn.tab_prefix_ary for the initial bytes copied from global_read_buffer. */
   typedef char assert_sizeof_tab_prefix_ary[sizeof(big.compress.u.sn.tab_prefix_ary) >= 3UL * READ_BUFFER_SIZE ? 1 : -1];
 
@@ -1220,6 +1204,7 @@ typedef unsigned int uint;
     memmove(compress_incurp, global_read_buffer + global_inptr, size);
     /* From now, global_read_buffer[...] will be unused, and thus it can overlap with big.compress. */
     /* From now until the next compress_read(...) call in decompress_compress_nohdr_low(...), uncompressed input bytes will be copied from the temporary read buffer in big.compress.u.sn.tab_prefix_ary[...]. */
+    global_write_buffer_to_flush = compress_write_buffer;
   }
 
 #  undef  read_force_eof
@@ -1495,19 +1480,19 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
 #if 0  /* This works, but it is slow. */
       while (stack_top != lzw_stack + sizeof(lzw_stack)) {
         compress_write_buffer[write_idx++] = *stack_top++;
-        if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = compress_flush_write_buffer(write_idx);
+        if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
       }
 #else
       w_size = lzw_stack + sizeof(lzw_stack) - stack_top;
       if (w_size <= 4) {  /* Write a few bytes quickly, without memcpy(...) etc. */
         while (stack_top != lzw_stack + sizeof(lzw_stack)) {
           compress_write_buffer[write_idx++] = *stack_top++;
-          if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = compress_flush_write_buffer(write_idx);
+          if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
         }
       } else {
         while (w_size >= (w_skip = COMPRESS_WRITE_BUFFER_SIZE - write_idx)) {
           memcpy(compress_write_buffer + write_idx, stack_top, w_skip);
-          write_idx = compress_flush_write_buffer(COMPRESS_WRITE_BUFFER_SIZE);
+          write_idx = flush_write_buffer(COMPRESS_WRITE_BUFFER_SIZE);
           stack_top += w_skip;
           w_size -= w_skip;
         }
@@ -1571,9 +1556,9 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
         if (code >= 256U) code = tab_suffix_get(code);
         compress_write_buffer[w_idx] = code;   /* Last code is always a literal. */
         if (w_skip != 0) break;  /* This was the last iteration, the entire string has been printed. */
-        write_idx = compress_flush_write_buffer(COMPRESS_WRITE_BUFFER_SIZE);
+        write_idx = flush_write_buffer(COMPRESS_WRITE_BUFFER_SIZE);
       }
-      if ((write_idx += w_size) == COMPRESS_WRITE_BUFFER_SIZE) write_idx = compress_flush_write_buffer(write_idx);
+      if ((write_idx += w_size) == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
     }
     if (free_ent1 < maxmaxcode1) {  /* Generate the new entry. */
       ++free_ent1;  /* Never overflows 0xffffU. */
@@ -1586,7 +1571,7 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
     if (code_count != 0) goto maybe_next_code;
   }
   if (compress_inremaining != (posbiti > 0)) fatal_corrupted_input();  /* Unexpected EOF. */
-  compress_flush_write_buffer(write_idx);
+  flush_write_buffer(write_idx);
   read_force_eof();
 }
 

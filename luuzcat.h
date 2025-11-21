@@ -620,6 +620,7 @@ unsigned int get_le16(void);
 #  define global_read_buffer  big.deflate.read_buffer
 #  define global_write_buffer big.deflate.write_buffer
 #  define RW_BUFFER_DEF uc8 write_buffer[WRITE_BUFFER_SIZE]; uc8 read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT + (-(READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT) & 3)];
+  extern uc8 *global_write_buffer_to_flush;
 #else
   extern uc8 global_read_buffer[];
   extern uc8 global_write_buffer[];

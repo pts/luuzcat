@@ -101,8 +101,11 @@ unsigned int get_le16(void) {
 
 /* --- Writing. */
 
-#ifndef LUUZCAT_SMALLBUF
+#ifdef LUUZCAT_SMALLBUF
+  uc8 *global_write_buffer_to_flush = global_write_buffer;  /* copy_read_buffer() in uncompress.c changes it. */
+#else
   uc8 global_write_buffer[WRITE_BUFFER_SIZE];
+#  define global_write_buffer_to_flush global_write_buffer
 #endif
 
 #ifdef LUUZCAT_DUCML  /* For LUUZCAT_DUCML, flush_write_buffer(...) is implemented in uncompress.c. */
@@ -114,7 +117,7 @@ unsigned int get_le16(void) {
     for (size_i = 0; size_i < size; ) {
       got = (int)(size - size_i);
       if (sizeof(int) == 2 && WRITE_BUFFER_SIZE >= 0x8000U && got < 0) got = 0x4000;  /* !! size optimization elsewhere: Not needed for DOS 3.00 if we check for == -1 below, and we return on == 0.  */
-      if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer + size_i), got)) <= 0) fatal_write_error();
+      if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer_to_flush + size_i), got)) <= 0) fatal_write_error();
       size_i += got;
     }
     return 0;

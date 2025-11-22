@@ -1560,7 +1560,7 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
       for (code = w_code; code >= 256U; ++w_size, code = tab_prefix_get(code)) {}
       /* Now w_size is number of characters to write in reverse. */
       finchar = (uc8)code;
-      /* Now generate output characters in reverse order. */
+      /* Now generate output characters in reverse order. !! Reduce memory usage by making a plan and using an array like big.compress_sf.wstops. */
       for (;;) {
         if (w_size > COMPRESS_WRITE_BUFFER_SIZE - write_idx) {  /* This is the rare case with long string or string near the end of compress_write_buffer. */
 #ifdef USE_DEBUG

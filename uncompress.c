@@ -779,6 +779,25 @@ typedef unsigned int uint;
    * too big for a 64k data segment, so it is divided into 5 equal parts.
    * Copy 4 of the program maintains the high part and copy 0 holds the
    * low part.
+   *
+   * ---
+   *
+   * Wire format of the pipe buffers (4 --> 3 --> 2 --> 1): The pipe buffer
+   * of 1024 bytes (COMPRESS_FORK_BUFSIZE == 0x400) is a 480-element array
+   * of (index, firstonly_flag) tuples. Each index is a 16-bit unsigned
+   * integer, each firstonly_flag is a single bit. This first 64 bytes in
+   * the pipe buffer contain the firstonly_flag values bit-packed (the last
+   * few bytes of these are unused), and the following 960 bytes contain the
+   * index values in native byte order. Valid index values are 0..0xfeff
+   * (0..65279). If an index value on the wire is larger than that, then
+   * this indicates that the child process has encountered a terminating
+   * condition whose dstatus is the bitwise inverse of the index value.
+   * dstatus == DSTATUS_OK == 0 (corresponding to index value 0xffff)
+   * indicates EOF on the compressed input, other dstatus values indicate a
+   * fatal error. dstatus gets immediately propagated via the pipes all the
+   * way to the top parent process (0), which does an exit(EXIT_SUCCESS) for
+   * dstatus == DSTATUS_OK == 0, and reports a fatal_...(...) error for any
+   * other dstatus.
    */
 
 #  if COMPRESS_FORK_BUFSIZE & 0x1f
@@ -787,19 +806,16 @@ typedef unsigned int uint;
 
   typedef char assert_sizeof_us16_for_uncompress[sizeof(us16) == 2 ? 1 : -1];  /* The byte order doesn't matter. */
 
-  static unsigned int fork_obufind;  /* output buffer zero-initialized; index; also used by putpipe(...) and done_with_fork(...) */
-  static unsigned int ipbufind;    /* pipe buffer indices; no need to initialize */
+  static unsigned int fork_obufind;  /* output byte index within .sf_write_buffer; no need to initialize; also used by putpipe(...), done_with_fork(...) and init_write_buffer_with_fork(...) */
+  static unsigned int ipbufind;    /* input word (us16) index within .sf_read_buffer; no need to initialize; also used by getpipe(...) */
   static um8 pnum;  /* ID of this copy: 0..4; zero-initialized; also used by ffork() and done_with_fork(...) */
   static unsigned int iindex;  /* no need to initialize; holds index being processed */
   static unsigned int base;      /* where in global dict local dict starts; no need to initialize; also used by getpipe() */
   static unsigned int curend;    /* current end of global dict; no need to initialize; also used by getpipe() */
   static unsigned int curbits;      /* number of bits for getbits() to read: 9..16; no need to initialize */
   static um8 inmod;      /* mod 8 for getbits(); zero-initialized; also used by getbits() */
-  static us16 getpipe_flags;  /* no need to initialize */
-  static um8 getpipe_flagn;    /* number of flags in flags: 0..15; zero-initialized */
-  static us16 putpipe_flags;  /* also used by putpipe(...); no need to initialize */
-  static us16 *putpipe_flagp;  /* also used by putpipe(...); no need to initialize */
-  static um8 putpipe_flagn;    /* number of flags in flags: 0..16; zero-initialized */
+  static unsigned int fork_obitind;  /* output bit index within .sf_write_buffer; no need to initialize; also used by putpipe(...), done_with_fork(...) and init_write_buffer_with_fork(...) */
+  static unsigned int fork_ibitind;  /* input bit index within .sf_read_buffer; no need to initialize; also used by getpipe(...) and init_write_buffer_with_fork(...) */
   static um8 getbits_curbyte;  /* byte having bits extracted from it; zero-initialized */
   static um8 getbits_left;    /* how many bits are left in getbits_curbyte: 0..8; zero-initialized */
   static int pipe_fd_out;  /* no need to initialize */
@@ -833,6 +849,18 @@ typedef unsigned int uint;
       /* DSTATUS_SHORT_PIPE_READ: */  "short pipe read\n",
   };
 
+  /* Always returns 1. */
+  static int init_write_buffer_with_fork(void) {
+    if (pnum == 0) {
+      fork_obufind = 0;
+    } else {
+      memset(big.compress_sf.sf_write_buffer, -1, COMPRESS_FORK_BUFSIZE >> 4);  /* Initializes firstonly bits to 1. */
+      fork_obufind = COMPRESS_FORK_BUFSIZE >> 4;  /* !! This is wasting 1/16 == 6.25% of the bits here. Add better calculation. */
+      fork_obitind = 0;
+    }
+    return 1;
+  }
+
   static ub8 flush_obuf_to(int fd) {
     char *p;
     unsigned int p_remaining;
@@ -841,8 +869,7 @@ typedef unsigned int uint;
     for (p = (char*)big.compress_sf.sf_write_buffer, p_remaining = fork_obufind; p_remaining != 0; p += got, p_remaining -= got) {
       if ((got = write_nonzero(fd, p, p_remaining)) <= 0) return 0;  /* Indicate error. */
     }
-    fork_obufind = 0;
-    return 1;  /* Indicate success. */
+    return init_write_buffer_with_fork();  /* Returns 1, indicating success. */
   }
 
   /* If s is a message, write it to stderr. Flush buffers if needed. Then exit. */
@@ -860,21 +887,8 @@ typedef unsigned int uint;
 #  ifdef USE_DEBUG
       fprintf(stderr, "die propagating dstatus=%u\n", dstatus);
 #  endif
-      dstatus = ~dstatus;
-      do {
-        if (putpipe_flagn == 0) {  /* if we need to reserve a flag entry */
-          putpipe_flags = 0;
-          putpipe_flagp = (us16*)(big.compress_sf.sf_write_buffer + fork_obufind);
-          fork_obufind += 2;  /* sizeof(us16). */
-        }
-        do {
-          *((us16*)(big.compress_sf.sf_write_buffer + fork_obufind)) = dstatus;  /* add large enough dstatus value to the buffer. */
-          fork_obufind += 2;  /* sizeof(us16). */
-          putpipe_flags = putpipe_flags << 1;  /* Add flag value 0. */
-        } while (++putpipe_flagn < 15);
-        putpipe_flagn = 0;
-        *putpipe_flagp = putpipe_flags;  /* insert flags entry */
-      } while (fork_obufind != COMPRESS_FORK_BUFSIZE);
+      *((us16*)(big.compress_sf.sf_write_buffer + fork_obufind)) = ~dstatus;  /* Propagate dstatus to the parent by appending a large enough value. */
+      fork_obufind = COMPRESS_FORK_BUFSIZE;  /* Number of bytes to flush in the flush_obuf_to(...) call below. */
       flush_obuf_to(pipe_fd_out);  /* Flush pipe. Ignore error while flushing. */
     }
     goto do_exit;
@@ -966,35 +980,26 @@ typedef unsigned int uint;
   }
 
   /* put an index into the pipeline. */
-  static void putpipe(um16 u, ub8 flag) {
+  static void putpipe(um16 u, ub8 firstonly_flag) {
     if (pnum == 0) {    /* if we should write to stdout */
 #  ifdef USE_DEBUG
       if (u > 255) { wi_too_large: fprintf(stderr, "fatal: assert: written index too large: pnum=%u index=%u\n", pnum, u); exit(99); }
 #  endif
-      big.compress_sf.sf_write_buffer[fork_obufind++] = u;
-      if (fork_obufind == COMPRESS_FORK_BUFSIZE) {  /* If stdout buffer full. */
+      big.compress_sf.sf_write_buffer[fork_obufind] = u;
+      if (++fork_obufind == COMPRESS_FORK_BUFSIZE) {  /* If stdout buffer full. */
         if (!flush_obuf_to(STDOUT_FILENO)) done_with_fork(DSTATUS_BAD_STDOUT_WRITE);
       }
       return;
     }
-    if (putpipe_flagn == 0) {  /* if we need to reserve a flag entry */
-      putpipe_flags = 0;
-      putpipe_flagp = (us16*)(big.compress_sf.sf_write_buffer + fork_obufind);
-      fork_obufind += 2;  /* sizeof(us16). */
-    }
+    if (!firstonly_flag) big.compress_sf.sf_write_buffer[fork_obitind >> 3] &= ~(1U << (fork_obitind & 7));  /* !! Make the code shorter by adding a variable: fork_obitmask. Also in getpipe(...). */
+    ++fork_obitind;
 #  ifdef USE_DEBUG
     if ((pnum == 1 && u > 13311) || (pnum == 2 && u > 26367) || (pnum == 3 && u > 39423) || (pnum == 4 && u > 52479)) goto wi_too_large;  /* Smaller values are OK. */
 #  endif
     *((us16*)(big.compress_sf.sf_write_buffer + fork_obufind)) = u;  /* add index to buffer */
-    fork_obufind += 2;  /* sizeof(us16). */
-    putpipe_flags = (putpipe_flags << 1) | flag;  /* add firstonly flag */
-    if (++putpipe_flagn == 15) {    /* if block of 15 indices */
-      putpipe_flagn = 0;
-      *putpipe_flagp = putpipe_flags;    /* insert flags entry */
-      if (fork_obufind == COMPRESS_FORK_BUFSIZE) {  /* if pipe out buffer full */
-        /* Handling the error with  done_with_fork(DSTATUS_BAD_PIPE_WRITE) instead would help, because the dstatus would be propagated to the parent using the same pipe (STDOUT_FILENO), which has already failed. */
-        if (!flush_obuf_to(STDOUT_FILENO)) exit(126);
-      }
+    if ((fork_obufind += 2) == COMPRESS_FORK_BUFSIZE) {  /* sizeof(us16). If pipe out buffer full. */
+      /* Handling the error with  done_with_fork(DSTATUS_BAD_PIPE_WRITE) instead would help, because the dstatus would be propagated to the parent using the same pipe (STDOUT_FILENO), which has already failed. */
+      if (!flush_obuf_to(STDOUT_FILENO)) exit(126);
     }
   }
 
@@ -1008,20 +1013,14 @@ typedef unsigned int uint;
     int got;
 
     for (;;) {    /* while index with firstonly flag set */
-      if (getpipe_flagn == 0) {
-        if (ipbufind >= (COMPRESS_FORK_BUFSIZE >> 1)) {  /* if pipe input buffer empty */
-          p = (char*)big.compress_sf.sf_read_buffer; p_remaining = COMPRESS_FORK_BUFSIZE;
-          do {
-            if ((got = read(STDIN_FILENO, p, p_remaining)) <= 0) done_with_fork(got == 0 ? DSTATUS_SHORT_PIPE_READ : DSTATUS_BAD_PIPE_READ);
-            p += got;
-          } while ((p_remaining -= got) > 0);
-          ipbufind = 0;
-        }
-        getpipe_flags = ((us16*)big.compress_sf.sf_read_buffer)[ipbufind++];
-#  ifdef USE_DEBUG
-        if (getpipe_flags >= 0x8000U) { fprintf(stderr, "fatal: assert: getpipe_flags too large: %u\n", getpipe_flags); exit(98); }
-#  endif
-        getpipe_flagn = 15;
+      if (ipbufind == (COMPRESS_FORK_BUFSIZE >> 1)) {  /* if pipe input buffer empty */
+        p = (char*)big.compress_sf.sf_read_buffer; p_remaining = COMPRESS_FORK_BUFSIZE;
+        do {
+          if ((got = read(STDIN_FILENO, p, p_remaining)) <= 0) done_with_fork(got == 0 ? DSTATUS_SHORT_PIPE_READ : DSTATUS_BAD_PIPE_READ);
+          p += got;
+        } while ((p_remaining -= got) > 0);
+        ipbufind = COMPRESS_FORK_BUFSIZE >> 5;
+        fork_ibitind = 0;
       }
       iindex = ((us16*)big.compress_sf.sf_read_buffer)[ipbufind++];
       if (iindex >= (~DSTATUS_MAX & 0xffffU)) {
@@ -1035,13 +1034,10 @@ typedef unsigned int uint;
       /* Maximum values for curend here: pnum=0 max_curend=13311; pnum=1 max_curend=26367; pnum=2 max_curend=39423; pnum=3 max_curend=52479; not reached for pnum=4. */
 #  endif
       if (iindex > curend) done_with_fork(DSTATUS_CORRUPTED_INPUT);
-      getpipe_flags <<= 1;
-      getpipe_flagn--;
-      if ((getpipe_flags & 0x8000U) != 0) {  /* if firstonly flag for index is not set */
-        while (iindex >= base) iindex = big.compress_sf.dindex[iindex - base];
-        putpipe(iindex, 1);
-      } else
-        return;    /* return with valid non-firstonly index */
+      if (!(big.compress_sf.sf_read_buffer[fork_ibitind >> 3] & (1U << (fork_ibitind & 7)))) { ++fork_ibitind; break; }  /* If firstonly flag for index is not set, return with valid non-firstonly index in iindex. */
+      ++fork_ibitind;
+      while (iindex >= base) iindex = big.compress_sf.dindex[iindex - base];
+      putpipe(iindex, 1);
     }
   }
 
@@ -1081,7 +1077,7 @@ typedef unsigned int uint;
     maxbits = hdrbyte & 0x1f;
     clrend = 255;
     if (hdrbyte & 0x80) ++clrend;
-    ipbufind = COMPRESS_FORK_BUFSIZE >> 1;  /* This value isn't used by the bottom child (pnum == 4). */
+    ipbufind = COMPRESS_FORK_BUFSIZE >> 1;  /* Indicates that getpipe(...) should start with a read(2) call to fill the read buffer. This value isn't used by the bottom child (pnum == 4). */
     /* maxbits 0..8 is not supported. (n)compress supports decompressing it, but there is no compressor released to generate such a file; also such a file would provide a terrible compression ratio */
     if ((BITS < 8 && maxbits < 9) || maxbits > 16) done_with_fork(DSTATUS_CORRUPTED_INPUT);  /* check for valid maxbits */
 #  if BITS >= 16
@@ -1116,7 +1112,7 @@ typedef unsigned int uint;
     /* pnum=0 maxend=13311; pnum=1 maxend=26367; pnum=2 maxend=39423; pnum=3 maxend=52479; pnum=4 maxend=65535. */
     fprintf(stderr, "pnum=%u maxend=%u\n", pnum, maxend);
 #  endif
-
+    init_write_buffer_with_fork();
     goto do_clear;
     for (;;) {  /* For each index in the input. */
       if (pnum == 4) {  /* get index using get_byte_with_fork(...) and getbits() */

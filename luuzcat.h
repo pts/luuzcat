@@ -729,10 +729,11 @@ struct deflate_big {
 #  define COMPRESS_FORK_DICTSIZE 13056U  /* # of local dictionary entries: ((1UL << 16) - 256U) == 13056U * 5U. */
 
   struct compress_big_sf {
-    uc8 sf_read_buffer [COMPRESS_FORK_BUFSIZE];  /* Must be at the beginning. */
+    uc8 sf_read_buffer [COMPRESS_FORK_BUFSIZE];
     uc8 sf_write_buffer[COMPRESS_FORK_BUFSIZE];
     us16 dindex[COMPRESS_FORK_DICTSIZE];  /* dictionary: index to substring;  no need to initialize; 25.5 KiB. */
     us16 dchar [COMPRESS_FORK_DICTSIZE];  /* dictionary: last char of string; no need to initialize; 25.5 KiB. */
+    us16 wstops[COMPRESS_FORK_DICTSIZE / (unsigned int)((COMPRESS_FORK_BUFSIZE * 15UL + 31U) >> 5) + 2U];  /* Output block stop indexes in dindex when writing in reverse order. */
   };
 #endif
 
@@ -744,7 +745,7 @@ struct deflate_big {
 #    error COMPRESS_FORK_BUFSIZE must be the same as COMPRESS_SMALLBUF_READ_BUFFER_SIZE.
 #  endif
   struct compress_big_sn {
-    uc8 sn_read_buffer [COMPRESS_SMALLBUF_READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT + (-(COMPRESS_SMALLBUF_READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT) & 3)];  /* Must be at the beginning. */
+    uc8 sn_read_buffer [COMPRESS_SMALLBUF_READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT + (-(COMPRESS_SMALLBUF_READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT) & 3)];
     uc8 sn_write_buffer[COMPRESS_SMALLBUF_WRITE_BUFFER_SIZE];
     us16 tab_prefix_ary[(1U << COMPRESS_SMALLBUF_BITS) - 256U];
     uc8  tab_suffix_ary[(1U << COMPRESS_SMALLBUF_BITS) - 256U];

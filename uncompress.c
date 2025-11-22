@@ -787,9 +787,8 @@ typedef unsigned int uint;
 
   typedef char assert_sizeof_us16_for_uncompress[sizeof(us16) == 2 ? 1 : -1];  /* The byte order doesn't matter. */
 
-  static unsigned int fork_obufind;  /* output buffer zero-initialized; index; also used by putpipe(...) with pnum == 1 and done_with_fork(...) */
+  static unsigned int fork_obufind;  /* output buffer zero-initialized; index; also used by putpipe(...) and done_with_fork(...) */
   static unsigned int ipbufind;    /* pipe buffer indices; no need to initialize */
-  static unsigned int opbufind;  /* output buffer word pipe index; zero-initialized; */
   static um8 pnum;  /* ID of this copy: 0..4; zero-initialized; also used by ffork() and done_with_fork(...) */
   static unsigned int iindex;  /* no need to initialize; holds index being processed */
   static unsigned int base;      /* where in global dict local dict starts; no need to initialize; also used by getpipe() */
@@ -820,9 +819,8 @@ typedef unsigned int uint;
 #  define DSTATUS_DUP_1_ERROR 10
 #  define DSTATUS_BAD_PIPE_READ 11
 #  define DSTATUS_SHORT_PIPE_READ 12
-#  define DSTATUS_BAD_PIPE_WRITE 13
   /**/
-#  define DSTATUS_MAX 13U
+#  define DSTATUS_MAX 12U
 
   static const char * const error_messages[] = {
       /* DSTATUS_PIPE_ERROR: */  "pipe() error\n",
@@ -833,7 +831,6 @@ typedef unsigned int uint;
       /* DSTATUS_DUP_1_ERROR: */  "dup(1) error\n",
       /* DSTATUS_BAD_PIPE_READ: */  "bad pipe read\n",
       /* DSTATUS_SHORT_PIPE_READ: */  "short pipe read\n",
-      /* DSTATUS_BAD_PIPE_WRITE: */  "bad pipe write\n",
   };
 
   static ub8 flush_obuf_to(int fd) {
@@ -842,7 +839,7 @@ typedef unsigned int uint;
     int got;
 
     for (p = (char*)big.compress_sf.sf_write_buffer, p_remaining = fork_obufind; p_remaining != 0; p += got, p_remaining -= got) {
-      if ((got = write(fd, p, p_remaining)) <= 0) return 0;  /* Indicate error. */
+      if ((got = write_nonzero(fd, p, p_remaining)) <= 0) return 0;  /* Indicate error. */
     }
     fork_obufind = 0;
     return 1;  /* Indicate success. */
@@ -867,17 +864,17 @@ typedef unsigned int uint;
       do {
         if (putpipe_flagn == 0) {  /* if we need to reserve a flag entry */
           putpipe_flags = 0;
-          putpipe_flagp = (us16*)big.compress_sf.sf_write_buffer + opbufind;
-          opbufind++;
+          putpipe_flagp = (us16*)(big.compress_sf.sf_write_buffer + fork_obufind);
+          fork_obufind += 2;  /* sizeof(us16). */
         }
         do {
-          ((us16*)big.compress_sf.sf_write_buffer)[opbufind++] = dstatus;  /* add large enough dstatus value to the buffer. */
+          *((us16*)(big.compress_sf.sf_write_buffer + fork_obufind)) = dstatus;  /* add large enough dstatus value to the buffer. */
+          fork_obufind += 2;  /* sizeof(us16). */
           putpipe_flags = putpipe_flags << 1;  /* Add flag value 0. */
         } while (++putpipe_flagn < 15);
         putpipe_flagn = 0;
         *putpipe_flagp = putpipe_flags;  /* insert flags entry */
-      } while (opbufind != (COMPRESS_FORK_BUFSIZE >> 1));
-      fork_obufind = COMPRESS_FORK_BUFSIZE;
+      } while (fork_obufind != COMPRESS_FORK_BUFSIZE);
       flush_obuf_to(pipe_fd_out);  /* Flush pipe. Ignore error while flushing. */
     }
     goto do_exit;
@@ -891,7 +888,7 @@ typedef unsigned int uint;
     if ((j = fork()) == -1) done_with_fork(DSTATUS_FORK_ERROR);
     if (j == 0) {  /* this is the child process */
 #if 0
-      (void)!write(STDERR_FILENO, "C", 1);  /* For debugging, indicate that a child has been successfully forked. */
+      (void)!write_nonzero(STDERR_FILENO, "C", 1);  /* For debugging, indicate that a child has been successfully forked. */
 #endif
       /* !! Fix `fork() error' on ELKS 0.2.0 and ELSK 0.1.4. Not even the 3 forks for maxbits == 13 work. Is this even possible? */
       pipe_fd_out = pfd[1];  /* Make done_with_fork(...) propagate the error code to the parent. */
@@ -970,10 +967,6 @@ typedef unsigned int uint;
 
   /* put an index into the pipeline. */
   static void putpipe(um16 u, ub8 flag) {
-    char *p;
-    unsigned int p_remaining;
-    int got;
-
     if (pnum == 0) {    /* if we should write to stdout */
 #  ifdef USE_DEBUG
       if (u > 255) { wi_too_large: fprintf(stderr, "fatal: assert: written index too large: pnum=%u index=%u\n", pnum, u); exit(99); }
@@ -986,24 +979,21 @@ typedef unsigned int uint;
     }
     if (putpipe_flagn == 0) {  /* if we need to reserve a flag entry */
       putpipe_flags = 0;
-      putpipe_flagp = (us16*)big.compress_sf.sf_write_buffer + opbufind;
-      opbufind++;
+      putpipe_flagp = (us16*)(big.compress_sf.sf_write_buffer + fork_obufind);
+      fork_obufind += 2;  /* sizeof(us16). */
     }
 #  ifdef USE_DEBUG
     if ((pnum == 1 && u > 13311) || (pnum == 2 && u > 26367) || (pnum == 3 && u > 39423) || (pnum == 4 && u > 52479)) goto wi_too_large;  /* Smaller values are OK. */
 #  endif
-    ((us16*)big.compress_sf.sf_write_buffer)[opbufind++] = u;  /* add index to buffer */
+    *((us16*)(big.compress_sf.sf_write_buffer + fork_obufind)) = u;  /* add index to buffer */
+    fork_obufind += 2;  /* sizeof(us16). */
     putpipe_flags = (putpipe_flags << 1) | flag;  /* add firstonly flag */
     if (++putpipe_flagn == 15) {    /* if block of 15 indices */
       putpipe_flagn = 0;
       *putpipe_flagp = putpipe_flags;    /* insert flags entry */
-      if (opbufind == (COMPRESS_FORK_BUFSIZE >> 1)) {  /* if pipe out buffer full */
-        opbufind = 0;
-        p = (char*)big.compress_sf.sf_write_buffer; p_remaining = COMPRESS_FORK_BUFSIZE;
-        do {
-          if ((got = write(STDOUT_FILENO, p, p_remaining)) <= 0) done_with_fork(DSTATUS_BAD_PIPE_WRITE);
-          p += got;
-        } while ((p_remaining -= got) > 0);
+      if (fork_obufind == COMPRESS_FORK_BUFSIZE) {  /* if pipe out buffer full */
+        /* Handling the error with  done_with_fork(DSTATUS_BAD_PIPE_WRITE) instead would help, because the dstatus would be propagated to the parent using the same pipe (STDOUT_FILENO), which has already failed. */
+        if (!flush_obuf_to(STDOUT_FILENO)) exit(126);
       }
     }
   }

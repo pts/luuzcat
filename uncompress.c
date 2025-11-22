@@ -814,7 +814,7 @@ typedef unsigned int uint;
   static unsigned int curend;    /* current end of global dict; no need to initialize; also used by getpipe() */
   static unsigned int curbits;      /* number of bits for getbits() to read: 9..16; no need to initialize */
   static um8 inmod;      /* mod 8 for getbits(); zero-initialized; also used by getbits() */
-  static unsigned int fork_obitind;  /* output bit index within .sf_write_buffer; no need to initialize; also used by putpipe(...), done_with_fork(...) and init_write_buffer_with_fork(...) */
+  static unsigned int fork_obitind;  /* output bit index within .sf_write_buffer; no need to initialize; also used by set_putpipe_firstonly_flag_to_0(), putpipe(...), done_with_fork(...) and init_write_buffer_with_fork(...) */
   static unsigned int fork_ibitind;  /* input bit index within .sf_read_buffer; no need to initialize; also used by getpipe(...) and init_write_buffer_with_fork(...) */
   static um8 getbits_curbyte;  /* byte having bits extracted from it; zero-initialized */
   static um8 getbits_left;    /* how many bits are left in getbits_curbyte: 0..8; zero-initialized */
@@ -855,7 +855,7 @@ typedef unsigned int uint;
       fork_obufind = 0;
     } else {
       memset(big.compress_sf.sf_write_buffer, -1, COMPRESS_FORK_BUFSIZE >> 4);  /* Initializes firstonly bits to 1. */
-      fork_obufind = COMPRESS_FORK_BUFSIZE >> 4;  /* !! This is wasting 1/16 == 6.25% of the bits here. Add better calculation. */
+      fork_obufind = COMPRESS_FORK_BUFSIZE >> 4;  /* This is wasting 1 index per 1024 bytes: 512 * 15 / 16 == 480; floor(512 * 16 / 17) == 481. TODO(pts): Don't waste it. */
       fork_obitind = 0;
     }
     return 1;
@@ -979,8 +979,12 @@ typedef unsigned int uint;
     getbits_left = 8 + have - curbits;
   }
 
+  static void set_putpipe_firstonly_flag_to_0(void) {
+    if (pnum != 0) big.compress_sf.sf_write_buffer[fork_obitind >> 3] &= ~(1U << (fork_obitind & 7));  /* !! Make the code shorter by adding a variable: fork_obitmask. Also in getpipe(...). */
+  }
+
   /* put an index into the pipeline. */
-  static void putpipe(um16 u, ub8 firstonly_flag) {
+  static void putpipe(um16 u) {
     if (pnum == 0) {    /* if we should write to stdout */
 #  ifdef USE_DEBUG
       if (u > 255) { wi_too_large: fprintf(stderr, "fatal: assert: written index too large: pnum=%u index=%u\n", pnum, u); exit(99); }
@@ -991,8 +995,7 @@ typedef unsigned int uint;
       }
       return;
     }
-    if (!firstonly_flag) big.compress_sf.sf_write_buffer[fork_obitind >> 3] &= ~(1U << (fork_obitind & 7));  /* !! Make the code shorter by adding a variable: fork_obitmask. Also in getpipe(...). */
-    ++fork_obitind;
+    ++fork_obitind;  /* set_putpipe_firstonly_flag_to_0() has already been called to write the firstonly flag value. */
 #  ifdef USE_DEBUG
     if ((pnum == 1 && u > 13311) || (pnum == 2 && u > 26367) || (pnum == 3 && u > 39423) || (pnum == 4 && u > 52479)) goto wi_too_large;  /* Smaller values are OK. */
 #  endif
@@ -1037,7 +1040,7 @@ typedef unsigned int uint;
       if (!(big.compress_sf.sf_read_buffer[fork_ibitind >> 3] & (1U << (fork_ibitind & 7)))) { ++fork_ibitind; break; }  /* If firstonly flag for index is not set, return with valid non-firstonly index in iindex. */
       ++fork_ibitind;
       while (iindex >= base) iindex = big.compress_sf.dindex[iindex - base];
-      putpipe(iindex, 1);
+      putpipe(iindex);
     }
   }
 
@@ -1126,7 +1129,7 @@ typedef unsigned int uint;
         getpipe();  /* get next index */
       }
       if (iindex == 256 && clrend == 256) {
-        if (pnum > 0) putpipe(iindex, 0);
+        if (pnum > 0) { set_putpipe_firstonly_flag_to_0(); putpipe(iindex); }
         /* Due to uglyiess in compress, these indices in the compressed file are wasted. */
         while (inmod & 7) getbits();
        do_clear:
@@ -1138,8 +1141,7 @@ typedef unsigned int uint;
       tindex1 = iindex;
       /* Convert the index part, ignoring spawned chars */
       while (tindex1 >= base) tindex1 = big.compress_sf.dindex[tindex1 - base];
-      /* Pass on the index */
-      putpipe(tindex1, 0);
+      set_putpipe_firstonly_flag_to_0(); putpipe(tindex1);  /* Pass on the index. */
       /* Save the char of the last added entry, if any */
       if (dcharp < COMPRESS_FORK_DICTSIZE) big.compress_sf.dchar[dcharp++] = tindex1;
       if (curend < maxend && ++curend >= base) big.compress_sf.dindex[dcharp = (curend - base)] = iindex;
@@ -1153,7 +1155,7 @@ typedef unsigned int uint;
         /* Now: 256U <= base <= tbase1 + 1U <= tindex1 == iindex <= curend <= maxend <= locend <= 65535U. */
         for (; (tindex2 = big.compress_sf.dindex[tindex1 - base]) > tbase1; tindex1 = tindex2) {}  /* Scan to desired char. This loop doesn't increase tindex1. */
         /* Now: 256U <= base <= tbase1 + 1U <= tindex1 <= iindex <= curend <= maxend <= locend <= 65535U. */
-        putpipe(big.compress_sf.dchar[tindex1 - base], 1);  /* put it to the pipe */
+        putpipe(big.compress_sf.dchar[tindex1 - base]);  /* put it to the pipe */
         tbase1 = tindex1;  /* Stop before tindex1 in the next iteration of this loop. */
       }
     }

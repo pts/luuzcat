@@ -37,8 +37,10 @@ gcc -m64 -fsanitize=address -g -O2 -ansi -pedantic -W -Wall -Wextra -Wstrict-pro
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
-./luuzcat <test_C1_split.zip >test_C1.bin
+./luuzcat -m <test_C1_split.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
+exit_code=0; ./luuzcat <test_C1_split.zip >test_C1.bin || exit_code="$?"; test "$exit_code" != 0
+    cmp test_C1_1of2.good test_C1.bin
 
 # !! Add test for concatenated streams.
 
@@ -81,7 +83,7 @@ g++ -m32 -s -O2 -ansi -pedantic -W -Wall -Wextra -o luuzcat luuzcat.c unscolzh.c
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
-./luuzcat <test_C1_split.zip >test_C1.bin
+./luuzcat -m <test_C1_split.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 # TODO(pts): Compile with --gcc=4.8 and extra warnings?
@@ -116,7 +118,7 @@ minicc -ansi -pedantic -march=i386 -Wno-n201 -o luuzcat luuzcat.c unscolzh.c unc
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
-./luuzcat <test_C1_split.zip >test_C1.bin
+./luuzcat -m <test_C1_split.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 # TODO(pts): Try `-os -oh' (more optimizations) here and elsewhere. What difference does it make?
@@ -292,7 +294,7 @@ if false; then
       cmp test_C1.good test_C1.bin
   env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1.zip >test_C1.bin
       cmp test_C1.good test_C1.bin
-  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_split.zip >test_C1.bin
+  env -i FOO=bar ./elksemu.mini -m luuzcat.mi8 <test_C1_split.zip >test_C1.bin
       cmp test_C1.good test_C1.bin
   env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new9.Z >test_C1.bin
       cmp test_C1.good test_C1.bin
@@ -341,7 +343,7 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressc_16.nas
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcat.com <test_C1.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
-./kvikdos luuzcat.com <test_C1_split.zip >test_C1.bin
+./kvikdos luuzcat.com -m <test_C1_split.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcat.com <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
@@ -509,7 +511,7 @@ rm -f luuzcat.o unscolzh.o uncompact.o unopack.o unpack.o undeflate.o unfreeze.o
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcatc.com <test_C1.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
-./kvikdos luuzcatc.com <test_C1_split.zip >test_C1.bin
+./kvikdos luuzcatc.com -m <test_C1_split.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 wcc -q -bt=com -D_DOSCOMSTART -os -zl -zld -fr -j -ei -s -wx -we -wcd=201 -za -oi -0 -zp=2 -g=DGROUP -fo=uncomprc.o -D_DOSCOMSTART_UNCOMPRC -D_DOSCOMSTART_DISTART uncompress.c

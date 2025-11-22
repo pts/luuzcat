@@ -129,9 +129,11 @@ unsigned int get_le16(void) {
 union big_big big;
 
 /* The more usual `static const char usage_msg[] = "...";' also works, but __WATCOMC__ would align it to 4 or 2. */
-#define USAGE_MSG ("Usage: luuzcat [-r] <input.gz >output" LUUZCAT_NL "https://github.com/pts/luuzcat" LUUZCAT_NL)
+#define USAGE_MSG ("Usage: luuzcat [-][r][m] <input.gz >output" LUUZCAT_NL "https://github.com/pts/luuzcat" LUUZCAT_NL)
 #define MORE_MSG ("more compressed input expected" LUUZCAT_NL)
 
+#define MAIN_FLAG_STATE_HAD_ARCHIVE_MEMBER 32
+#define MAIN_FLAG_MULTIPLE_ARCHIVE_MEMBERS 16
 #define MAIN_FLAG_RAW_DEFLATE 8
 #define MAIN_FLAG_SUBSEQUENT 5  /* This is strlen("more "), of the prefix of MORE_MSG. */
 
@@ -173,6 +175,7 @@ main0() {
     while (!IS_PROGARG_TERMINATOR(b = *(const unsigned char*)argv1++)) {
       b |= 0x20;  /* Convert uppercase A-Z to lowercase a-z. */
       if (b == 'r') flags |= MAIN_FLAG_RAW_DEFLATE;
+      if (b == 'm') flags |= MAIN_FLAG_MULTIPLE_ARCHIVE_MEMBERS;
       if (b == 'h') goto do_usage;  /* --help. */
     }
   }
@@ -223,7 +226,12 @@ main0() {
       decompress_zlib_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
     } else if (b == 0x50) {  /* 'P'. */
       if ((b = try_byte()) == 0x4b) {  /* 'K'. */
-        decompress_zip_struct_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
+        b = get_byte();
+        if (b == 3) {
+          if ((flags & (MAIN_FLAG_MULTIPLE_ARCHIVE_MEMBERS | MAIN_FLAG_STATE_HAD_ARCHIVE_MEMBER)) == MAIN_FLAG_STATE_HAD_ARCHIVE_MEMBER) fatal_msg("multiple archive members" LUUZCAT_NL);
+          flags |= MAIN_FLAG_STATE_HAD_ARCHIVE_MEMBER;
+        }
+        decompress_zip_struct_nohdr(b);  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
       } else {
         goto bad_signature;
       }

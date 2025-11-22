@@ -799,7 +799,7 @@ void decompress_deflate(void);
 #endif
 void decompress_zlib_nohdr(void);
 void decompress_gzip_nohdr(void);
-void decompress_zip_struct_nohdr(void);
+void decompress_zip_struct_nohdr(uc8 b);  /* b is the byte after the "PK" signature. */
 void decompress_compress_nohdr(void);
 void decompress_freeze1_nohdr(void);
 void decompress_freeze2_nohdr(void);

@@ -520,17 +520,15 @@ void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.tx
  *   ignored.
  * * Archives spanning multiple files are not supported.
  */
-void decompress_zip_struct_nohdr(void) {  /* https://pkwaredownloads.blob.core.windows.net/pkware-general/Documentation/APPNOTE-2.0.txt */
+void decompress_zip_struct_nohdr(uc8 b) {  /* https://pkwaredownloads.blob.core.windows.net/pkware-general/Documentation/APPNOTE-2.0.txt */
   unsigned int filename_size, extra_field_size, comment_size, flags, method;
   um32 csize, usize, crc32;
-  uc8 b;
 
 #if 0  /* The caller has already done this. */
   unsigned int i = try_byte();  /* First byte is ID1, must be 0x1f. */
   if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* This is not an error for `gzip -cd'. */
   if (i != 0x50 || try_byte() != 0x4b) fatal_msg("missing zip signature" LUUZCAT_NL);  /* "PK." */
 #endif
-  b = get_byte();
   /* The second byte of the structure header must be 1 more than the first, e.g. in "PK\3\4", 4 == 3 + 1. */
   if (get_byte() != (uc8)(b + 1)) { corrupted_input: fatal_corrupted_input(); }
   if (b == 3) {  /* "PK\3\4": ZIP local file header. Decompress member file to stdout. */

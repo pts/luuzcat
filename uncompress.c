@@ -806,16 +806,16 @@ typedef unsigned int uint;
 
   typedef char assert_sizeof_us16_for_uncompress[sizeof(us16) == 2 ? 1 : -1];  /* The byte order doesn't matter. */
 
-  static unsigned int fork_obufind;  /* output byte index within .sf_write_buffer; no need to initialize; also used by putpipe(...), done_with_fork(...) and init_write_buffer_with_fork(...) */
-  static unsigned int ipbufind;    /* input word (us16) index within .sf_read_buffer; no need to initialize; also used by getpipe(...) */
+  static unsigned int fork_obufind;  /* output byte index within big.compress_sf.sf_write_buffer; no need to initialize; also used by putpipe(...), done_with_fork(...) and init_write_buffer_with_fork(...) */
+  static unsigned int ipbufind;    /* input word (us16) index within big.compress.sf_read_buffer; no need to initialize; also used by getpipe(...) */
   static um8 pnum;  /* ID of this copy: 0..4; zero-initialized; also used by ffork() and done_with_fork(...) */
   static unsigned int iindex;  /* no need to initialize; holds index being processed */
   static unsigned int base;      /* where in global dict local dict starts; no need to initialize; also used by getpipe() */
   static unsigned int curend;    /* current end of global dict; no need to initialize; also used by getpipe() */
   static unsigned int curbits;      /* number of bits for getbits() to read: 9..16; no need to initialize */
   static um8 inmod;      /* mod 8 for getbits(); zero-initialized; also used by getbits() */
-  static unsigned int fork_obitind;  /* output bit index within .sf_write_buffer; no need to initialize; also used by set_putpipe_firstonly_flag_to_0(), putpipe(...), done_with_fork(...) and init_write_buffer_with_fork(...) */
-  static unsigned int fork_ibitind;  /* input bit index within .sf_read_buffer; no need to initialize; also used by getpipe(...) and init_write_buffer_with_fork(...) */
+  static unsigned int fork_obitind;  /* output bit index within big.compress_sf.sf_write_buffer; no need to initialize; also used by set_putpipe_firstonly_flag_to_0(), putpipe(...), done_with_fork(...) and init_write_buffer_with_fork(...) */
+  static unsigned int fork_ibitind;  /* input bit index within big.compres_sf.sf_read_buffer; no need to initialize; also used by getpipe(...) and init_write_buffer_with_fork(...) */
   static um8 getbits_curbyte;  /* byte having bits extracted from it; zero-initialized */
   static um8 getbits_left;    /* how many bits are left in getbits_curbyte: 0..8; zero-initialized */
   static int pipe_fd_out;  /* no need to initialize */
@@ -983,27 +983,29 @@ typedef unsigned int uint;
     if (pnum != 0) big.compress_sf.sf_write_buffer[fork_obitind >> 3] &= ~(1U << (fork_obitind & 7));  /* !! Make the code shorter by adding a variable: fork_obitmask. Also in getpipe(...). */
   }
 
+  static void flush_full_obuf_for_fork(void) {
+    if (!flush_obuf_to(STDOUT_FILENO)) {
+      if (pnum == 0) fatal_write_error();  /* Here it is the same as done_with_fork(DSTATUS_BAD_STDOUT_WRITE), but the call code is shorter. */
+      exit(126); /* Handling the error with done_with_fork(DSTATUS_BAD_PIPE_WRITE) instead wouldn't help, because the dstatus would be propagated to the parent using the same pipe (STDOUT_FILENO), which has already failed. */
+    }
+  }
+
   /* put an index into the pipeline. */
   static void putpipe(um16 u) {
     if (pnum == 0) {    /* if we should write to stdout */
 #  ifdef USE_DEBUG
       if (u > 255) { wi_too_large: fprintf(stderr, "fatal: assert: written index too large: pnum=%u index=%u\n", pnum, u); exit(99); }
 #  endif
-      big.compress_sf.sf_write_buffer[fork_obufind] = u;
-      if (++fork_obufind == COMPRESS_FORK_BUFSIZE) {  /* If stdout buffer full. */
-        if (!flush_obuf_to(STDOUT_FILENO)) done_with_fork(DSTATUS_BAD_STDOUT_WRITE);
-      }
-      return;
-    }
-    ++fork_obitind;  /* set_putpipe_firstonly_flag_to_0() has already been called to write the firstonly flag value. */
+      big.compress_sf.sf_write_buffer[fork_obufind++] = u;
+    } else {
+      ++fork_obitind;  /* set_putpipe_firstonly_flag_to_0() has already been called to write the firstonly flag value. */
 #  ifdef USE_DEBUG
-    if ((pnum == 1 && u > 13311) || (pnum == 2 && u > 26367) || (pnum == 3 && u > 39423) || (pnum == 4 && u > 52479)) goto wi_too_large;  /* Smaller values are OK. */
+      if ((pnum == 1 && u > 13311) || (pnum == 2 && u > 26367) || (pnum == 3 && u > 39423) || (pnum == 4 && u > 52479)) goto wi_too_large;  /* Smaller values are OK. */
 #  endif
-    *((us16*)(big.compress_sf.sf_write_buffer + fork_obufind)) = u;  /* add index to buffer */
-    if ((fork_obufind += 2) == COMPRESS_FORK_BUFSIZE) {  /* sizeof(us16). If pipe out buffer full. */
-      /* Handling the error with  done_with_fork(DSTATUS_BAD_PIPE_WRITE) instead would help, because the dstatus would be propagated to the parent using the same pipe (STDOUT_FILENO), which has already failed. */
-      if (!flush_obuf_to(STDOUT_FILENO)) exit(126);
+      *((us16*)(big.compress_sf.sf_write_buffer + fork_obufind)) = u;  /* add index to buffer */
+      fork_obufind += 2;
     }
+    if (fork_obufind == COMPRESS_FORK_BUFSIZE) flush_full_obuf_for_fork();
   }
 
   /* Get an index from the pipeline. If flagged firstonly, handle it here. */
@@ -1063,16 +1065,21 @@ typedef unsigned int uint;
     /* From now until the next read(...) call in get_byte_with_fork(...), uncompressed input bytes will be copied from the temporary read buffer in big.compress_sf.dchar[...]. */
   }
 
+#  define COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_0 COMPRESS_FORK_BUFSIZE  /* In chars. 1 char == 1 byte here. */
+#  define COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_NZ ((COMPRESS_FORK_BUFSIZE >> 1) - (COMPRESS_FORK_BUFSIZE >> 5))  /* In chars. 1 char == 2 bytes here. */
+
   static __noreturn void decompress_compress_with_fork(um8 hdrbyte) {
     unsigned int clrend;  /* end of global dict at clear time; no need to initialize */
-    unsigned int tbase1;  /* Maximum tindex1 not to spawn at the current pnum in the current iteration. */
+    unsigned int tbase1;  /* When spawning chars: the first-non-written (smallest) index value before which spawning in the current iteration must stop. When making the plan for spawning chars: number of chars to spawn in the current iteration (w_itersize). */
     unsigned int maxbits;  /* limit on number of bits */
     unsigned int dcharp;  /* ptr to dchar that needs next index entry */
     unsigned int maxdchari1;  /* maximum value of dchar index set, plus 1 */
     unsigned int locend;  /* where in global dict local dict ends */
     unsigned int maxend;  /* max end of global dict */
     unsigned int tindex1;  /* Temporary variable based on iindex. */
-    unsigned int tindex2;  /* Temporary variable based on iindex. */
+    unsigned int w_size;  /* Number of chars to spawn (or number of bytes in chars to spawn) for the current iindex. */
+    unsigned int bufdatacount;  /* Number of chars in a full output buffer. Either COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_0 or COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_NZ. */
+    us16* wstopp;  /* Pointer withing big.compress_sf.wstops. */
 
     copy_read_buffer_with_fork();
     maxdchari1 = 0;
@@ -1130,7 +1137,7 @@ typedef unsigned int uint;
       }
       if (iindex == 256 && clrend == 256) {
         if (pnum > 0) { set_putpipe_firstonly_flag_to_0(); putpipe(iindex); }
-        /* Due to uglyiess in compress, these indices in the compressed file are wasted. */
+        /* Due to ugliness in compress, these indices in the compressed file are wasted. */
         while (inmod & 7) getbits();
        do_clear:
         curend = clrend;  /* Initialize dictionary size. */
@@ -1146,18 +1153,56 @@ typedef unsigned int uint;
       if (dcharp < COMPRESS_FORK_DICTSIZE) big.compress_sf.dchar[dcharp++] = tindex1;
       if (curend < maxend && ++curend >= base) big.compress_sf.dindex[dcharp = (curend - base)] = iindex;
       /* Now: 256U <= base <= iindex <= curend <= maxend <= locend <= 65535. */
-
-      /* Do spawned chars. They are naturally produced in
-       * the wrong order. To get them in the right order
-       * without using memory, a series of passes,
-       * progressively less deep, are used */
-      for (tbase1 = base - 1; (tindex1 = iindex) > tbase1; ) {  /* Emit (spawn) each char from big.compress_sf.dchar[...]. */  /* !!! speed optimization: This is too slow: O(n**2). */
-        /* Now: 256U <= base <= tbase1 + 1U <= tindex1 == iindex <= curend <= maxend <= locend <= 65535U. */
-        for (; (tindex2 = big.compress_sf.dindex[tindex1 - base]) > tbase1; tindex1 = tindex2) {}  /* Scan to desired char. This loop doesn't increase tindex1. */
-        /* Now: 256U <= base <= tbase1 + 1U <= tindex1 <= iindex <= curend <= maxend <= locend <= 65535U. */
-        putpipe(big.compress_sf.dchar[tindex1 - base]);  /* put it to the pipe */
-        tbase1 = tindex1;  /* Stop before tindex1 in the next iteration of this loop. */
+      /* Do spawned chars. They are naturally produced in the wrong order,
+       * so we reverse them. To avoid the O(n**2) slowness, first we make a
+       * plan (in big.compress_sf.wstops, ending at wstopp + 1) on reversing
+       * the spawned chars, then we execute the plan. It's all O(n).
+       */
+      for (w_size = 0, tindex1 = iindex; tindex1 >= base; ++w_size, tindex1 = big.compress_sf.dindex[tindex1 - base]) {}
+      /* Now w_size is the number of chars to spawn for the current iindex. */
+      wstopp = big.compress_sf.wstops;
+      *wstopp++ = iindex;  /* This is the last-written (largest) index value with which spawning starts. */
+#ifdef USE_CHECK
+      if (fork_obufind >= COMPRESS_FORK_BUFSIZE) abort();
+#endif
+      tbase1 = COMPRESS_FORK_BUFSIZE - fork_obufind;
+      if (pnum != 0) tbase1 >>= 1;
+      if (w_size <= tbase1) {
+        *wstopp++ = w_size;  /* Number of chars to spawn in the first and only iteration. */
+      } else {
+        bufdatacount = (pnum == 0) ? COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_0 : COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_NZ;
+        tbase1 = (w_size - tbase1) % bufdatacount;
+        if (tbase1 == 0) tbase1 = bufdatacount;
+#ifdef USE_CHECK
+        if (tbase1 < 1 || tbase1 >= w_size) abort();
+#endif
+        *wstopp++ = tbase1;  /* Number of chars to spawn in the first iteration. */
+        tindex1 = iindex;
+        for (;;) {
+#ifdef USE_CHECK
+          if (w_size < 1 || tbase1 < 1 || w_size < tbase1) abort();
+#endif
+          w_size -= tbase1;
+          do { tindex1 = big.compress_sf.dindex[tindex1 - base]; } while (--tbase1 != 0);
+          if (w_size == 0) break;
+          *wstopp++ = tindex1;
+          *wstopp++ = tbase1 = (bufdatacount > w_size) ? w_size : bufdatacount;  /* Number of chars to spawn in the next iteration. */
+        }
       }
+      *wstopp = tindex1;  /* This is the first-non-written (smallest) index value before which spawning must stop. */
+      do {  /* Execute the char reversing plan set up above into big.compress_sf.wstops, starting at wstopp and going backward. This code is a faster equivalent of a lot of putpipe(...) calls with implicit firstonly flag == 1. */
+        tbase1 = *wstopp;
+        if (pnum == 0) {  /* Spawn each char as a byte onto the final uncompressed output (stdout). */
+          for (w_size = fork_obufind += *--wstopp, tindex1 = *--wstopp; tindex1 != tbase1; tindex1 = big.compress_sf.dindex[tindex1 - base]) {
+            big.compress_sf.sf_write_buffer[--w_size] = big.compress_sf.dchar[tindex1 - base];
+          }
+        } else {  /* Spawn each char as 2-byte word onto the pipe read by the parent process. */
+          for (fork_obitind += *--wstopp, w_size = fork_obufind += *wstopp << 1, tindex1 = *--wstopp; tindex1 != tbase1; tindex1 = big.compress_sf.dindex[tindex1 - base]) {
+            *(us16*)(big.compress_sf.sf_write_buffer + (w_size -= 2)) = big.compress_sf.dchar[tindex1 - base];
+          }
+        }
+        if (fork_obufind == COMPRESS_FORK_BUFSIZE) flush_full_obuf_for_fork();
+      } while (wstopp != big.compress_sf.wstops);
     }
   }
 

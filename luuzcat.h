@@ -733,7 +733,7 @@ struct deflate_big {
     uc8 sf_write_buffer[COMPRESS_FORK_BUFSIZE];
     us16 dindex[COMPRESS_FORK_DICTSIZE];  /* dictionary: index to substring;  no need to initialize; 25.5 KiB. */
     us16 dchar [COMPRESS_FORK_DICTSIZE];  /* dictionary: last char of string; no need to initialize; 25.5 KiB. */
-    us16 wstops[COMPRESS_FORK_DICTSIZE / (unsigned int)((COMPRESS_FORK_BUFSIZE * 15UL + 31U) >> 5) + 2U];  /* Output block stop indexes in dindex when writing in reverse order. */
+    us16 wstops[((COMPRESS_FORK_DICTSIZE / (unsigned int)((COMPRESS_FORK_BUFSIZE * 15UL + 31U) >> 5)) << 1) + 3U];  /* Output block stop indexes in dindex when writing in reverse order. */
   };
 #endif
 

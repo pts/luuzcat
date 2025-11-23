@@ -9,35 +9,55 @@ Decompression support for compressed file formats:
 |compressed file format              |luuzcat          |gzip, zcat |extension |signature at start      |
 |------------------------------------|-----------------|-----------|----------|------------------------|
 |gzip                                |yes              |yes        |.gz       |0x1f 0x8b               |
-|zlib                                |yes              |--         |(.zlib)   |(8 start byte options)  |
-|raw Deflate                         |with `-r`        |--         |(.deflate)|(192 start byte options)|
+|zlib                                |yes              |–          |(.zlib)   |(8 start byte options)  |
+|raw Deflate                         |with `-r`        |–          |(.deflate)|(192 start byte options)|
 |first ZIP member                    |yes              |yes        |.zip      |0x50 0x4b 0x03 0x04     |
-|multiple ZIP members                |with `-m`        |--         |.zip      |0x50 0x4b 0x03 0x04     |
-|ZIP with junk in front of records   |--               |--         |.zip      |(anything)              |
-|4.3BSD-Quasijarus Strong compression|yes              |--         |(.Z)      |0x1f 0xa1               |
+|multiple ZIP members                |with `-m`        |–          |.zip      |0x50 0x4b 0x03 0x04     |
+|ZIP with junk in front of records   |–                |–          |.zip      |(anything)              |
+|4.3BSD-Quasijarus Strong compression|yes              |–          |(.Z)      |0x1f 0xa1               |
 |Unix (n)compress (LZW)              |yes              |yes        |.Z        |0x1f 0x9d               |
-|old Unix pack                       |yes              |--         |.z        |0x1f 0x1f               |
-|new Unix pack                       |yes              |yes        |.z        |0x1f 0x1e               |
-|Freeze 1                            |yes              |--         |.F, .lzc  |0x1f 0x9e               |
-|Freeze 2                            |yes              |--         |.F, .lzc  |0x1f 0x9f               |
-|BSD compact                         |yes              |--         |.C        |0x1f 0xff; 0xff 0x1f    |
+|old Unix pack                       |yes              |–          |.z        |0x1f 0x1f               |
+|new Unix pack                       |yes              |yes (*)    |.z        |0x1f 0x1e               |
+|Freeze 1                            |yes              |–          |.F, .lzc  |0x1f 0x9e               |
+|Freeze 2                            |yes              |–          |.F, .lzc  |0x1f 0x9f               |
+|BSD compact                         |yes              |–          |.C        |0x1f 0xff; 0xff 0x1f    |
 |SCO compress LZH                    |yes              |yes        |(.Z)      |0x1f 0xa0               |
+
+(*) gzip-1.6 has some bugs in the decompressor, for example it fails with *code out of range* for some valid inputs. This has been fixed in gzip-1.6.
+
+See more information about most of these file formats in
+[the 0x1f compression family](http://fileformats.archiveteam.org/wiki/Compress_(Unix)#The_0x1f_compression_family)
+table. See also the [ZIP page](http://fileformats.archiveteam.org/wiki/ZIP).
 
 Other features:
 
-|feature                          |luuzcat|gzip, gunzip, zcat|
-|---------------------------------|-------|------------------|
-|compression                      |--     |yes               |
-|decompression to file            |--     |yes               |
-|decompression to stdout          |yes    |yes: `gzip -cd`; `gunzip -d`; `zcat`|
-|restoring the original filename  |--     |yes               |
-|restoring the original file mtime|--     |yes               |
-|checksum (CRC-32, Adler-32) check|yes    |yes               |
-|input data error checkin         |full   |full              |
-|safe to use on untrusted input   |yes    |yes               |
-|static buffers only, no malloc(3)|yes (*)|yes               |
+|feature                                    |luuzcat  |gzip, gunzip, zcat|
+|-------------------------------------------|---------|------------------|
+|compression                                |–        |yes               |
+|decompression to file                      |–        |yes               |
+|decompression to stdout                    |yes      |yes: `gzip -cd`; `gunzip -d`; `zcat`|
+|restoring the original filename            |–        |yes               |
+|restoring the original file mtime          |–        |yes               |
+|checksum (CRC-32, Adler-32) check          |yes      |yes               |
+|input data error checkin                   |full (**)|full              |
+|safe to use on untrusted input             |yes (**) |yes               |
+|static buffers only, no malloc(3)          |yes (*)  |yes               |
+|decompression of concatenated .gz files    |yes      |yes               |
+|decompression of concatenated non-.gz files|yes      |–                 |
 
 (*): Except that for the i86 targets (8086 CPU or x86 real mode or x86 16-bit protected mode) some tricks are done to use more than 64 KiB of memory for (n)compress decompression with maxbits >= 15. On DOS, the available memory region after the first 64 KIB is used for the (n)compress buffers. On Minix i86 (and ELKS), the process is fork()ed (to 4 processes for maxbits =\= 15 and 5 processes for maxbits =\= 16), and pipe()s are used for communication between the processes; together they have enough memory for the (n)compress decompression.
+
+(**): Only true for gzip >=1.14. Earlier versions of gzip don't implement these checks properly.
+
+The following compressed file formats have been omitted from luuzcat because
+they need much more than 256 KiB of memory to decompress: bzip2, LZMA, lzip,
+LZMA2, XZ, Zstandard (zstd).
+
+Some compressed file formats have been omitted from luuzcat because of size
+constraints: in the DOS 8086 target (*luuzcat.com* and parts of
+*luuzcat.exe*), code + data + stack has to fit in less than 64 KiB, so there
+is no room for more formats. These formats have been omitted for this
+reason: LZO, LZ4, ELKS executable compression.
 
 ## Compiling luuzcat
 
@@ -150,6 +170,7 @@ Here is the full list of executable program files for Intel i386 systems:
 Here is the full list of executable program files for Intel i86 systems:
 
 * *luuzcat.exe*: It's both a Win32 (i386) PE executable and a DOS MZ .exe executable. It works on both amd64 (64-bit) and i386 (32-bit) Windows systems, starting with Windows NT 3.1 (1993-07-27). It also works on IBM PC DOS 2.0 (1983-03-08) or later and MS-DOS 2.0 or later and DOS emulators.
+* *luuzcat.com*: A DOS .com executable program. It works on IBM PC DOS 2.0 (1983-03-08) or later and MS-DOS 2.0 or later and DOS emulators.
 * *luuzcat.mi8*: 
    Minix 1.5–2.0.4 i86 (tested with Minix 1.5 i86 (1990-06-01),
    Minix 1.7.0 i86 (1995-05-30), Minix 1.7.5 i86 (1996-09-03),

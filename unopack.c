@@ -1,4 +1,4 @@
-/* based on and derived from pcat.c written by Steve Zucker earlir than 1977-07-13
+/* based on and derived from pcat.c written by Steve Zucker earlier than 1977-07-13
  *
  * pts has ported it to C89 and added lots of extra error handling.
  *

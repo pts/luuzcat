@@ -1,17 +1,17 @@
-/* based on and derived from gzip-1.2.4a/unlzh.c
+/* based on and derived from gzip-1.2.4/unlzh.c
  * porting and extra error handling by pts@fazekas.hu at Thu Oct  2 13:46:01 CEST 2025
  *
  * pts has added lots of extra error handling.
  *
- * gzip-1.2.4a/unlzh.c can be found in https://mirror.netcologne.de/gnu/gzip/gzip-1.2.4.tar.gz
+ * gzip-1.2.4/unlzh.c can be found in https://mirror.netcologne.de/gnu/gzip/gzip-1.2.4.tar.gz
  *
  * decompress files in SCO compress -H (LZH) format.
- * gzip-1.2.4a/unlzh.c is directly derived from the public domain 'ar002'
+ * gzip-1.2.4/unlzh.c is directly derived from the public domain 'ar002'
  * written by Haruhiko Okumura.
  *
  * unlzh.c,v 1.2 1993/06/24 10:59:01 jloup
  *
- * All differences between gzip-1.2.4a/unlzh.c and gzip-1.14/unlzh.c have
+ * All differences between gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c have
  * been considered, and bugfixes (including memory safety fixes) have been
  * applied manually.
  */
@@ -124,20 +124,20 @@ static void build_huffman_table(unsigned int size, um8 bit_count_ary_ptr[], unsi
 
   start[0] = total = 0;
   for (i = 1; i < 16; ++i) {
-    if ((histogram[i] >> i) != 0) fatal_corrupted_input();  /* Check for no overflow incoverage. Having no check is a bug in gzip-1.2.4a/unlzh.c and gzip-1.14/unlzh.c. */
+    if ((histogram[i] >> i) != 0) fatal_corrupted_input();  /* Check for no overflow incoverage. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
     if ((delta = histogram[i] << (16 - i)) != 0) {
       total += delta;
       if ((total & 0xffffU) == 0) {  /* Overflow. No need to set start[i] and beyond. */
         if (i <= table_bit_count) start[table_bit_count] = 0;
         for (++i; i < 16; ++i) {
-          if (histogram[i] != 0) fatal_corrupted_input();  /* Check for no overflow incoverage. Having no check is a bug in gzip-1.2.4a/unlzh.c and gzip-1.14/unlzh.c. */
+          if (histogram[i] != 0) fatal_corrupted_input();  /* Check for no overflow incoverage. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
         }
         break;
       }
 #ifdef USE_DEBUG
       if (0) fprintf(stderr, "i=%u total=0x%04x delta=0x%04x\n", i, total, delta);
 #endif
-      if (total < delta) fatal_corrupted_input();  /* Check for no overflow incoverage. Having no check is a bug in gzip-1.2.4a/unlzh.c and gzip-1.14/unlzh.c. */
+      if (total < delta) fatal_corrupted_input();  /* Check for no overflow incoverage. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
     }
     start[i] = total;
   }
@@ -173,7 +173,7 @@ static void build_huffman_table(unsigned int size, um8 bit_count_ary_ptr[], unsi
     nextcode = i + weight[len];  /* After this, nextcode >= 1, because weight[len] >= 1. */
     start[len] = nextcode;
     if (len < table_bit_count) {
-      if (nextcode > total) fatal_corrupted_input();  /* Check missing from gzip-1.2.4a/unlzh.c, but present in gzip-1.14/unlzh.c . */
+      if (nextcode > total) fatal_corrupted_input();  /* Check missing from gzip-1.2.4/unlzh.c, but present in gzip-1.14/unlzh.c . */
       for (; i < nextcode; i++) table[i] = ch;
     } else {
       p = &table[i >> jutbits];
@@ -224,14 +224,14 @@ static void read_pt_len(unsigned int size, unsigned int nbit, unsigned int i_spe
         mask = 1U << (16 - 1 - 3);
         while (mask & bitbuf16) {
           mask >>= 1;
-          if (++c > 16) fatal_corrupted_input();  /* Check that bit_count is at most 16. Without this check, the `bitbuf16 & mask' loop in read_c_len_using_pt_len(...) wouldn't work. Having no check is a bug in gzip-1.2.4a/unlzh.c, but gzip-1.14/unlzh.c has the check. */
+          if (++c > 16) fatal_corrupted_input();  /* Check that bit_count is at most 16. Without this check, the `bitbuf16 & mask' loop in read_c_len_using_pt_len(...) wouldn't work. Having no check is a bug in gzip-1.2.4/unlzh.c, but gzip-1.14/unlzh.c has the check. */
         }
       }
       discard_bits((c < 7) ? 3 : c - 3);
       big.scolzh.pt_len[i++] = c;
       if (i == i_special) {
         c = read_bits(2);
-        if (c > n - i) fatal_corrupted_input();  /* Check i < n. Having no check is a bug in gzip-1.2.4a/unlzh.c and gzip-1.14/unlzh.c. */
+        if (c > n - i) fatal_corrupted_input();  /* Check i < n. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
         while (c-- != 0) big.scolzh.pt_len[i++] = 0;
       }
     }
@@ -265,7 +265,7 @@ static void read_c_len_using_pt_len(void) {
       /* The maximum c value in the test input file is 16. */
       if (c <= 2) {
         c = (c == 0) ? 1 : (c == 1) ? read_bits(4) + 3 : read_bits(CBIT) + 20;
-        if (c > n - i) fatal_corrupted_input();  /* Check i < n. Having no check is a bug in gzip-1.2.4a/unlzh.c and gzip-1.14/unlzh.c. */
+        if (c > n - i) fatal_corrupted_input();  /* Check i < n. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
         while (c-- != 0) big.scolzh.c_len[i++] = 0;
       } else {
         big.scolzh.c_len[i++] = c - 2;  /* The value is 0..16. */

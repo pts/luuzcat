@@ -195,7 +195,7 @@ main0() {
       } else if (b == 0x8b) {
         decompress_gzip_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
       } else if (b == 0xa1) {
-        decompress_quasijarus_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
+        decompress_quasijarus_nohdr();  /* 4.3BSD-Quasijarus Strong compression */  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
       } else if (b == 0xff) {  /* This is the less common signature for Compact. */
         do_compact: decompress_compact_nohdr();
         do_invalidate: invalidate_deflate_crc32_table();

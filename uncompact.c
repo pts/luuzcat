@@ -13,8 +13,8 @@
  *
  * This is an adaptive Huffman decompressor.
  *
- * Info from the 4.4BSD/usr/src/old/compact/uncompact/uncompact.c: on-line algorithm (
- * the compressed nput file don't contain decoding tree).
+ * Info from the 4.4BSD/usr/src/old/compact/uncompact/uncompact.c: on-line
+ * algorithm (the compressed input file doesn't contain the decoding tree).
  * Written by Colin L. McMaster (UCB) February 14, 1979
  */
 

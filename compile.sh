@@ -400,14 +400,14 @@ dneeds="-D__NEED_G@_write -D__NEED_G@_read -D__NEED_G@isatty_ -D__NEED_G@__argc 
 nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES= -D__GLOBAL_G@main_=2 $dneeds -DWIN32WL -o luuzcatp.o progx86.nasm
 # We omit `op norelocs', otherwise WDOSX wouldn't be able to run it.
 # We omit `op exporta', because we don't need these symbols.
-wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 1080 op noext op d op nored op start=_start op stub=luuzcatd.exe n luuzcatp.exe f luuzcatp.o f luuzcatr_32y.o f unscolzh_32y.o f uncompact_32y.o f unopack_32y.o f unpack_32y.o f undeflate_32y.o f uncompress_32y.o f unfreeze_32y.o
-"$perl" -0777 -pi -e 'substr($_, 0xa, 2) = pack("v", unpack("v", substr($_, 0xa, 2)) + 3)' luuzcatp.exe  # Hotfix: Add 3 to .minalloc. wlink(1) has kept it intact, incorrecrtly. !! Come up with a safer hotfix, reading both files.
+wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 1080 op noext op d op nored op start=_start op stub=luuzcatd.exe n luuzcat.exe f luuzcatp.o f luuzcatr_32y.o f unscolzh_32y.o f uncompact_32y.o f unopack_32y.o f unpack_32y.o f undeflate_32y.o f uncompress_32y.o f unfreeze_32y.o
+"$perl" -0777 -pi -e 'substr($_, 0xa, 2) = pack("v", unpack("v", substr($_, 0xa, 2)) + 3)' luuzcat.exe  # Hotfix: Add 3 to .minalloc. wlink(1) has kept it intact, incorrectly. !! Come up with a safer hotfix, reading both files.
 # We need non-empty command-line because dosbox.nox.static incorrectly reports that stdin is a TTY.
-dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcatp.exe -cd <test_C1_new9.Z >test_C1.bin
+dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcat.exe -cd <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
-dosbox.nox.static --cmd luuzcatp.exe -cd <test_C1_new9.Z >test_C1.bin
+dosbox.nox.static --cmd luuzcat.exe -cd <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
-./kvikdos luuzcatp.exe <test_C1_new9.Z >test_C1.bin
+./kvikdos luuzcat.exe <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatw_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                       -o luuzcat.elf   progx86.nasm
@@ -600,8 +600,9 @@ cat uncompact.c  >un1.c  # Avoid long filenames in DOS.
 cat undeflate.c  >un2.c  # Avoid long filenames in DOS.
 cat uncompress.c >un3.c  # Avoid long filenames in DOS.
 # Creates luuzcat.exe.
-./kvikdos ~/Downloads/dosasm2/turboc_1.00/tcc.exe -m$MODEL $ANSI $OPTJUMP $MERGESTR $ALIGN $SPEED $NOFLOAT $WARN $WMSIG $WRCH luuzcat.c unscolzh.c un1.c unopack.c unpack.c un2.c un3.c unfreeze.c
-./kvikdos luuzcat.exe <test_C1_new9.Z >test_C1.bin
+./kvikdos ~/Downloads/dosasm2/turboc_1.00/tcc.exe -m$MODEL $ANSI $OPTJUMP $MERGESTR $ALIGN $SPEED $NOFLOAT $WARN $WMSIG $WRCH -el luuzcat.c unscolzh.c un1.c unopack.c unpack.c un2.c un3.c unfreeze.c
+mv l.exe luuzcatt.exe
+./kvikdos luuzcatt.exe <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 : "$0" OK.

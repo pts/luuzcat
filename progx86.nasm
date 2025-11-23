@@ -30,20 +30,16 @@
 ;   qemu-i386 2.11.1). Operating system is autodetected at process startup.
 ; * prog.coff (-DCOFF):
 ;   AT&T Unix System V/386 Release 3.x (SVR3, 1987--) i386,
+;   AT&T Unix System V/386 Release 4 (SVR4) i386
+;   (tested on version 2.1) and drivatives (such as
+;   INTERACTIVE UNIX SYSTEM V RELEASE 4.0, Dell Unix, Olivetti Unix, Intel
+;   Unix),
 ;   386/ix >=1.0.6, INTERACTIVE UNIX >=2.2 (all versions), Microport Unix
-;   (all versions) i386, Coherent >=4.x,
+;   (all versions) i386, Coherent >=4.x (untested), Xenix >=2.3 (untested),
 ;   [ibcs-us](https://ibcs-us.sourceforge.io/) running on Linux i386.
+;   All off these systems use the same ABI.
 ; * prog.3b (-DS386BSD):
 ;   386BSD >=1.0 (tested on 386BSD 1.0 (1994-10-27)).
-; * prog.mi8 (-DMINIXI86):
-;   Minix 1.5--2.0.4 i86 (tested with Minix 1.5 i86 (1990-06-01),
-;   Minix 1.7.0 i86 (1995-05-30), Minix 1.7.5 i86 (1996-09-03),
-;   Minix 2.0.0 i86 (1996-10-01), Minix 2.0.4 i86 (2003-11-09)),
-;   ELKS 0.1.4--0.8.1-- (tested with
-;   ELKS 0.1.4 (2012-02-19), ELKS 0.2.0 (2015-03-01),
-;   ELKS 0.4.0 (2021-12-07), EKS 0.8.1 (2024-10-16)).
-;   Operating system is autodetected at process startup.
-;   Programs not calling fork(2) also work in elksemu 0.8.1 on Linux.
 ; * prog.mi3 (-DMINIXI386):
 ;   Minix 1.5--3.2.x i386 (tested on Minix 1.5 i386 (1990-06-01),
 ;   Minix 1.7.0 i386 (1995-05-30),
@@ -51,6 +47,8 @@
 ;   (1996-11-06),
 ;   Minix 2.0.0 i386 (1996-10-01), Minix 2.0.4 i386 (2003-11-09),
 ;   Minix 3.1.0 i386 (2005-10-18), Minix 3.2.0 i386 (2012-02-28).
+;   There are minor ABI differences between Minix versions, these are
+;   detected at runtime.
 ;   For [Minix-386vm](https://ftp.funet.fi/pub/minix/Minix-386vm/1.6.25.1/)
 ;   1.6.25.1, use -DMINIX386VM instead. Minix 3.3.0 has dropped a.out
 ;   support, it supports now ELF-32 executables only, use -DELF instead.
@@ -86,16 +84,21 @@
 ;   model (code + data + stack <= 0xff00 bytes).
 ;   !! Specify -DDOSEXE_STUB to get
 ;   a DOS .exe best fitted for the `wlink op stub=...` Win32 stub.
-;
-; High priority TODOs:
-;
-; * Minix 1.x and 2.x 8086 (16-bit).
-; * ELKS.
-; * Combined DOS 8086 + Win32 i386 in the same .exe file.
+; * prog.mi8 (-DMINIXI86):
+;   Minix 1.5--2.0.4 i86 (tested with Minix 1.5 i86 (1990-06-01),
+;   Minix 1.7.0 i86 (1995-05-30), Minix 1.7.5 i86 (1996-09-03),
+;   Minix 2.0.0 i86 (1996-10-01), Minix 2.0.4 i86 (2003-11-09)),
+;   ELKS 0.1.4--0.8.1-- (tested with
+;   ELKS 0.1.4 (2012-02-19), ELKS 0.2.0 (2015-03-01),
+;   ELKS 0.4.0 (2021-12-07), EKS 0.8.1 (2024-10-16)).
+;   Operating system is autodetected at process startup.
+;   There are minor ABI differences between Minix versions, these are
+;   detected at runtime.
+;   Programs not calling fork(2) also work in elksemu 0.8.1 on Linux.
 ;
 ; Some low priority TODOs:
 ;
-; * x.out 32-bit for older Xenix/386 (e.g. 2.2.2c). (Xenix 2.3 already supportes
+; * x.out 32-bit for older Xenix/386 (e.g. 2.2.2c). (Xenix 2.3 already supports
 ;   COFF.)
 ; * x.out 16-bit for older Xenix. Does it support segment arithmetic?
 ; * OS/2 1.x NE 16-bit. Does it support segment arithmetic?
@@ -104,7 +107,7 @@
 ; 2.3), SunOS 4.0.x, macOS (except in Docker), DOS or Win32 (except in
 ; Docker or WSL).
 ;
-; !! Add Xenix/86 (large model) and Xenix/386 targets.
+; !! Add Xenix/86 (large model) and Xenix/386 targets. SVR4 can run Xenix/386 programs. SVR4 can run Xenix/86 programs if the Xenix Compatibility package is installed
 ; !! Add FreeBSD 2.0.5 (1995-07-10) with the a.out executable format.
 ; !! Add Linux target with various a.out executable formats. (Linux 1.0 has already supported ELF.)
 ; !! Test it on FreeBSD 3.5 (1995-05-28).
@@ -1395,6 +1398,7 @@ SYS:
     .dup equ 41  ; FS in Minix <3.3.
     .pipe equ 42  ; FS in Minix <3.3.
   %endif
+  .elks_fmemalloc equ 206  ; Not in Minix, nothing similar in Minix. Introduced in ELKS 0.7.0. Even elksemu 0.8.1 doesn't support it. int fmemalloc(unsigned para_count, int *segment);
 %endif
 
 %if MINIXI386+MINIX386VM

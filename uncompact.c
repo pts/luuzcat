@@ -278,7 +278,7 @@ void decompress_compact_nohdr(void) {
   /* Setup. */
   data_byte = get_byte();
   write_idx = 0;
-#if 0  /* Not needed, write_idx is always 0 here. */
+#if 0  /* Not needed, write_idx is always 0 here (LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS). */
   if (write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
 #endif
   global_write_buffer[write_idx++] = data_byte;

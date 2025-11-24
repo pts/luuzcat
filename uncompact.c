@@ -239,11 +239,6 @@ static void uptree(unsigned int ch) {
 /* typedef char assert_son_size[sizeof(big.compact.dict[0].sons[0]) == 8 ? 1 : -1]; */  /* True, but not important. */
 /* typedef char assert_dict0_size[sizeof(big.compact.dict[0]) == 20 ? 1 : -1]; */  /* True, but not important. */
 
-typedef unsigned int u_word_t;  /* At least 16 bits. */
-typedef   signed int s_word_t;  /* Must be the signed counterpart of u_word_t. */
-typedef char assert_word_t[sizeof(u_word_t) == sizeof(s_word_t) && (u_word_t)-1 > 0 && (s_word_t)-1 < 0 ? 1 : -1];
-typedef char assert_word_t_2s_complement[(s_word_t)((u_word_t)1 << (sizeof(u_word_t) * 8 - 1)) < 0 && (s_word_t)((u_word_t)1 << (sizeof(u_word_t) * 8 - 2)) > 0 ? 1 : -1];
-
 static ub8 read_bit(void) {  /* For decompress. */
   if (big.compact.bitbuf & 0x8000U) {
     big.compact.bitbuf = get_byte() | 0x100;
@@ -258,7 +253,7 @@ void decompress_compact_nohdr(void) {
   unsigned int write_idx;
   register dicti_t pdi;  /* For decompress. */
   ub8 b;  /* 0 or 1 -- or RLEAF or LLEAF. For decompress. */
-  u_word_t decompress_word;
+  unsigned int decompress_word;  /* Must be at least 16 bits. */
   um8 data_byte;  /* 0..255. */
 
   /* !! Do we need this initialization? How is it different from per-file initialization below? */
@@ -325,8 +320,8 @@ void decompress_compact_nohdr(void) {
       if (decompress_word == EF) break;
       if (decompress_word == NC) {
         uptree(NC);
-        decompress_word = 0xffU << ((sizeof(decompress_word) * 8 - 8));
-        while ((s_word_t)decompress_word < 0) {  /* Read 8 bits to decompress_word. */  /* This assumes that s_word_t and u_word_t are 2s complement. */
+        decompress_word = 0xffU << ((sizeof(decompress_word) * 8 - 8));  /* Set the 8 highest bits to 1. */
+        while (is_high_bit_set(decompress_word)) {  /* Read 8 bits to decompress_word. */
           decompress_word <<= 1;
           if (read_bit()) decompress_word++;
         }

@@ -535,6 +535,15 @@ __noreturn void fatal_unsupported_feature(void);
 #  define WRITE_BUFFER_SIZE 0x8000  /* >=0x8000 is required by decompress_deflate(). */
 #endif
 
+/* --- Generic helpers. */
+
+/* i may be a char, short, int or long, or the signed or unsigned variants of these.
+ * __GCC__ (GCC >=4.8, Clang), __WATCOMC__ (OpenWatcom 2), __TURBOC__ (Turbo C++ >=1.00) are all smart enough to optimize this to a `< 0' check.
+ * OpenWatcom 2 C compiler generates suboptimal code for `(i & 0x80000000U) != 0' on i386. We avoid that here by doing `i < 0' instead.
+ */
+#define is_high_bit_set(i) ((int)~0U != -1 ? ((i) & (1UL << (sizeof(i) * 8 - 1))) != 0 :  /* Fallback for not 2s complement signed integers. */ \
+    sizeof(i) == sizeof(char) ? (signed char)(i) < 0 : sizeof(i) == sizeof(short) ? (short)(i) < 0 : sizeof(i) == sizeof(int) ? (int)(i) < 0 : (long)((i) + 0L) < 0)
+
 /* --- Reading. */
 
 #ifndef READ_BUFFER_SIZE

@@ -248,6 +248,14 @@ static ub8 read_bit(void) {  /* For decompress. */
   return (big.compact.bitbuf & 0x80) ? 1 : 0;
 }
 
+#if IS_X86_16 && defined(__WATCOMC__) && 0  /* This works and looks smart, but it makes the code longer. */
+  static unsigned int read_8_bits(void);
+#  pragma aux read_8_bits = "push bx"  "mov bx, 0xff00"  "next: add bx, bx"  "call read_bit"  "cbw"  "add bx, ax"  "js next"  "xchg ax, bx"  "pop bx"  __value [__ax] __modify __exact []
+#  define IS_READ_8_BITS_FUNCTION 1
+#else
+#  define IS_READ_8_BITS_FUNCTION 0
+#endif
+
 /* !! Test this by calling it twice, for different input streams. */
 void decompress_compact_nohdr(void) {
   unsigned int write_idx;
@@ -320,12 +328,16 @@ void decompress_compact_nohdr(void) {
       if (decompress_word == EF) break;
       if (decompress_word == NC) {
         uptree(NC);
+#if IS_READ_8_BITS_FUNCTION
+        insert(decompress_word = read_8_bits());
+#else
         decompress_word = 0xffU << ((sizeof(decompress_word) * 8 - 8));  /* Set the 8 highest bits to 1. */
         while (is_high_bit_set(decompress_word)) {  /* Read 8 bits to decompress_word. */
           decompress_word <<= 1;
           if (read_bit()) decompress_word++;
         }
         insert(decompress_word);
+#endif
       }
       uptree(decompress_word);
       global_write_buffer[write_idx] = (uc8)decompress_word;

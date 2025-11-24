@@ -1071,6 +1071,32 @@ typedef unsigned int uint;
 #  define COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_0 COMPRESS_FORK_BUFSIZE  /* In chars. 1 char == 1 byte here. */
 #  define COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_NZ ((COMPRESS_FORK_BUFSIZE >> 1) - (COMPRESS_FORK_BUFSIZE >> 5))  /* In chars. 1 char == 2 bytes here. */
 
+#  if IS_X86_16 && defined(__WATCOMC__) && (defined(__SMALL__) || defined(__MEDIUM__))
+    /* typedef char assert_dchar_dindex_diff[(uc8*)big.compress_sf.dchar - (uc8*)big.compress_sf.dindex == 13056 * 2 ? 1 : -1]; */  /* Error: expression must be constant. */
+    typedef char assert_dchar_dindex_diff[(uc8*)((struct compress_big_sf*)0)->dchar - (uc8*)((struct compress_big_sf*)0)->dindex == 13056 * 2 ? 1 : -1];  /* If the value changes, change 13056*2 below as well. */
+#    define IS_COMPRESS_FORK_CHAR_SPAWN_ASM 1
+    static void write_iteration_for_fork_inline(us16 *wstopp2b, uc8 *wend);
+    /* argument BX is wstopp-2b; argument CL is pnum; argument DI is big.compress_sf.sf_write_buffer+w_size.
+     * BX will be tindex1; DX will be tbase1; SI will be big.compress_sf.dindex-base
+     */
+#    pragma aux write_iteration_for_fork_inline = \
+        "mov dx, [bx+2]"  "mov bx, [bx]"  "mov cl, pnum"  "mov ch, 0"  "mov si, dindex_minus_base" \
+        "jmp maybe"  /* This is needed, because the entire output may be enpty (iindex == tindex1, w_size == 0 at the beginning) */ \
+        "next: add bx, bx"  "mov ax, [bx+si+13056*2]"  /* See assert_dchar_dindex_diff for the constent 13056*2. */ \
+        "dec di"  "jcxz wbyte"  "dec di"  "mov [di], ax"  "db 0xa9"  /* Opcode of `test ax, ...' to skip 2 bytes: `mov [di], al'. */ \
+        "wbyte: mov [di], al"  "mov bx, [bx+si]"  "maybe: cmp bx, dx"  "jne next" \
+        __parm [__bx] [__di] __modify __exact [__ax __bx __cx __dx __si __di]
+    static void __watcall write_iteration_for_fork(us16 *wstopp2b) {
+      write_iteration_for_fork_inline(wstopp2b, big.compress_sf.sf_write_buffer + fork_obufind);
+      if (fork_obufind == COMPRESS_FORK_BUFSIZE) flush_full_obuf_for_fork();
+    }
+
+    static void update_obufind_and_obitind(unsigned int w_last_count);
+#    pragma aux update_obufind_and_obitind = "add fork_obitind, ax"  "cmp byte ptr pnum, 0"  "je skip"  "add ax, ax"  "skip: add fork_obufind, ax" __parm [__ax] __modify __exact [__ax]
+#  else
+#    define IS_COMPRESS_FORK_CHAR_SPAWN_ASM 0
+#  endif
+
   static __noreturn void decompress_compress_with_fork(um8 hdrbyte) {
     unsigned int clrend;  /* end of global dict at clear time; no need to initialize */
     unsigned int tbase1;  /* When spawning chars: the first-non-written (smallest) index value before which spawning in the current iteration must stop. When making the plan for spawning chars: number of chars to spawn in the current iteration (w_itersize). */
@@ -1196,6 +1222,14 @@ typedef unsigned int uint;
         }
       }
       *wstopp = tindex1;  /* This is the first-non-written (smallest) index value before which spawning must stop. */
+#  if IS_COMPRESS_FORK_CHAR_SPAWN_ASM
+      while (--wstopp != big.compress_sf.wstops) {  /* Execute the char reversing plan set up above into big.compress_sf.wstops, starting at wstopp and going backward. This code is a faster equivalent of a lot of putpipe(...) calls with implicit firstonly flag == 1. */
+        fork_obufind = COMPRESS_FORK_BUFSIZE;  /* Fill the entire big.compress_sf.sf_write_buffer in the current iteration. */
+        write_iteration_for_fork(wstopp);
+      }
+      update_obufind_and_obitind(w_last_count);
+      write_iteration_for_fork(wstopp);  /* This can be empty. */
+#  else
       do {  /* Execute the char reversing plan set up above into big.compress_sf.wstops, starting at wstopp and going backward. This code is a faster equivalent of a lot of putpipe(...) calls with implicit firstonly flag == 1. */
         tbase1 = *wstopp; tindex1 = *--wstopp;
         if (wstopp == big.compress_sf.wstops) {
@@ -1217,6 +1251,7 @@ typedef unsigned int uint;
         }
         if (fork_obufind == COMPRESS_FORK_BUFSIZE) flush_full_obuf_for_fork();
       } while (wstopp != big.compress_sf.wstops);
+#  endif
     }
   }
 

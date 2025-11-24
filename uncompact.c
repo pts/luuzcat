@@ -239,13 +239,25 @@ static void uptree(unsigned int ch) {
 /* typedef char assert_son_size[sizeof(big.compact.dict[0].sons[0]) == 8 ? 1 : -1]; */  /* True, but not important. */
 /* typedef char assert_dict0_size[sizeof(big.compact.dict[0]) == 20 ? 1 : -1]; */  /* True, but not important. */
 
+#if IS_X86_16 && defined(__WATCOMC__)  /* Assembly helper functions to make read_bit(...) shorter on IS_X86_16. */
+  static unsigned int add_set_high_byte_1(unsigned int bb);
+#  pragma aux add_set_high_byte_1 = "mov ah, 1" __parm [__ax] __value [__ax] __modify __exact [__ax]
+  static unsigned int conv_bit7_to_01(unsigned int bb);
+#  pragma aux conv_bit7_to_01 = "rol al, 1"  "and ax, 1" __parm [__ax] __value [__ax] __modify __exact [__ax]
+#else
+  /* No assembly needed for defined(__386__) && defined(__WATCOMC__), it doesn't make it any shorter. */
+#  define add_set_high_byte_1(bb) ((bb) | 0x100)
+#  define conv_bit7_to_01(bb) (((bb) & 0x80) ? 1 : 0)
+#endif
+
 static ub8 read_bit(void) {  /* For decompress. */
-  if (big.compact.bitbuf & 0x8000U) {
-    big.compact.bitbuf = get_byte() | 0x100;
+  register unsigned int bb = big.compact.bitbuf;
+  if (bb & 0x8000U) {
+    bb = add_set_high_byte_1(get_byte());
   } else {
-    big.compact.bitbuf <<= 1;
+    bb <<= 1;
   }
-  return (big.compact.bitbuf & 0x80) ? 1 : 0;
+  return conv_bit7_to_01(big.compact.bitbuf = bb);
 }
 
 #if IS_X86_16 && defined(__WATCOMC__) && 0  /* This works and looks smart, but it makes the code longer. */

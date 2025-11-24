@@ -811,6 +811,7 @@ typedef unsigned int uint;
   static um8 pnum;  /* ID of this copy: 0..4; zero-initialized; also used by ffork() and done_with_fork(...) */
   static unsigned int iindex;  /* no need to initialize; holds index being processed */
   static unsigned int base;      /* where in global dict local dict starts; no need to initialize; also used by getpipe() */
+  static us16* dindex_minus_base;  /* Cached value: big.compress_sf.dindex - base; no need to initialize; also used by getpipe() */
   static unsigned int curend;    /* current end of global dict; no need to initialize; also used by getpipe() */
   static unsigned int curbits;      /* number of bits for getbits() to read: 9..16; no need to initialize */
   static um8 inmod;      /* mod 8 for getbits(); zero-initialized; also used by getbits() */
@@ -821,6 +822,8 @@ typedef unsigned int uint;
   static int pipe_fd_out;  /* no need to initialize */
   static uc8 *fork_inptr;  /* no need to initialize; also used by get_byte_with_fork(...) */
   static uc8 *fork_inend;  /* no need to initialize; also used by get_byte_with_fork(...) */
+
+# define dchar_minus_base (dindex_minus_base + (((struct compress_big_sf*)0)->dchar - ((struct compress_big_sf*)0)->dindex))  /* Based on a cached value, it's: big.compress_sf.dindex - base. */
 
 #  define DSTATUS_OK 0
 #  define DSTATUS_BAD_STDIN_READ 1
@@ -1041,7 +1044,7 @@ typedef unsigned int uint;
       if (iindex > curend) done_with_fork(DSTATUS_CORRUPTED_INPUT);
       if (!(big.compress_sf.sf_read_buffer[fork_ibitind >> 3] & (1U << (fork_ibitind & 7)))) { ++fork_ibitind; break; }  /* If firstonly flag for index is not set, return with valid non-firstonly index in iindex. */
       ++fork_ibitind;
-      while (iindex >= base) iindex = big.compress_sf.dindex[iindex - base];
+      while (iindex >= base) iindex = dindex_minus_base[iindex];
       putpipe(iindex);
     }
   }
@@ -1078,6 +1081,7 @@ typedef unsigned int uint;
     unsigned int maxend;  /* max end of global dict */
     unsigned int tindex1;  /* Temporary variable based on iindex. */
     unsigned int w_size;  /* Number of chars to spawn (or number of bytes in chars to spawn) for the current iindex. */
+    unsigned int w_last_count;  /* Number of chars to spawn in the last iteration (which doesn't necessarily fill big.compress_sf.sf_write_buffer). */
     unsigned int bufdatacount;  /* Number of chars in a full output buffer. Either COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_0 or COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_NZ. */
     us16* wstopp;  /* Pointer withing big.compress_sf.wstops. */
 
@@ -1112,6 +1116,7 @@ typedef unsigned int uint;
 
     /* Preliminary inits. Note: end/maxend/curend are highest, not highest + 1. */
     base = COMPRESS_FORK_DICTSIZE * pnum + 256;  /* Using `+ clrend + 1' instead of `+ 256' would also work here, and it would populate big.compress_sf.dindex[...] andbig.compress_sf.dchar[...] from the beginning. */
+    dindex_minus_base = big.compress_sf.dindex - base;
     locend = base + COMPRESS_FORK_DICTSIZE - 1;
     maxend = (1 << maxbits) - 1;
     if (maxend > locend) maxend = locend;
@@ -1147,7 +1152,7 @@ typedef unsigned int uint;
       }
       tindex1 = iindex;
       /* Convert the index part, ignoring spawned chars */
-      while (tindex1 >= base) tindex1 = big.compress_sf.dindex[tindex1 - base];
+      while (tindex1 >= base) tindex1 = dindex_minus_base[tindex1];
       set_putpipe_firstonly_flag_to_0(); putpipe(tindex1);  /* Pass on the index. */
       /* Save the char of the last added entry, if any */
       if (dcharp < COMPRESS_FORK_DICTSIZE) big.compress_sf.dchar[dcharp++] = tindex1;
@@ -1158,8 +1163,9 @@ typedef unsigned int uint;
        * plan (in big.compress_sf.wstops, ending at wstopp + 1) on reversing
        * the spawned chars, then we execute the plan. It's all O(n).
        */
-      for (w_size = 0, tindex1 = iindex; tindex1 >= base; ++w_size, tindex1 = big.compress_sf.dindex[tindex1 - base]) {}
+      for (w_size = 0, tindex1 = iindex; tindex1 >= base; ++w_size, tindex1 = dindex_minus_base[tindex1]) {}
       /* Now w_size is the number of chars to spawn for the current iindex. */
+      /* It may happen that our output is empty here, i.e. w_size == 0, i.e. iindex == tindex1. That's fine, the code below will be a no-op. */
       wstopp = big.compress_sf.wstops;
       *wstopp++ = iindex;  /* This is the last-written (largest) index value with which spawning starts. */
 #ifdef USE_CHECK
@@ -1168,7 +1174,7 @@ typedef unsigned int uint;
       tbase1 = COMPRESS_FORK_BUFSIZE - fork_obufind;
       if (pnum != 0) tbase1 >>= 1;
       if (w_size <= tbase1) {
-        *wstopp++ = w_size;  /* Number of chars to spawn in the first and only iteration. */
+        w_last_count = w_size;  /* Number of chars to spawn in the last and only iteration. */
       } else {
         bufdatacount = (pnum == 0) ? COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_0 : COMPRESS_FORK_BUFDATACOUNT_FOR_PNUM_NZ;
         tbase1 = (w_size - tbase1) % bufdatacount;
@@ -1176,29 +1182,37 @@ typedef unsigned int uint;
 #ifdef USE_CHECK
         if (tbase1 < 1 || tbase1 >= w_size) abort();
 #endif
-        *wstopp++ = tbase1;  /* Number of chars to spawn in the first iteration. */
+        w_last_count = tbase1;  /* Number of chars to spawn in the last iteration. */
         tindex1 = iindex;
         for (;;) {
 #ifdef USE_CHECK
           if (w_size < 1 || tbase1 < 1 || w_size < tbase1) abort();
 #endif
           w_size -= tbase1;
-          do { tindex1 = big.compress_sf.dindex[tindex1 - base]; } while (--tbase1 != 0);
+          do { tindex1 = dindex_minus_base[tindex1]; } while (--tbase1 != 0);
           if (w_size == 0) break;
           *wstopp++ = tindex1;
-          *wstopp++ = tbase1 = (bufdatacount > w_size) ? w_size : bufdatacount;  /* Number of chars to spawn in the next iteration. */
+          tbase1 = (bufdatacount > w_size) ? w_size : bufdatacount;  /* Number of chars to spawn in the previous iteration. */
         }
       }
       *wstopp = tindex1;  /* This is the first-non-written (smallest) index value before which spawning must stop. */
       do {  /* Execute the char reversing plan set up above into big.compress_sf.wstops, starting at wstopp and going backward. This code is a faster equivalent of a lot of putpipe(...) calls with implicit firstonly flag == 1. */
-        tbase1 = *wstopp;
+        tbase1 = *wstopp; tindex1 = *--wstopp;
+        if (wstopp == big.compress_sf.wstops) {
+          fork_obitind += w_last_count;
+          if (pnum != 0) w_last_count <<= 1;
+          fork_obufind += w_last_count;
+        } else {  /* Fill the entire big.compress_sf.sf_write_buffer in the current iteration. */
+          fork_obufind = COMPRESS_FORK_BUFSIZE;
+        }
+        w_size = fork_obufind;
         if (pnum == 0) {  /* Spawn each char as a byte onto the final uncompressed output (stdout). */
-          for (w_size = fork_obufind += *--wstopp, tindex1 = *--wstopp; tindex1 != tbase1; tindex1 = big.compress_sf.dindex[tindex1 - base]) {
-            big.compress_sf.sf_write_buffer[--w_size] = big.compress_sf.dchar[tindex1 - base];
+          for (; tindex1 != tbase1; tindex1 = dindex_minus_base[tindex1]) {
+            big.compress_sf.sf_write_buffer[--w_size] = dchar_minus_base[tindex1];
           }
         } else {  /* Spawn each char as 2-byte word onto the pipe read by the parent process. */
-          for (fork_obitind += *--wstopp, w_size = fork_obufind += *wstopp << 1, tindex1 = *--wstopp; tindex1 != tbase1; tindex1 = big.compress_sf.dindex[tindex1 - base]) {
-            *(us16*)(big.compress_sf.sf_write_buffer + (w_size -= 2)) = big.compress_sf.dchar[tindex1 - base];
+          for (; tindex1 != tbase1; tindex1 = dindex_minus_base[tindex1]) {
+            *(us16*)(big.compress_sf.sf_write_buffer + (w_size -= 2)) = dchar_minus_base[tindex1];
           }
         }
         if (fork_obufind == COMPRESS_FORK_BUFSIZE) flush_full_obuf_for_fork();

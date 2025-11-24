@@ -300,19 +300,19 @@ if false; then
       cmp test_C1.good test_C1.bin
   env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new13.Z >test_C1.bin
       cmp test_C1.good test_C1.bin
-  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new14.Z >test_C1.bin  # !! Add support.
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new14.Z >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new15.Z >test_C1.bin  # It won't work in elksemu, because elksemu <=0.8.1 has fork(2) implemented incorrectly, and it doesn't have fmemalloc(3) at all.
   #    cmp test_C1.good test_C1.bin
-  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new15.Z >test_C1.bin  # !! Add support. It won't work in elksemu, because elksemu <=0.8.1 has fork(2) implemented incorrectly.
-  #    cmp test_C1.good test_C1.bin
-  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new16.Z >test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_new16.Z >test_C1.bin  # It won't work in elksemu, because elksemu <=0.8.1 has fork(2) implemented incorrectly, and it doesn't have fmemalloc(3) at all.
   #    cmp test_C1.good test_C1.bin
   env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old13.Z >test_C1.bin
       cmp test_C1.good test_C1.bin
-  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old14.Z >test_C1.bin  # !! Add support.
+  env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old14.Z >test_C1.bin
+      cmp test_C1.good test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old15.Z >test_C1.bin  # It won't work in elksemu, because elksemu <=0.8.1 has fork(2) implemented incorrectly, and it doesn't have fmemalloc(3) at all.
   #    cmp test_C1.good test_C1.bin
-  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old15.Z >test_C1.bin  # !! Add support. It won't work in elksemu, because elksemu <=0.8.1 has fork(2) implemented incorrectly.
-  #    cmp test_C1.good test_C1.bin
-  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old16.Z >test_C1.bin
+  #env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_old16.Z >test_C1.bin  # It won't work in elksemu, because elksemu <=0.8.1 has fork(2) implemented incorrectly, and it doesn't have fmemalloc(3) at all.
   #    cmp test_C1.good test_C1.bin
 fi
 

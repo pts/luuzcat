@@ -692,6 +692,7 @@ struct compact_big {
   struct compact_node dict[COMPACT_NF];
   struct compact_fpoint in[COMPACT_NF];
   struct compact_index dir[COMPACT_NF << 1];
+  um16 bitbuf;
 };
 
 #define OPACK_TREESIZE 1024

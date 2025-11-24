@@ -244,12 +244,20 @@ typedef   signed int s_word_t;  /* Must be the signed counterpart of u_word_t. *
 typedef char assert_word_t[sizeof(u_word_t) == sizeof(s_word_t) && (u_word_t)-1 > 0 && (s_word_t)-1 < 0 ? 1 : -1];
 typedef char assert_word_t_2s_complement[(s_word_t)((u_word_t)1 << (sizeof(u_word_t) * 8 - 1)) < 0 && (s_word_t)((u_word_t)1 << (sizeof(u_word_t) * 8 - 2)) > 0 ? 1 : -1];
 
+static ub8 read_bit(void) {  /* For decompress. */
+  if (big.compact.bitbuf & 0x8000U) {
+    big.compact.bitbuf = get_byte() | 0x100;
+  } else {
+    big.compact.bitbuf <<= 1;
+  }
+  return (big.compact.bitbuf & 0x80) ? 1 : 0;
+}
+
 /* !! Test this by calling it twice, for different input streams. */
 void decompress_compact_nohdr(void) {
   unsigned int write_idx;
   register dicti_t pdi;  /* For decompress. */
-  register int m;  /* For decompress. */
-  um8 b;  /* 0 or 1 -- or RLEAF or LLEAF. For decompress. */
+  ub8 b;  /* 0 or 1 -- or RLEAF or LLEAF. For decompress. */
   u_word_t decompress_word;
   um8 data_byte;  /* 0..255. */
 
@@ -310,37 +318,27 @@ void decompress_compact_nohdr(void) {
   big.compact.dict[1  /* bottomdi */].sons[RIGHT].spdii = EF;  /* Sets the ini_t of spdii. */
 
   /* Decompress subsequent data bytes using adaptive Huffman code. */
-  pdi = 0;
-  for (;;) {
-    data_byte = get_byte();
-    for (m = 0x80; m; ) {
-      b = (m & data_byte ? 1 : 0);
-      m >>= 1;
-      decompress_word = CHECK_DI(big.compact.dict[pdi].sons[b].spdii);  /* b is 0 or 1. Uses the ini_t of spdii. */
-      if (big.compact.dict[pdi].fath.flags & (b ? RLEAF : LLEAF))  {
-        if (decompress_word == EF) goto end_of_stream;
-        if (decompress_word == NC) {
-          uptree(NC);
-          decompress_word = 0xffU << ((sizeof(decompress_word) * 8 - 8));
-          for (; (s_word_t)decompress_word < 0 ; m >>= 1) {  /* Read 8 bits to decompress_word. */  /* This assumes that s_word_t and u_word_t are 2s complement. */
-            if (m == 0) {
-              data_byte = get_byte();
-              m = 0x80;
-            }
-            decompress_word <<= 1;
-            if (m & data_byte) decompress_word++;
-          }
-          insert(decompress_word);
+  for (pdi = 0, big.compact.bitbuf = ~(um16)0; ;) {
+    b = read_bit();
+    decompress_word = CHECK_DI(big.compact.dict[pdi].sons[b].spdii);  /* b is 0 or 1. Uses the ini_t of spdii. */
+    if (big.compact.dict[pdi].fath.flags & (b ? RLEAF : LLEAF))  {
+      if (decompress_word == EF) break;
+      if (decompress_word == NC) {
+        uptree(NC);
+        decompress_word = 0xffU << ((sizeof(decompress_word) * 8 - 8));
+        while ((s_word_t)decompress_word < 0) {  /* Read 8 bits to decompress_word. */  /* This assumes that s_word_t and u_word_t are 2s complement. */
+          decompress_word <<= 1;
+          if (read_bit()) decompress_word++;
         }
-        uptree(decompress_word);
-        global_write_buffer[write_idx] = (uc8)decompress_word;
-        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
-        pdi = 0;
-      } else {
-        pdi = decompress_word;
+        insert(decompress_word);
       }
+      uptree(decompress_word);
+      global_write_buffer[write_idx] = (uc8)decompress_word;
+      if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
+      pdi = 0;
+    } else {
+      pdi = decompress_word;
     }
   }
- end_of_stream:
   flush_write_buffer(write_idx);
 }

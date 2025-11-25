@@ -239,12 +239,10 @@ static void uptree(unsigned int ch) {
 /* typedef char assert_son_size[sizeof(big.compact.dict[0].sons[0]) == 8 ? 1 : -1]; */  /* True, but not important. */
 /* typedef char assert_dict0_size[sizeof(big.compact.dict[0]) == 20 ? 1 : -1]; */  /* True, but not important. */
 
-#if IS_X86_16 && defined(__WATCOMC__) && 0  /* This works and looks smart, but it makes the code 7 bytes longer. */
-  static unsigned int read_8_bits_using_bitbuf8_inline(void);
-#  pragma aux read_8_bits_using_bitbuf8_inline = "push bx"  "mov bx, 0xff00"  "next: add bx, bx"  "call read_bit_using_bitbuf8"  "add bx, ax"  "js next"  "xchg ax, bx"  "pop bx"  __value [__ax] __modify __exact []
-#  define IS_READ_8_BITS_INLINE 1
+#if IS_X86_16 && defined(__WATCOMC__)
+#  define IS_READ_8_BITS_CALL 1
 #else
-#  define IS_READ_8_BITS_INLINE 0
+#  define IS_READ_8_BITS_CALL 1
 #endif
 
 /* !! Test this by calling it twice, for different input streams. */
@@ -319,9 +317,9 @@ void decompress_compact_nohdr(void) {
       if (decompress_word == EF) break;
       if (decompress_word == NC) {
         uptree(NC);
-#if IS_READ_8_BITS_INLINE
-        insert(decompress_word = read_8_bits_using_bitbuf8_inline());
-#else
+#if IS_READ_8_BITS_CALL
+        insert(decompress_word = read_bits_using_bitbuf8(8));
+#else  /* This is quite competitive, but still 2 bytes longer for IS_X86_16 && defined(__WATCOMC__). */
         decompress_word = 0xffU << ((sizeof(decompress_word) * 8 - 8));  /* Set the 8 highest bits to 1. */
         while (is_high_bit_set(decompress_word)) {  /* Read 8 bits to decompress_word. */
           decompress_word <<= 1;

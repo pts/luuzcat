@@ -153,22 +153,6 @@
  * any overruns (i.e. reading more bytes than absolutely necessary).
  */
 
-#if IS_X86_16 && defined(__WATCOMC__)
-  static unsigned int read_bits_using_bitbuf8_inline(um8 bit_count);
-#  pragma aux read_bits_using_bitbuf8_inline = "xor dx, dx"  "xchg cx, ax"  "jcxz done"  "next: add dx, dx"  "call read_bit_using_bitbuf8"  "add dx, ax"  "loop next"  "done: xchg ax, dx" __parm [__al] __value [__ax] __modify __exact [__ax __cx __dx]
-  static unsigned int __watcall read_bits_using_bitbuf8(um8 bit_count) { return read_bits_using_bitbuf8_inline(bit_count); }
-#else
-  /* 0 <= bit_count <= 8. */
-  static unsigned int read_bits_using_bitbuf8(um8 bit_count) {  /* !!! enable and use it in uncompat.c instead of read_8_bits_using_bitbuf8_inline() */
-    unsigned int result = 0;
-    while (bit_count-- != 0) {
-      result <<= 1;
-      result += read_bit_using_bitbuf8();
-    }
-    return result;
-  }
-#endif
-
 static unsigned int huffman_t, huffman_r, chars;
 
 /* notes :
@@ -291,7 +275,7 @@ static unsigned int decode_distance(um8 freeze12_code67) {
   register unsigned int i;
 
   i = read_bits_using_bitbuf8(8);
-  return (big.freeze.code[i] << freeze12_code67) | ((i << big.freeze.d_len[i]) & (freeze12_code67 == 6 ? 0x3f : 0x7f)) | read_bits_using_bitbuf8(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
+  return (big.freeze.d_code[i] << freeze12_code67) | ((i << big.freeze.d_len[i]) & (freeze12_code67 == 6 ? 0x3f : 0x7f)) | read_bits_using_bitbuf8(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
 }
 
 #if defined(__WATCOMC__) && defined(IS_X86_16) && (defined(_PROGX86_CSEQDS) || defined(_DOSCOMSTART) || defined(__COM__))  /* Hack to avoid alignment NUL byte before it. */
@@ -316,7 +300,7 @@ static void init(const um8 *table, unsigned int freeze12_code21) {
   freeze12_code21 = (table + 1 == table1) ? 2 : 1;  /* 2 for Freeze 1.x, 1 for Freeze 2.x. */
 #endif
 
-  /* There are `table[i]' `i'-bits Huffman codes */
+  /* This is the RLE decompession of the LZ match distance Huffman table bit lengths from table[1:] to big.freeze.p_len[...]. There are `table[i]' `i'-bit Huffman codes. */
   for (i = 1, j = 0; i <= 8; i++) {
     num += table[i] << (8 - i);
     for (k = table[i]; k; j++, k--)
@@ -326,12 +310,20 @@ static void init(const um8 *table, unsigned int freeze12_code21) {
   num = j;
 
   /* Decompression: building the table for decoding */
-  for (k = j = 0; j < num; j ++)
-    for (i = 1 << (8 - big.freeze.p_len[j]); i--;)
-      big.freeze.code[k++] = j;
-  for (k = j = 0; j < num; j ++)
-    for (i = 1 << (8 - big.freeze.p_len[j]); i--;)
-      big.freeze.d_len[k++] = big.freeze.p_len[j] - freeze12_code21;  /* Values for big.freeze.d_len[j] for table1 (Freeze 1.x) hardcoded: : 1..6. For big.freeze.table2 (Freeze 2.x), it's always 0..7. */
+  for (k = j = 0; j < num; j ++) {
+    for (i = 1 << (8 - big.freeze.p_len[j]); i--;) {
+      big.freeze.d_code[k++] = j;
+    }
+  }
+  for (k = j = 0; j < num; j ++) {
+    for (i = 1 << (8 - big.freeze.p_len[j]); i--;) {
+      /* Values for big.freeze.d_len[j] for table1 (Freeze 1.x) hardcoded: : 1..6. For big.freeze.table2 (Freeze 2.x), it's always 0..7.
+       * 0 can be achieved with big.freeze.table2 == {?, 2, 0, 0, 0, 0, 0, 0, 0}.
+       * 7 can be achieved with big.freeze.table2 == {?, 1, 1, 1, 1, 1, 1, 1, 2}.
+       */
+      big.freeze.d_len[k++] = big.freeze.p_len[j] - freeze12_code21;
+    }
+  }
 
 #if USE_DEBUG
   fprintf(stderr, "debug: big.freeze.p_len:");

@@ -645,6 +645,8 @@ extern um16 global_bitbuf8;
 #define init_bitbuf8() (global_bitbuf8 = ~(um16)0)
 /* It reads bits in big-endian (most-significant bit first), i.e. the very first bit is (b & 0x80) in the very first byte. */
 unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void);
+/* 0 <= bit_count <= 8. bit_count == 0 is used in decode_distance in unfreeze.c, because big.freeze.d_len[j] can be 0. 8 is used explicitly in unfreeze.c and uncompact.c. */
+unsigned int read_bits_using_bitbuf8(um8 bit_count);
 
 /* --- Writing. */
 
@@ -816,8 +818,8 @@ struct freeze_big {
   um16 parent[FREEZE_T2 + FREEZE_N_CHAR2];  /* Points to parent node. */
   uc8 p_len[64];  /* Used for initializing d_len. */
   uc8 d_len[256];  /* Used for decoding LZ match distances with Huffman coding. */
-  um8 code[256];  /* Used for decoding LZ match distances with Huffman coding. */
-  um8 table2[8];
+  um8 d_code[256];  /* Used for decoding LZ match distances with Huffman coding. */
+  um8 table2[8];  /* big.freeze.table2[i - 1] is the number of i-bit LZ match distance Huffman codes for Freeze 2.x. The sum of the values in big.freeze.table2 is 62. */
 };
 
 /* This contains the large arrays other than global_read_buffer and global_write_buffer. */

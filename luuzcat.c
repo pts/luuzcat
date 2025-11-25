@@ -108,8 +108,12 @@ um16 global_bitbuf8;
       GLOBAL_READ_BUFFER_MOV_X86_16  "inc bx"  "mov global_inptr, bx"  "pop bx"  "jmp fromnewbyte"  "full: xor ax, ax"  "call read_byte" \
       "fromnewbyte: mov ah, 1"  "save2: mov global_bitbuf8, ax"  "rol al, 1"  "and ax, 1" __value [__ax] __modify __exact [__ax]
   unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void) { return read_bit_using_bitbuf8_impl(); }
+  static unsigned int read_bits_using_bitbuf8_impl(um8 bit_count);
+#  pragma aux read_bits_using_bitbuf8_impl = "xor dx, dx"  "xchg cx, ax"  "jcxz done"  "next: add dx, dx"  "call read_bit_using_bitbuf8" \
+      "add dx, ax"  "loop next"  "done: xchg ax, dx" __parm [__al] __value [__ax] __modify __exact [__ax __cx __dx]
+  unsigned int read_bits_using_bitbuf8(um8 bit_count) { return read_bits_using_bitbuf8_impl(bit_count); }  /* 0 <= bit_count <= 8. */  /* !!! Do fewer calls for speedup. */
 #else
-#if defined(__386__) && defined(__WATCOMC__) && defined(__FLAT__)
+#  if defined(__386__) && defined(__WATCOMC__) && defined(__FLAT__)
     static unsigned int read_bit_using_bitbuf8_impl(void);
 #    pragma aux read_bit_using_bitbuf8_impl = \
       "mov ax, global_bitbuf8"  "add ax, ax"  "jnc save2"  "mov eax, global_inptr"  "cmp eax, global_insize"  "jae full" \
@@ -117,16 +121,33 @@ um16 global_bitbuf8;
       "full: xor eax, eax"  "call read_byte"  "fromnewbyte: mov ah, 1"  "save2: mov global_bitbuf8, ax"  "rol al, 1"  "and eax, 1" \
       __value [__eax] __modify __exact [__eax]
     unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void) { return read_bit_using_bitbuf8_impl(); }
+    static unsigned int read_bits_using_bitbuf8_impl(um8 bit_count);
+#    pragma aux read_bits_using_bitbuf8_impl = "xor edx, edx"  "xchg ecx, eax"  "jecxz done"  "next: add edx, edx"  "call read_bit_using_bitbuf8" \
+        "add edx, eax"  "loop next"  "done: xchg eax, edx" __parm [__al] __value [__eax] __modify __exact [__eax __ecx __edx]
+    unsigned int read_bits_using_bitbuf8(um8 bit_count) { return read_bits_using_bitbuf8_impl(bit_count); }  /* 0 <= bit_count <= 8. */  /* !!! Do fewer calls for speedup. */
 #  else
     unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void) {
       /* !! Add longer but faster implementation (no call) with inline assembly for __WATCOMC__ IS_X86_17 and __386__: is_bit_15_set(global_bitbuf8) ? ... : read_bit_using_bitbuf8(). */
-      register unsigned int bb = global_bitbuf8;
+      unsigned int bb = global_bitbuf8;
       if (is_bit_15_set(bb)) {  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_15_set_func(bb). */
         bb = add_set_higher_byte_1(get_byte());
       } else {
         bb <<= 1;
       }
       return is_bit_7_set_func(global_bitbuf8 = bb);  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_7_set(bb). */
+    }
+    unsigned int read_bits_using_bitbuf8(um8 bit_count) {  /* 0 <= bit_count <= 8. */
+      unsigned int bb = global_bitbuf8, result = 0;
+      while (bit_count-- != 0) {
+        result <<= 1;
+        if (is_bit_15_set(bb)) {
+          bb = add_set_higher_byte_1(get_byte());
+        } else {
+          bb <<= 1;
+        }
+        if (is_bit_7_set(global_bitbuf8 = bb)) ++result;
+      }
+      return result;
     }
 #  endif
 #endif

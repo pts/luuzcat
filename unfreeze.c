@@ -137,10 +137,10 @@
 
 #define ENDOF 256  /* pseudo-literal */
 
-/* big.freeze.d_len is really the number of bits to read to complete literal
+/* big.freeze.dh_len is really the number of bits to read to complete literal
  * part of position information.
  *
- * big.freeze.p_len and big.freeze.d_len are built from values in the header of the frozen file.
+ * big.freeze.dh_plen and big.freeze.dh_len are built from values in the header of the frozen file.
  */
 
 #define F1 60  /* Lookahead. */
@@ -156,7 +156,7 @@
 static unsigned int huffman_t, huffman_r, chars;
 
 /* notes :
-   big.freeze.parent[Tx .. Tx + N_CHARx - 1] used by
+   big.freeze.th_parent[Tx .. Tx + N_CHARx - 1] used by
    indicates leaf position that corresponding to code.
 */
 
@@ -171,17 +171,17 @@ static void StartHuff(unsigned int init_chars) {
   huffman_t = init_chars * 2 - 1;
   huffman_r = huffman_t - 1;
   for (i = 0; i < init_chars; i++) {  /* A priori frequences are 1. */
-    big.freeze.freq[i] = 1;
-    big.freeze.child[i] = i + huffman_t;
-    big.freeze.parent[i + huffman_t] = i;
+    big.freeze.th_freq[i] = 1;
+    big.freeze.th_child[i] = i + huffman_t;
+    big.freeze.th_parent[i + huffman_t] = i;
   }
   for (j = 0; i <= huffman_r; j += 2, ++i) {  /* Build the balanced tree. */
-    big.freeze.freq[i] = big.freeze.freq[j] + big.freeze.freq[j + 1];
-    big.freeze.child[i] = j;
-    big.freeze.parent[j] = big.freeze.parent[j + 1] = i;
+    big.freeze.th_freq[i] = big.freeze.th_freq[j] + big.freeze.th_freq[j + 1];
+    big.freeze.th_child[i] = j;
+    big.freeze.th_parent[j] = big.freeze.th_parent[j + 1] = i;
   }
-  big.freeze.freq[huffman_t] = 0xffffU;
-  big.freeze.parent[huffman_r] = 0;
+  big.freeze.th_freq[huffman_t] = 0xffffU;
+  big.freeze.th_parent[huffman_r] = 0;
 }
 
 /* Reconstructs tree with `chars' leaves. */
@@ -190,31 +190,31 @@ static void reconst(void) {
   register um16 *p, *e;
 
   for (i = j = 0; i < huffman_t; i++) {  /* Correct leaf node into of first half,  and set these freqency to (freq+1)/2. */
-    if (big.freeze.child[i] >= huffman_t) {
-      big.freeze.freq[j] = (big.freeze.freq[i] + 1) / 2;
-      big.freeze.child[j] = big.freeze.child[i];
+    if (big.freeze.th_child[i] >= huffman_t) {
+      big.freeze.th_freq[j] = (big.freeze.th_freq[i] + 1) / 2;
+      big.freeze.th_child[j] = big.freeze.th_child[i];
       j++;
     }
   }
-  for (i = 0, j = chars; j < huffman_t; i += 2, j++) {  /* Build tree.  Link big.freeze.child[...] first. */
+  for (i = 0, j = chars; j < huffman_t; i += 2, j++) {  /* Build tree.  Link big.freeze.th_child[...] first. */
     k = i + 1;
-    f = big.freeze.freq[j] = big.freeze.freq[i] + big.freeze.freq[k];
-    for (k = j - 1; f < big.freeze.freq[k]; k--);
+    f = big.freeze.th_freq[j] = big.freeze.th_freq[i] + big.freeze.th_freq[k];
+    for (k = j - 1; f < big.freeze.th_freq[k]; k--);
     k++;
-    for (p = &big.freeze.freq[j], e = &big.freeze.freq[k]; p > e; p--) {
+    for (p = &big.freeze.th_freq[j], e = &big.freeze.th_freq[k]; p > e; p--) {
       p[0] = p[-1];
     }
-    big.freeze.freq[k] = f;
-    for (p = &big.freeze.child[j], e = &big.freeze.child[k]; p > e; p--) {
+    big.freeze.th_freq[k] = f;
+    for (p = &big.freeze.th_child[j], e = &big.freeze.th_child[k]; p > e; p--) {
       p[0] = p[-1];
     }
-    big.freeze.child[k] = i;
+    big.freeze.th_child[k] = i;
   }
   for (i = 0; i < huffman_t; i++) {  /* Link parents. */
-    if ((k = big.freeze.child[i]) >= huffman_t) {
-      big.freeze.parent[k] = i;
+    if ((k = big.freeze.th_child[i]) >= huffman_t) {
+      big.freeze.th_parent[k] = i;
     } else {
-      big.freeze.parent[k] = big.freeze.parent[k + 1] = i;
+      big.freeze.th_parent[k] = big.freeze.th_parent[k + 1] = i;
     }
   }
 }
@@ -224,34 +224,34 @@ static void update(register unsigned int c) {
   register um16 *p;
   register unsigned i, j, k, l;
 
-  if (big.freeze.freq[huffman_r] == MAX_FREQ) {
+  if (big.freeze.th_freq[huffman_r] == MAX_FREQ) {
     reconst();
   }
-  c = big.freeze.parent[c + huffman_t];
+  c = big.freeze.th_parent[c + huffman_t];
   do {
-    k = ++big.freeze.freq[c];
+    k = ++big.freeze.th_freq[c];
 
     /* swap nodes when become wrong frequency order. */
-    if (k > big.freeze.freq[l = c + 1]) {
-      for (p = big.freeze.freq+l+1; k > *p++; ) ;
-      l = p - big.freeze.freq - 2;
-      big.freeze.freq[c] = p[-2];
+    if (k > big.freeze.th_freq[l = c + 1]) {
+      for (p = big.freeze.th_freq+l+1; k > *p++; ) ;
+      l = p - big.freeze.th_freq - 2;
+      big.freeze.th_freq[c] = p[-2];
       p[-2] = k;
 
-      i = big.freeze.child[c];
-      big.freeze.parent[i] = l;
-      if (i < huffman_t) big.freeze.parent[i + 1] = l;
+      i = big.freeze.th_child[c];
+      big.freeze.th_parent[i] = l;
+      if (i < huffman_t) big.freeze.th_parent[i + 1] = l;
 
-      j = big.freeze.child[l];
-      big.freeze.child[l] = i;
+      j = big.freeze.th_child[l];
+      big.freeze.th_child[l] = i;
 
-      big.freeze.parent[j] = c;
-      if (j < huffman_t) big.freeze.parent[j + 1] = c;
-      big.freeze.child[c] = j;
+      big.freeze.th_parent[j] = c;
+      if (j < huffman_t) big.freeze.th_parent[j + 1] = c;
+      big.freeze.th_child[c] = j;
 
       c = l;
     }
-  } while ((c = big.freeze.parent[c]) != 0);  /* loop until reach to root */
+  } while ((c = big.freeze.th_parent[c]) != 0);  /* loop until reach to root */
 }
 
 /* Decodes the literal or length info and returns its value. Returns ENDOF, if the file is corrupt. */
@@ -259,8 +259,8 @@ static unsigned int decode_token(void) {
   register unsigned int c = huffman_r;
 
   /* trace from root to leaf,
-     got bit is 0 to small(big.freeze.child[]), 1 to large (big.freeze.child[]+1) child node */
-  while ((c = big.freeze.child[c]) < huffman_t) {
+     got bit is 0 to small(big.freeze.th_child[]), 1 to large (big.freeze.th_child[]+1) child node */
+  while ((c = big.freeze.th_child[c]) < huffman_t) {
     c += read_bit_using_bitbuf8();
   }
   update(c -= huffman_t);
@@ -275,65 +275,62 @@ static unsigned int decode_distance(um8 freeze12_code67) {
   register unsigned int i;
 
   i = read_bits_using_bitbuf8(8);
-  return (big.freeze.d_code[i] << freeze12_code67) | ((i << big.freeze.d_len[i]) & (freeze12_code67 == 6 ? 0x3f : 0x7f)) | read_bits_using_bitbuf8(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
+  return (big.freeze.dh_code[i] << freeze12_code67) | ((i << big.freeze.dh_len[i]) & (freeze12_code67 == 6 ? 0x3f : 0x7f)) | read_bits_using_bitbuf8(big.freeze.dh_len[i]);  /* Always 0 <= big.freeze.dh_len[i] <= 7. */
 }
 
 #if defined(__WATCOMC__) && defined(IS_X86_16) && (defined(_PROGX86_CSEQDS) || defined(_DOSCOMSTART) || defined(__COM__))  /* Hack to avoid alignment NUL byte before it. */
   /* Neither `#pragma data_seg' nor `__based(__segname(...))' is able to put data a byte-aligned section (segment), so we put it to _TEXT. */
-  __declspec(naked) void __watcall table1_func(void) { __asm { db 0, 0, 1, 3, 8, 12, 24, 16 } }  /* Luckily, the disassembly of this is self-contained for 8086. */
-  #define table1 ((const um8*)table1_func)
+  __declspec(naked) void __watcall dh_table1_func(void) { __asm { db 0, 0, 1, 3, 8, 12, 24, 16 } }  /* Luckily, the disassembly of this is self-contained for 8086. */
+  #define dh_table1 ((const um8*)dh_table1_func)
 #else
-  static const um8 table1[8] = { 0, 0, 1, 3, 8, 12, 24, 16 };  /* Sum is 64 for Freeze 1.x, and 62 for Freeze 2.x. */
+  static const um8 dh_table1[8] = { 0, 0, 1, 3, 8, 12, 24, 16 };  /* Sum is 64 for Freeze 1.x, and 62 for Freeze 2.x. */
 #endif
 
 /* Initializes static Huffman arrays.
  * With __WATCMC__, table index here is 1-based, just like in freeze-2.5.0/huf.c.
  */
-static void init(const um8 *table, unsigned int freeze12_code21) {
+static void build_distance_huffman(const um8 *dh_table, unsigned int freeze12_code21) {
   unsigned int i, j, k, num;
-  num = 0;
 #ifndef __WATCOMC__
-  --table;
+  --dh_table;
 #endif
 
 #if 0  /* It's shorter to pass this as an argument. */
-  freeze12_code21 = (table + 1 == table1) ? 2 : 1;  /* 2 for Freeze 1.x, 1 for Freeze 2.x. */
+  freeze12_code21 = (dh_table + 1 == dh_table1) ? 2 : 1;  /* 2 for Freeze 1.x, 1 for Freeze 2.x. */
 #endif
 
-  /* This is the RLE decompession of the LZ match distance Huffman table bit lengths from table[1:] to big.freeze.p_len[...]. There are `table[i]' `i'-bit Huffman codes. */
-  for (i = 1, j = 0; i <= 8; i++) {
-    num += table[i] << (8 - i);
-    for (k = table[i]; k; j++, k--)
-      big.freeze.p_len[j] = i;  /* Values for big.freeze.p_len[j]: 1..8. For table1 (Freeze 1.x) hardcoded: 3..8. */
+  /* This is the RLE decompession of the LZ match distance Huffman table bit lengths from table[1:] to big.freeze.dh_plen[...]. There are `dh_table[i - 1]' `i'-bit Huffman codes. */
+  for (i = 1, j = num = 0; i <= 8; ++i) {
+    num <<= 1;
+    num += dh_table[i];
+    for (k = dh_table[i]; k != 0; ++j, --k)
+      big.freeze.dh_plen[j] = i;  /* Values for big.freeze.dh_plen[j]: 1..8. For dh_table1 (Freeze 1.x) hardcoded: 3..8. */
   }
-  if (num != 256) fatal_corrupted_input();  /* Invalid distance table. */
-  num = j;
+  if (num != 0x100) fatal_corrupted_input();  /* Invalid Huffman table. */
 
-  /* Decompression: building the table for decoding */
-  for (k = j = 0; j < num; j ++) {
-    for (i = 1 << (8 - big.freeze.p_len[j]); i--;) {
-      big.freeze.d_code[k++] = j;
-    }
-  }
-  for (k = j = 0; j < num; j ++) {
-    for (i = 1 << (8 - big.freeze.p_len[j]); i--;) {
-      /* Values for big.freeze.d_len[j] for table1 (Freeze 1.x) hardcoded: : 1..6. For big.freeze.table2 (Freeze 2.x), it's always 0..7.
-       * 0 can be achieved with big.freeze.table2 == {?, 2, 0, 0, 0, 0, 0, 0, 0}.
-       * 7 can be achieved with big.freeze.table2 == {?, 1, 1, 1, 1, 1, 1, 1, 2}.
+  /* Build the tables (big.freeze.dh_code and big.freeze.dh_plen) for LZ match distance Huffman decoding. */
+  k = j = 0;
+  do {
+    for (i = 0x100 >> big.freeze.dh_plen[j]; (int)~0U == -1 ? (int)--i >= 0 : i-- != 0; ++k) {
+      big.freeze.dh_code[k] = j;
+      /* Values for big.freeze.dh_len[j] for dh_table1 (Freeze 1.x) hardcoded: : 1..6. For big.freeze.dh_table2 (Freeze 2.x), it's always 0..7.
+       * 0 can be achieved with big.freeze.dh_table2 == {?, 2, 0, 0, 0, 0, 0, 0, 0}.
+       * 7 can be achieved with big.freeze.dh_table2 == {?, 1, 1, 1, 1, 1, 1, 1, 2}.
        */
-      big.freeze.d_len[k++] = big.freeze.p_len[j] - freeze12_code21;
+      big.freeze.dh_len[k] = big.freeze.dh_plen[j] - freeze12_code21;
     }
-  }
+    ++j;
+  } while (k != 0x100);
 
 #if USE_DEBUG
-  fprintf(stderr, "debug: big.freeze.p_len:");
+  fprintf(stderr, "debug: big.freeze.dh_plen:");
   for (i = 0; i < num; ++i) {
-    fprintf(stderr, " %u", big.freeze.p_len[i]);
+    fprintf(stderr, " %u", big.freeze.dh_plen[i]);
   }
   fprintf(stderr, "\n");
-  fprintf(stderr, "debug: big.freeze.d_len:");
+  fprintf(stderr, "debug: big.freeze.dh_len:");
   for (i = 0; i < 256; ++i) {
-    fprintf(stderr, " %u", big.freeze.d_len[i]);
+    fprintf(stderr, " %u", big.freeze.dh_len[i]);
   }
   fprintf(stderr, "\n");
 #endif
@@ -380,9 +377,9 @@ void decompress_freeze1_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
 #endif
   StartHuff(N_CHAR1);
 #ifdef __WATCOMC__
-  init(table1 - 1, 2);
+  build_distance_huffman(dh_table1 - 1, 2);
 #else  /* Longer code to prvent GCC warning: array subscript is below array bounds [-Warray-bounds] */
-  init(table1, 2);
+  build_distance_huffman(dh_table1, 2);
 #endif
   decompress_freeze_common(F1, 6);
 }
@@ -395,37 +392,37 @@ void decompress_freeze2_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
   if (i == BEOF) fatal_msg("empty compressed input file" LUUZCAT_NL);  /* This is not an error for `gzip -cd'. */
   if (i != 0x1f || try_byte() != 0x9f) fatal_msg("missing Freeze 2.x signature" LUUZCAT_NL);
 #endif
-  /* Reconstruct `big.freeze.table2' from the header of the frozen file and checks its correctness. */
+  /* Reconstruct `big.freeze.dh_table2' from the header of the frozen file and checks its correctness. */
   i = get_byte();
   i |= get_byte() << 8;  /* i := 16-bit little-endian header word y. */
-  /* big.freeze.table2[0] = 0; */  /* Unused. */
-  big.freeze.table2[0] = i & 1; i >>= 1;
-  big.freeze.table2[1] = i & 3; i >>= 2;
-  big.freeze.table2[2] = i & 7; i >>= 3;
-  big.freeze.table2[3] = i & 0xf; i >>= 4;
-  big.freeze.table2[4] = i & 0x1f; i >>= 5;
+  /* big.freeze.dh_table2[0] = 0; */  /* Unused. */
+  big.freeze.dh_table2[0] = i & 1; i >>= 1;
+  big.freeze.dh_table2[1] = i & 3; i >>= 2;
+  big.freeze.dh_table2[2] = i & 7; i >>= 3;
+  big.freeze.dh_table2[3] = i & 0xf; i >>= 4;
+  big.freeze.dh_table2[4] = i & 0x1f; i >>= 5;
 
   if (i & 1 || (i = get_byte()) & 0xc0) fatal_corrupted_input();  /* The highest 1 bit of header word y must be 1. The 2 high bits of header byte y must be 0. */
 
-  big.freeze.table2[5] = i & 0x3f;
+  big.freeze.dh_table2[5] = i & 0x3f;
 
-  i = big.freeze.table2[0] + big.freeze.table2[1] + big.freeze.table2[2] + big.freeze.table2[3] + big.freeze.table2[4] + big.freeze.table2[5];
+  i = big.freeze.dh_table2[0] + big.freeze.dh_table2[1] + big.freeze.dh_table2[2] + big.freeze.dh_table2[3] + big.freeze.dh_table2[4] + big.freeze.dh_table2[5];
   i = 62 - i;  /* After this, i is the free variable-length codes for 7 & 8 bits. !! Why only 62? How can we get up to 64? */
 
-  j = (((((4U - big.freeze.table2[0] * 2 - big.freeze.table2[1]) * 2 - big.freeze.table2[2]) * 2 - big.freeze.table2[3]) * 2 - big.freeze.table2[4]) * 2 - big.freeze.table2[5]) * 4;
+  j = (((((4U - big.freeze.dh_table2[0] * 2 - big.freeze.dh_table2[1]) * 2 - big.freeze.dh_table2[2]) * 2 - big.freeze.dh_table2[3]) * 2 - big.freeze.dh_table2[4]) * 2 - big.freeze.dh_table2[5]) * 4;
   /* Now j is free byte images for these codes. */
 
-  /* Equations: big.freeze.table2[7] + big.freeze.table2[8] = i; 2 * big.freeze.table2[7] + big.freeze.table2[8] == j. */
+  /* Equations: big.freeze.dh_table2[7] + big.freeze.dh_table2[8] = i; 2 * big.freeze.dh_table2[7] + big.freeze.dh_table2[8] == j. */
   if (j < i) fatal_corrupted_input();
   j -= i;
   if (i < j) fatal_corrupted_input();
-  big.freeze.table2[6] = j;
-  big.freeze.table2[7] = i - j;
+  big.freeze.dh_table2[6] = j;
+  big.freeze.dh_table2[7] = i - j;
   StartHuff(N_CHAR2);
 #ifdef __WATCOMC__
-  init(big.freeze.table2 - 1, 1);
+  build_distance_huffman(big.freeze.dh_table2 - 1, 1);
 #else  /* Longer code to prvent GCC warning: array subscript is below array bounds [-Warray-bounds] */
-  init(big.freeze.table2, 1);
+  build_distance_huffman(big.freeze.dh_table2, 1);
 #endif
   decompress_freeze_common(LOOKAHEAD, 7);
 }

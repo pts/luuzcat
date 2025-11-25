@@ -813,13 +813,15 @@ struct deflate_big {
 
 struct freeze_big {
   RW_BUFFER_DEF CRC32_TABLE_DUMMY
-  um16 freq[FREEZE_T2 + 1];  /* Frequency table. */
-  um16 child[FREEZE_T2];  /* Points to child node (child[i], child[i+1]). */
-  um16 parent[FREEZE_T2 + FREEZE_N_CHAR2];  /* Points to parent node. */
-  uc8 p_len[64];  /* Used for initializing d_len. */
-  uc8 d_len[256];  /* Used for decoding LZ match distances with Huffman coding. */
-  um8 d_code[256];  /* Used for decoding LZ match distances with Huffman coding. */
-  um8 table2[8];  /* big.freeze.table2[i - 1] is the number of i-bit LZ match distance Huffman codes for Freeze 2.x. The sum of the values in big.freeze.table2 is 62. */
+  /* The big.freeze.th_* arrays below are used for adaptive Huffman decoding of tokens. A token can be a literal, an EOF stop code or an LZ match length specifier. */
+  um16 th_freq[FREEZE_T2 + 1];  /* Frequency table. */
+  um16 th_child[FREEZE_T2];  /* Points to child node (child[i], child[i+1]). */
+  um16 th_parent[FREEZE_T2 + FREEZE_N_CHAR2];  /* Points to parent node. */
+  /* The big.freeze.dh_* arrays below are used for partial dynamic Huffman decoding of LZ match distances. */
+  uc8 dh_plen[64];  /* Used for initializing dh_len. */
+  uc8 dh_len[256];  /* Used for decoding LZ match distances with Huffman coding. */
+  um8 dh_code[256];  /* Used for decoding LZ match distances with Huffman coding. */
+  um8 dh_table2[8];  /* big.freeze.table2[i - 1] is the number of i-bit LZ match distance Huffman codes for Freeze 2.x. The sum of the values in big.freeze.table2 is 62. */
 };
 
 /* This contains the large arrays other than global_read_buffer and global_write_buffer. */

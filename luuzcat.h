@@ -791,9 +791,9 @@ struct freeze_big {
   um16 freq[FREEZE_T2 + 1];  /* Frequency table. */
   um16 child[FREEZE_T2];  /* Points to child node (child[i], child[i+1]). */
   um16 parent[FREEZE_T2 + FREEZE_N_CHAR2];  /* Points to parent node. */
-  uc8 p_len[64];
-  uc8 d_len[256];
-  um8 code[256];
+  uc8 p_len[64];  /* Used for initializing d_len. */
+  uc8 d_len[256];  /* Used for decoding LZ match distances with Huffman coding. */
+  um8 code[256];  /* Used for decoding LZ match distances with Huffman coding. */
   um8 table2[8];
 };
 

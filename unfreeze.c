@@ -9,13 +9,8 @@
  * Both Freeze 1.x and 2.x use adaptive Huffman + LZ. The LZ ring buffer
  * window size is 4 KiB for Freeze 1.x and 8 KiB for Freeze 2.x.
  *
- * The compressed data format is similar in design to that of LHA's "lh" compression methods.
- *
- * Codes (i.e. literal bytes and LZ match length is the same alphabet) are
- * compressed with adaptive Huffman coding. For the Freeze 2.x format, offsets
- * are decoded with the help of a static Huffman tree stored near the beginning
- * of the file. For the Freeze 1.x format, a predefined Huffman-like code is
- * used. The adaptive Huffman format is derived from LZHUF.
+ * The compressed data format LZSS + dyna is similar in design to that of LHA's "lh"
+ * compression methods.
  *
  * Freeze is written by Leonid A. Broukhis.
  *
@@ -24,6 +19,92 @@
  * http://cd.textfiles.com/sourcecode/usenet/compsrcs/misc/volume17/freeze/part01
  *
  * Freeze 2.5 was released on 1999-05-20.
+ *
+ * The code bit lengths for the LZ match distance Huffman table are
+ * hardcoded for Freeze 1.x in table1: 0 1-bit-codes, 0 2-bit codes, 1 3-bit
+ * code, 3 4-bit codes, 8 5-bit codes, 12 6-bit codes, 24 7-bit-codes, 16
+ * 8-bit codes. They sum up to 0 + 0 + 1 + 3 + 8 + 12 + 24 + 16 = 64, so the
+ * Huffman-coded values are 0..63. When decoding a distance, 6 additional
+ * literal bits are read (as low bits) to form a 12-bit distance value, the
+ * maximum distance is ~4096.
+ *
+ * The code bit lengths for the LZ match distance Huffman table are sent
+ * right after 2-byte signature for Freeze 2.x. See their encoding below.
+ * They sum up to 62, so the Huffman-coded values are 0..61. When
+ * decoding a distance, 7 additional literal bits are read (as low bits) to
+ * form a 13-bit distance value, the maximum distance is 7935 (not 8191,
+ * because Huffman-coded values 62 and 63 are disallowed).
+ *
+ * The RLE-encoding of the distance bit lengths for Freeze 2.x is the
+ * following: after the 2-byte signature, a 16-bit little-endian word is
+ * read to x (the highest bit must be 0), and a byte is read to y (the 2
+ * high bits must be 00). Then the bits a, bb, ccc, dddd, eeeee are
+ * extracted (from low to high) from x, and ffffff from y. There are *a* 1-bit
+ * codes, bb 2-bit codes, ccc 3-bit codes, dddd 4-bit codes, eeeee 5-bit
+ * codes, ffffff 6-bit codes, n7 7-bit codes (see below) and n8 8-bit codes
+ * (see below). n7 and n8 are the unique solutions of these set of equations:
+ * a + bb + ccc + dddd + eeeee + ffffff + n7 + n8 == 62,
+ * 128 * a + 64 * bb + 32 * ccc + 16 * dddd + 8 * eeeee + 4 * ffffff + 2 *
+ * n7 + n8 == 256.
+*
+ * Then the Huffman code bit lengths of the LZ match distance values are the
+ * following (encoded as RLE):
+*
+ * * Distance values 0...a (i.e. including 0, but excluding a) have bit length 1.
+ * * Distance values a...a+bb have bit length 2.
+ * * Distance values a+bb...a+bb+ccc have bit length 3.
+ * * Distance values a+bb+ccc...a+bb+ccc+dddd have bit length 4.
+ * * Distance values a+bb+ccc+dddd...a+bb+ccc+dddd+eeeee have bit length 5.
+ * * Distance values a+bb+ccc+dddd+eeeee...a+bb+ccc+dddd+eeeee+ffffff have bit length 6.
+ * * Distance values a+bb+ccc+dddd+eeeee+ffffff...a+bb+ccc+dddd+eeeee+ffffff+n7 have bit length 7.
+ * * Distance values a+bb+ccc+dddd+eeeee+ffffff+n7...a+bb+ccc+dddd+eeeee+ffffff+n7+n8 (largest is 62) have bit length 8.
+ *
+ * This is an exmplanation in the documentation of Freeze 2.5 why the
+ * maximum LZ match distance is of 7935 (== 8191 - 256) rather than 8191:
+ * ``Because buffer length is 8192 bytes and maximum match length is 256
+ * bytes, the position of matched string cannot be greater than 8192 - 256,
+ * that's why there are only (8192-256)/2**7 = 62 static codes.'' This is
+ * suboptimal, and the explanation doesn't make sense from decompressor's
+ * point of view, but it does make sense if we (artificially) limit the
+ * compressor's ring buffer window size to 8192 bytes.
+ *
+ * The *freeze* command-line tool in Freeze 2.x doesn't autodetect the best
+ * Huffman table for LZ match distances, but has a hardcoded Huffman table
+ * as a default, which can be changed in the command line either by
+ * specifying the 8 bit lengths or specifying an entry which is looked up in
+ * the config file *freeze.cnf*. This is suboptimal.
+ *
+ * In addition to the Huffman table for the LZ match distances, there is a
+ * separate, adaptive Huffman table for tokens (which include literal bytes
+ * and LZ match lengths). The token bit lengths in this adaptive Huffman
+ * table are not sent, but they start from a hardcoded, evenly distributed
+ * list of 315 (for Freeze 1.x) or 511 (for Freeze 2.x) bit lengths, and the
+ * bit lengths are updated after each token (that's the essence of adaptive
+ * Huffman coding). The adaptive Huffman format is derived from LZHUF.
+ *
+ * After the 2-byte signature and (only for Freeze 2.x) the 3-byte LZ match
+ * distance Huffman code bit length descriptor (x and y), a stream of bits
+ * follows, all the way to the end. Bits are stored big-endian (i.e.
+ * most-significant bit first), i.e. the very first bit is the highest bit
+ * of the very first byte (b & 0x80).
+ *
+ * When decoding the stream of bits, a token is decoded using the adaptive
+ * Huffman table (and the table is updated accordingly). If the token value
+ * is less than 256, then the token is appended as a literal byte to the
+ * uncompressed output. The token value 256 indicates end-of-stream, and
+ * decompression is stopped. Larger token values indicate an LZ match, and
+ * they also contain the LZ match length: token - 256 + 2, thus token values
+ * 257..315 mean lengths 3..60, and (for Freeze 2.x only) token values
+ * 316..511 mean lengths 61..256. Freeze 1.x never generates match length
+ * larger than 60, but the decompressor happily accepts larger values. After
+ * tn LZ match length token, the LZ match distance is decoded using the LZ
+ * match distance Huffman table (plus 6 or 7 additional literal bits, see
+ * above), so the distance value is 0..4095 for Freeze 1.x and 0..7935 for
+ * Freeze 2.x. The copying is done for LZ match, and decoding continues
+ * with the next token.
+ *
+ * ``Versions 2.1--2.5 were posted to the comp.sources.misc Usenet group in 1991–1993'' in http://fileformats.archiveteam.org/wiki/Freeze/Melt . Can 2.5 be found on Usenet in 1993? Or is it 1999?
+ * how does adaptive Huffman different from BSD compact -- seems simpler? is it taster?
  */
 
 #include "luuzcat.h"
@@ -34,7 +115,7 @@
 
 #define LOOKAHEAD 256  /* pre-sence buffer size */
 #define MAXDIST 7936
-#define WINSIZE (MAXDIST + LOOKAHEAD)  /* must be a power of 2 */
+#define WINSIZE (MAXDIST + LOOKAHEAD)  /* Ring buffer windows size for Freeze 2. Must be a power of 2. */
 #if WINSIZE > WRITE_BUFFER_SIZE
 # error Write buffer too small.
 #endif
@@ -63,12 +144,12 @@
  */
 
 #define F1 60  /* Lookahead. */
-#define N1 4096  /* Ring buffer window size. */
+#define N1 4096  /* Ring buffer window size for Freeze 1. */
 #define N_CHAR1 (256 - THRESHOLD + F1 + 1)
 
 #define MAX_FREQ (um16)0x8000U  /* For Adaptive Huffman tree update timing. */
 
-/* This bitbuf implementation is slower than Freeze 2.5.0, but it doesn't do
+/* The bitbuf implementation is slower than Freeze 2.5.0, but it doesn't do
  * any overruns (i.e. reading more bytes than absolutely necessary).
  */
 
@@ -99,8 +180,6 @@ static unsigned int GetNBits(um8 bit_count) {
   bitbuf = (uc8)tmp_bitbuf;
   return result;
 }
-
-#define GetByte() GetNBits(8)
 
 static unsigned int huffman_t, huffman_r, chars;
 
@@ -233,20 +312,17 @@ static unsigned int decode_token(void) {
   return c;
 }
 
-/* Decodes the position info and returns it */
+/* Decodes and returns the LZ match distance value, and returns it.
+ * For Freeze 1.x, its high 6 bits are Huffman-coded with fixed   Huffman (0..63), and the low 6 bits are coded literally, 12 bits in total, maximum distance is ~4096.
+ * For Freeze 2.x, its high 6 bits are Huffman-coded with dynamic Huffman (0..62), and the low 7 bits are coded literally, 13 bits in total, maximum distance is ~7936.
+ */
 static unsigned int decode_distance(um8 freeze12_code67) {
   register unsigned int i;
 
-  /* Upper 6 bits can be coded by a byte (8 bits) or less,
-   * plus 7 bits literally ...
-   */
 #ifdef DO_FILL_BITS
   FillBits();
 #endif
-  /* decode upper 6 bits from the table */
-  i = GetByte();
-
-  /* get lower 7 bits literally */
+  i = GetNBits(8);
 #ifdef DO_FILL_BITS
   if (sizeof(bitbuf) < 3) FillBits();
 #endif
@@ -258,13 +334,13 @@ static unsigned int decode_distance(um8 freeze12_code67) {
   __declspec(naked) void __watcall table1_func(void) { __asm { db 0, 0, 1, 3, 8, 12, 24, 16 } }  /* Luckily, the disassembly of this is self-contained for 8086. */
   #define table1 ((const um8*)table1_func)
 #else
-  static const um8 table1[8] = { 0, 0, 1, 3, 8, 12, 24, 16 };
+  static const um8 table1[8] = { 0, 0, 1, 3, 8, 12, 24, 16 };  /* Sum is 64 for Freeze 1.x, and 62 for Freeze 2.x. */
 #endif
 
 /* Initializes static Huffman arrays.
  * With __WATCMC__, table index here is 1-based, just like in freeze-2.5.0/huf.c.
  */
-static void init(const um8 *table, unsigned int d) {
+static void init(const um8 *table, unsigned int freeze12_code21) {
   unsigned int i, j, k, num;
   num = 0;
 #ifndef __WATCOMC__
@@ -272,7 +348,7 @@ static void init(const um8 *table, unsigned int d) {
 #endif
 
 #if 0  /* It's shorter to pass this as an argument. */
-  d = (table + 1 == table1) ? 2 : 1;  /* 2 for Freeze 1.x, 1 for Freeze 2.x. */
+  freeze12_code21 = (table + 1 == table1) ? 2 : 1;  /* 2 for Freeze 1.x, 1 for Freeze 2.x. */
 #endif
 
   /* There are `table[i]' `i'-bits Huffman codes */
@@ -281,7 +357,7 @@ static void init(const um8 *table, unsigned int d) {
     for (k = table[i]; k; j++, k--)
       big.freeze.p_len[j] = i;  /* Values for big.freeze.p_len[j]: 1..8. For table1 (Freeze 1.x) hardcoded: 3..8. */
   }
-  if (num != 256) fatal_corrupted_input();  /* Invalid position table. */
+  if (num != 256) fatal_corrupted_input();  /* Invalid distance table. */
   num = j;
 
   /* Decompression: building the table for decoding */
@@ -290,7 +366,7 @@ static void init(const um8 *table, unsigned int d) {
       big.freeze.code[k++] = j;
   for (k = j = 0; j < num; j ++)
     for (i = 1 << (8 - big.freeze.p_len[j]); i--;)
-      big.freeze.d_len[k++] =  big.freeze.p_len[j] - d;  /* Values for big.freeze.d_len[j] for table1 (Freeze 1.x) hardcoded: : 1..6. For big.freeze.table2 (Freeze 2.x), it's always 0..7. */
+      big.freeze.d_len[k++] = big.freeze.p_len[j] - freeze12_code21;  /* Values for big.freeze.d_len[j] for table1 (Freeze 1.x) hardcoded: : 1..6. For big.freeze.table2 (Freeze 2.x), it's always 0..7. */
 
 #if USE_DEBUG
   fprintf(stderr, "debug: big.freeze.p_len:");
@@ -324,7 +400,9 @@ static void decompress_freeze_common(unsigned int match_distance_limit, um8 free
       if (match_distance_limit < 0x8000U) ++match_distance_limit;
     } else {
       match_length = c - 256 + THRESHOLD;
-       /* Now match_length contains the LZ match length and (after the assignment in the next line match_distance contains the LZ match distance. */
+      /* Now 3 <= match_length <= 256, corresponding to 257 <= c <= 510. */
+      /* Freeze 1.x never generates match_length > 60 here, but we don't check that. The Freeze 2.5 decompressor doesn't check it either. */
+      /* Now match_length contains the LZ match length and (after the assignment in the next line match_distance contains the LZ match distance. */
       if ((match_distance = decode_distance(freeze12_code67)) >= match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */
       if ((match_distance_limit += match_length) >= 0x8000U) match_distance_limit = 0x8000U;  /* This doesn't overflow an um16, because old match_distance_limit <= 0x8000U and match_length < 0x8000U. */
       match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
@@ -362,23 +440,23 @@ void decompress_freeze2_nohdr(void) {  /* Decompress Freeze 1.x compressed data.
 #endif
   /* Reconstruct `big.freeze.table2' from the header of the frozen file and checks its correctness. */
   i = get_byte();
-  i |= get_byte() << 8;
+  i |= get_byte() << 8;  /* i := 16-bit little-endian header word y. */
   /* big.freeze.table2[0] = 0; */  /* Unused. */
   big.freeze.table2[0] = i & 1; i >>= 1;
   big.freeze.table2[1] = i & 3; i >>= 2;
   big.freeze.table2[2] = i & 7; i >>= 3;
-  big.freeze.table2[3] = i & 0xF; i >>= 4;
-  big.freeze.table2[4] = i & 0x1F; i >>= 5;
+  big.freeze.table2[3] = i & 0xf; i >>= 4;
+  big.freeze.table2[4] = i & 0x1f; i >>= 5;
 
-  if (i & 1 || (i = get_byte()) & 0xC0) fatal_corrupted_input();  /* Unknown header format. */
+  if (i & 1 || (i = get_byte()) & 0xc0) fatal_corrupted_input();  /* The highest 1 bit of header word y must be 1. The 2 high bits of header byte y must be 0. */
 
-  big.freeze.table2[5] = i & 0x3F;
+  big.freeze.table2[5] = i & 0x3f;
 
   i = big.freeze.table2[0] + big.freeze.table2[1] + big.freeze.table2[2] + big.freeze.table2[3] + big.freeze.table2[4] + big.freeze.table2[5];
-  i = 62 - i;  /* After this, i is the free variable length codes for 7 & 8 bits. */
+  i = 62 - i;  /* After this, i is the free variable-length codes for 7 & 8 bits. !! Why only 62? How can we get up to 64? */
 
   j = (((((4U - big.freeze.table2[0] * 2 - big.freeze.table2[1]) * 2 - big.freeze.table2[2]) * 2 - big.freeze.table2[3]) * 2 - big.freeze.table2[4]) * 2 - big.freeze.table2[5]) * 4;
-  /* Now is free byte images for these codes. */
+  /* Now j is free byte images for these codes. */
 
   /* Equations: big.freeze.table2[7] + big.freeze.table2[8] = i; 2 * big.freeze.table2[7] + big.freeze.table2[8] == j. */
   if (j < i) fatal_corrupted_input();

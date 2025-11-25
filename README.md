@@ -1,6 +1,14 @@
 # luuzcat: lightweight, universal, Unix decompression filter
 
-luuzcat is a decompression filter (i.e. a decompressor which reads compressed data from stdin and writes to stdout) of many formats and methods commonly used in Unix system between 1977 and 1993. It is provided as C89 (ANSI C) and C++98 source code, and as executable program files a released for many modern operating systems (in 2025) and some ancient historical systems as well. luuzcat can be used as a drop-in replacement for the *zcat* tool of gzip with the advantages is that luuzcat supports more compressed file formats, and luuzcat provides binary releases for more platforms (operating systems).
+luuzcat is a decompression filter (i.e. a decompressor which reads
+compressed data from stdin and writes to stdout) of many formats and methods
+commonly used on Unix systems between 1977 and 1995. It is provided as C89
+(ANSI C) and C++98 source code, and as executable program files a released
+for many modern operating systems (in 2025) and some ancient historical
+systems as well. luuzcat can be used as a drop-in replacement for the *zcat*
+tool of gzip with the advantages is that luuzcat supports more compressed
+file formats, and luuzcat provides binary releases for more platforms
+(operating systems).
 
 ## Features
 
@@ -243,3 +251,118 @@ Tricks done to reduce memory usage for (n)compress on i86 (16-bit x86) targets:
   * Reducing the read and write buffer sizes to a few KiB.
   * fork()ing multiple processes for maxbits >= 15 (in total there are, 1 parent + 3 child processes for maxbits =\= 15 and 1 parent + 4 child processes for maxbits =\= 16), and using pipe()s for communication between the processes. Using multiple processes is needed to exeed the per-process limit of  a_data + a_bss + stack < 64 KiB in Minix i86. The implementation is based on [decomp16.c](https://web.archive.org/web/20251122213226/https://raw.githubusercontent.com/ghaerr/elks/e083ab36cd28bcfa62cb275bb86e1d2c8d7f69d0/elkscmd/minix1/decomp16.c), with substantial speed improvements and memory usage improvements.
 
+### Compression methods
+
+General introduction of compression algorithms used in the methods supported
+by luuzcat:
+
+* [run-length encoding](https://en.wikipedia.org/wiki/Run-length_encoding) (RLE):
+  It encodes consecutive runs of the same input
+  value as a (repeat_count, value) pair. It doesn't make it shorter if a
+  string longer than 1 value is repeating. Some byte-level framing (such as
+  storing lengths) ensures that the decompressor can distinguish pairs
+  from literal bytes.
+* [Huffman coding](https://en.wikipedia.org/wiki/Huffman_coding):
+  Variable-length encoding of bytes or other values: more
+  frequent values are assigned shorter code bit strings.
+  * dynamic Huffman: First the Huffman table (specifying the code bit string
+    for each value) is sent, then the code bit strings. The actual
+    encoding of the Huffman table can make a big difference in size. A
+    typical smart encoding is sending the code bit lengths for each byes,
+    and letting the decompressor build the bit strings from their lengths.
+    There are even smarter ones (see Deflate below).
+  * fixed Huffman: The same Huffman table is hardcoded to the compressor and
+    the decompressor, it is not sent.
+  * adaptive Huffman: No Huffman table is sent, the decompressor builds and
+    updates its Huffman table based on the frequencies of values received so
+    far.
+* [LZSS](https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Storer%E2%80%93Szymanski)
+  (similar to LZ77):
+  A byte string which is a copy of a string is already sent is called
+  a match, and is sent as a (distance, length) pair, meaning: start at the
+  *distance* bytes before the decompressed output so far, and copy *length*
+  bytes from there, appending them to the output. Everything else is sent
+  as a literal byte. Distances and lengths are typically sent as
+  variable-length integers or are Huffman-coded. Some bit-level framing
+  (such as sending a prefix bit) ensures that the decompressor can
+  distinguish pairs from literal bytes. It's OK to have a match with its
+  length larger than its distance, for example literal *a*, literal *b*,
+  literal *c*, match (distance=1, length=5) will be decompressed as
+  *abcbcbcb*. (distance=1 means: from the end skip the last byte, plus 1
+  byte, thus start with *b*).
+  The maximum allowed distance value is also called window size,
+  ring buffer size or dictionary size, because this is the number of bytes
+  that the decompressor must remember. This can be done in a ring buffer,
+  which can be used as the write output buffer (flushing it when end
+  reached).
+* [LZW](https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Welch)
+  (similar to LZ78): Both the compressor and the decompressor build a
+  dictionary of (some) byte strings encountered so far. Each byte string has
+  an index in the dictionary: an index in 0..255 signifies a single
+  (literal) byte, a larger index signifies a byte string of at least 2
+  bytes. Only the indexes are sent. The dictionary has the maximum size of
+  65536 entries, it won't grow beyond that. The compressor may send a reset
+  code (index 256) to reset the dictionary (i.e. keep only the literal
+  bytes), which is useful if the input continues with very different kind of
+  data.
+
+Some of the more modern methods (most of them invented after 1995):
+
+* prediction by partial matching (PPM, PPMd)
+* Burrows–Wheeler transform (BWT)
+* arithmetic coding, range coding and other techniques instead of Huffman
+  coding
+* context modeling (e.g. as used in LZMA)
+* Lempel–Ziv–Markov chain (LZMA)
+* filter: Before running the compressor, do a reversible transformation on
+  the input (which doesn't change its size), to make it better compressible.
+  Some typical filters:
+  * branch-call-jump (BCJ) filter: Replace relative offsets in call
+    instructions in machine code with absolute addresses. It's OK (but
+    degrades the compression ratio) to apply it to false positives (i.e. an
+    opcode which looks like a call instruction, but it isn't).
+  * difference filter: Used for images (such as predictors in PNG), video and
+    audio.
+  * moved-to-front (MTF) filter; Used before the Burrows-Wheeler transform.
+
+Specific details of compression methods supported by luuzcat:
+
+* Deflate (used by gzip, zlib, raw Deflate, ZIP, 4.3BSD-Quasijarus Strong
+  compression):
+  LZSS + Huffman; LZSS with 32 KiB window; supports Huffman reset; first
+  Huffman table for (literal bytes, lengths and Huffman reset); second Huffman
+  table for distances; efficient encoding of the Huffman tables using bit
+  lengths, RLE and (another) Huffman coding; supports uncompressed blocks;
+  supports both fixed and dynamic Huffman; both Huffman tables are optimized
+  by the compressor to fit the input. Mostly because of all these
+  features and a relatively large window size, Deflate typically compresses
+  better than anything else below.
+* Unix (n)compress (LZW); LZW; indexes are sent in 9 bits, which can grow up
+  to maxbits, which can be between 9 and 16; reset code is supported;
+  doesn't support concatenation, the compressed LZW stream continues until the
+  end of the compressed input stream (end of file, EOF).
+* old Unix pack and new Unix pack: Huffman coding; only the encoding of
+  the Huffman table is different between old and new, both do it less
+  efficiently than Deflate.
+* BSD compact: adaptive Huffman coding; slow to decompress, because per-code
+  updates to the Huffman tree (Huffman table in binary tree structure) are
+  slow.
+* SCO compress LZH: LZSS + Huffman; LZSS with 8 KiB window; supports Huffman
+  reset; same as the *\-lh5\-* method in ar002 and LHA; first
+  Huffman table for (literal bytes and lengths); second Huffman table for
+  distances; efficient encoding of the Huffman tables using bit lengths, RLE
+  and (another) Huffman coding; doesn't support uncompressed blocks;
+  supports both fixed and dynamic Huffman.
+* Freeze 1 and 2: LZSS + adaptive Huffman; LZSS with 4 KiB window for Freeze
+  1, and ~8 KiB (7936 byte) window for Freeze 2; doesn't support Huffman
+  reset; adaptive Huffman coding for (literal bytes and lengths); fixed
+  (Freeze 1.x) or dynamic Huffman coding for distances; efficient encoding
+  of the dynamic Huffman table using RLE of increasing bit lengths;
+  doesn't support uncompressed blocks; the Huffman table for distances is
+  usually not optimized to fit the input, but manual and inconvenient
+  user action is needed for that (this is suboptimal);
+  the adaptive Huffman format is derived from LZHUF, and is faster and less
+  complex than in BSD compact.
+
+!! document variable-length integer (varint) coding (same as fixed Huffman)
+!! document partial dynamic Huffman coding (with extra literal bits for match lengths and distances); which method uses it?

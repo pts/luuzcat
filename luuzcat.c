@@ -109,9 +109,12 @@ um16 global_bitbuf8;
       "fromnewbyte: mov ah, 1"  "save2: mov global_bitbuf8, ax"  "rol al, 1"  "and ax, 1" __value [__ax] __modify __exact [__ax]
   unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void) { return read_bit_using_bitbuf8_impl(); }
   static unsigned int read_bits_using_bitbuf8_impl(unsigned int bit_count);
-#  pragma aux read_bits_using_bitbuf8_impl = "xor dx, dx"  "xchg cx, ax"  "jcxz done"  "next: add dx, dx"  "call read_bit_using_bitbuf8" \
-      "add dx, ax"  "loop next"  "done: xchg ax, dx" __parm [__al] __value [__ax] __modify __exact [__ax __cx __dx]
-  unsigned int read_bits_using_bitbuf8(unsigned int bit_count) { return read_bits_using_bitbuf8_impl(bit_count); }  /* 0 <= bit_count <= 8. */  /* !!! Do fewer calls for speedup. */
+#  pragma aux read_bits_using_bitbuf8_impl = \
+      "xor dx, dx"  "xchg cx, ax"  "jcxz done2"  "mov ax, global_bitbuf8"  "next: add ax, ax"  "jnc gotbb8"  "mov ax, global_inptr"  "cmp ax, global_insize"  "jae full"  "push bx"  "xchg bx, ax" \
+      GLOBAL_READ_BUFFER_MOV_X86_16  "inc bx"  "mov global_inptr, bx"  "pop bx"  "jmp fromnewbyte"  "full: xor ax, ax"  "call read_byte" \
+      "fromnewbyte: mov ah, 1"  "gotbb8:"  "add dx, dx"  "test al, al"  "jns mnext"  "inc dx"  "mnext: loop next"  "done: mov global_bitbuf8, ax"  "done2: xchg ax, dx" \
+      __parm [__ax] __value [__ax] __modify __exact [__ax __cx __dx]
+  unsigned int read_bits_using_bitbuf8(unsigned int bit_count) { return read_bits_using_bitbuf8_impl(bit_count); }  /* 0 <= bit_count <= sizeof(unsigned int) * 8 >= 16. */
 #else
 #  if defined(__386__) && defined(__WATCOMC__) && defined(__FLAT__)
     static unsigned int read_bit_using_bitbuf8_impl(void);
@@ -124,7 +127,12 @@ um16 global_bitbuf8;
     static unsigned int read_bits_using_bitbuf8_impl(unsigned int bit_count);
 #    pragma aux read_bits_using_bitbuf8_impl = "xor edx, edx"  "xchg ecx, eax"  "jecxz done"  "next: add edx, edx"  "call read_bit_using_bitbuf8" \
         "add edx, eax"  "loop next"  "done: xchg eax, edx" __parm [__al] __value [__eax] __modify __exact [__eax __ecx __edx]
-    unsigned int read_bits_using_bitbuf8(unsigned int bit_count) { return read_bits_using_bitbuf8_impl(bit_count); }  /* 0 <= bit_count <= 8. */  /* !!! Do fewer calls for speedup. */
+#    pragma aux read_bits_using_bitbuf8_impl = \
+        "xor edx, edx"  "xchg ecx, eax"  "jecxz done2"  "mov ax, global_bitbuf8"  "next: add ax, ax"  "jnc gotbb8"  "mov eax, global_inptr"  "cmp eax, global_insize"  "jae full"  "push ebx"  "xchg ebx, eax" \
+        GLOBAL_READ_BUFFER_MOV_I386  "inc ebx"  "mov global_inptr, ebx"  "pop ebx"  "jmp fromnewbyte"  "full: xor eax, eax"  "call read_byte" \
+        "fromnewbyte: mov ah, 1"  "gotbb8:"  "add edx, edx"  "test al, al"  "jns mnext"  "inc edx"  "mnext: loop next"  "done: mov global_bitbuf8, ax"  "done2: xchg eax, edx" \
+        __parm [__eax] __value [__eax] __modify __exact [__eax __ecx __edx]
+    unsigned int read_bits_using_bitbuf8(unsigned int bit_count) { return read_bits_using_bitbuf8_impl(bit_count); }  /* 0 <= bit_count <= sizeof(unsigned int) * 8 >= 16. */
 #  else
     unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void) {
       unsigned int bb = global_bitbuf8;

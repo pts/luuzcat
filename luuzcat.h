@@ -544,6 +544,27 @@ __noreturn void fatal_unsupported_feature(void);
 #define is_high_bit_set(i) ((int)~0U != -1 ? ((i) & (1UL << (sizeof(i) * 8 - 1))) != 0 :  /* Fallback for not 2s complement signed integers. */ \
     sizeof(i) == sizeof(char) ? (signed char)(i) < 0 : sizeof(i) == sizeof(short) ? (short)(i) < 0 : sizeof(i) == sizeof(int) ? (int)(i) < 0 : (long)((i) + 0L) < 0)
 
+/* i may be a short, int or long, or the signed or unsigned variants of those. */
+#define is_bit_15_set(i) ((int)~0U == -1 && sizeof(short) == 2 ? ((short)(i) < 0) : ((i) & 0x8000U) != 0)  /* The fallback for not 2s complement signed integers is after the `:'. */
+
+/* i may be a short, int or long, or the signed or unsigned variants of those. */
+#define is_bit_7_set(i) ((int)~0U == -1 ? ((signed char)(i) < 0) : ((i) & 0x80U) != 0)  /* The fallback for not 2s complement signed integers is after the `:'. */
+
+#if IS_X86_16 && defined(__WATCOMC__)  /* Assembly helper functions to make read_bit(...) shorter on IS_X86_16. */
+  /* Same as `return ((bb) | 0x100)', but it assumes that bb < 0x100U. */
+  static unsigned int add_set_higher_byte_1(unsigned int bb);
+#  pragma aux add_set_higher_byte_1 = "mov ah, 1" __parm [__ax] __value [__ax] __modify __exact [__ax]
+  static unsigned int is_bit_7_set_func(unsigned int bb);  /* Sometimes it's shorter, sometimes it's longer than is_bit_7_set(bb). */
+#  pragma aux is_bit_7_set_func = "rol al, 1"  "and ax, 1" __parm [__ax] __value [__ax] __modify __exact [__ax]
+  static unsigned int is_bit_15_set_func(unsigned int bb);  /* Sometimes it's shorter, sometimes it's longer than is_bit_15_set(bb). */
+#  pragma aux is_bit_15_set_func = "rol ax, 1"  "and ax, 1" __parm [__ax] __value [__ax] __modify __exact [__ax]
+#else
+  /* No assembly needed for defined(__386__) && defined(__WATCOMC__), it doesn't make it any shorter. */
+#  define add_set_higher_byte_1(bb) ((bb) | 0x100)
+#  define is_bit_7_set_func(bb) is_bit_7_set(bb)
+#  define is_bit_15_set_func(bb) is_bit_15_set(bb)
+#endif
+
 /* --- Reading. */
 
 #ifndef READ_BUFFER_SIZE

@@ -79,12 +79,12 @@ void decompress_opack_nohdr(void) {
         bit_count = 16;
       }
 #ifdef USE_DEBUG
-      if (0) fputc((word & 0x8000U) ? '1' : '0', stderr);
+      if (0) fputc(is_bit_15_set(word) ? '1' : '0', stderr);
 #endif
       dp = tp;
-      if ((word & 0x8000U) != 0) ++dp;
+      if (is_bit_15_set(word)) ++dp;  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_15_set_func(word) and combining with the lines above and below. */
       tp += dp = big.opack.tree[dp];
-      if (sizeof(tp) > 2 && (dp & 0x8000U) != 0) tp -= (um16)0x10000UL;  /* Sign-extend the +dp. !! Is it needed in practice? */
+      if (sizeof(tp) > 2 && is_bit_15_set(dp)) tp -= (um16)0x10000UL;  /* Sign-extend the +dp. !! Is it needed in practice? */
 #ifdef USE_DEBUG
       fprintf(stderr, "tp=%u\n", tp);
 #endif

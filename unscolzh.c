@@ -183,7 +183,7 @@ static void build_huffman_table(unsigned int size, um8 bit_count_ary_ptr[], unsi
           big.scolzh.right[avail] = big.scolzh.left[avail] = 0;
           *p = avail++;
         }
-        p = (i & 0x8000U) ? &big.scolzh.right[*p] : &big.scolzh.left[*p];
+        p = is_bit_15_set(i) ? &big.scolzh.right[*p] : &big.scolzh.left[*p];  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_15_set_func(maxbits). */
       }
       *p = ch;
     }

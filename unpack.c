@@ -78,7 +78,7 @@ void decompress_pack_nohdr(void) {
         bit_count = 7;
       }
       i <<= 1;
-      if (c & 0x80) i++;
+      if (is_bit_7_set(c)) ++i;  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than: i += is_bit_7_set_func(c); */
       c <<= 1;
       if (i >= big.pack.intnode_count[level]) break;
     }

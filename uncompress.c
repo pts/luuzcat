@@ -1116,7 +1116,7 @@ typedef unsigned int uint;
     /* Check header of compressed file */
     maxbits = hdrbyte & 0x1f;
     clrend = 255;
-    if (hdrbyte & 0x80) ++clrend;
+    if (is_bit_7_set(hdrbyte)  /* (hdrbyte & BLOCK_MODE) != 0 */) ++clrend;
     ipbufind = COMPRESS_FORK_BUFSIZE >> 1;  /* Indicates that getpipe(...) should start with a read(2) call to fill the read buffer. This value isn't used by the bottom child (pnum == 4). */
     /* maxbits 0..8 is not supported. (n)compress supports decompressing it, but there is no compressor released to generate such a file; also such a file would provide a terrible compression ratio */
     if ((BITS < 8 && maxbits < 9) || maxbits > 16) done_with_fork(DSTATUS_CORRUPTED_INPUT);  /* check for valid maxbits */
@@ -1348,7 +1348,7 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
 #else
   maxbits = get_byte();
 #endif
-  block_mode = (maxbits & BLOCK_MODE) ? 1 : 0;
+  block_mode = is_bit_7_set_func(maxbits);  /* (maxbits & BLOCK_MODE) ? 1 : 0; */  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_7_set(maxbits). */
 #ifdef USE_DEBUG
   fprintf(stderr, "COMPRESSED maxbits=%u block_mode=is_3plus=%u reserved=%u\n", maxbits & BITMASK, block_mode, (maxbits & LZW_RESERVED) != 0 ? 1 : 0);
 #endif

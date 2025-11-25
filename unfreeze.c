@@ -223,7 +223,7 @@ static unsigned int decode_token(void) {
       bitbuf = get_byte();
       bitlen = 7;
     }
-    if ((bitbuf & 0x80) != 0) ++c;
+    if (is_bit_7_set(bitbuf)) ++c;  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than: c += is_bit_7_set_func(bitbuf); */
     bitbuf <<= 1;
 #ifdef DO_FILL_BITS
     if (sizeof(bitbuf) < 3 && bitlen == 0) FillBits();

@@ -311,7 +311,7 @@ void decompress_compact_nohdr(void) {
 
   /* Decompress subsequent data bytes using adaptive Huffman code. */
   for (pdi = 0, init_bitbuf8(); ;) {
-    b = read_bit_using_bitbuf8();
+    b = read_bit_using_bitbuf8_inline();
     decompress_word = CHECK_DI(big.compact.dict[pdi].sons[b].spdii);  /* b is 0 or 1. Uses the ini_t of spdii. */
     if (big.compact.dict[pdi].fath.flags & (b ? RLEAF : LLEAF))  {
       if (decompress_word == EF) break;
@@ -319,11 +319,11 @@ void decompress_compact_nohdr(void) {
         uptree(NC);
 #if IS_READ_8_BITS_CALL
         insert(decompress_word = read_bits_using_bitbuf8(8));
-#else  /* This is quite competitive, but still 2 bytes longer for IS_X86_16 && defined(__WATCOMC__). */
+#else  /* With read_bit_using_bitbuf8_inline(), it's much longer for IS_X86_16 && defined(__WATCOMC__). */
         decompress_word = 0xffU << ((sizeof(decompress_word) * 8 - 8));  /* Set the 8 highest bits to 1. */
         while (is_high_bit_set(decompress_word)) {  /* Read 8 bits to decompress_word. */
           decompress_word <<= 1;
-          decompress_word += read_bit_using_bitbuf8();
+          decompress_word += read_bit_using_bitbuf8_inline();
         }
         insert(decompress_word);
 #endif

@@ -127,7 +127,6 @@ um16 global_bitbuf8;
     unsigned int read_bits_using_bitbuf8(um8 bit_count) { return read_bits_using_bitbuf8_impl(bit_count); }  /* 0 <= bit_count <= 8. */  /* !!! Do fewer calls for speedup. */
 #  else
     unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void) {
-      /* !! Add longer but faster implementation (no call) with inline assembly for __WATCOMC__ IS_X86_17 and __386__: is_bit_15_set(global_bitbuf8) ? ... : read_bit_using_bitbuf8(). */
       unsigned int bb = global_bitbuf8;
       if (is_bit_15_set(bb)) {  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_15_set_func(bb). */
         bb = add_set_higher_byte_1(get_byte());

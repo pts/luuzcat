@@ -261,7 +261,7 @@ static unsigned int decode_token(void) {
   /* trace from root to leaf,
      got bit is 0 to small(big.freeze.th_child[]), 1 to large (big.freeze.th_child[]+1) child node */
   while ((c = big.freeze.th_child[c]) < huffman_t) {
-    c += read_bit_using_bitbuf8();
+    c += read_bit_using_bitbuf8_inline();
   }
   update(c -= huffman_t);
   return c;

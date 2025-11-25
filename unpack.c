@@ -75,7 +75,7 @@ void decompress_pack_nohdr(void) {
       if (level == max_level) abort();  /* No need to check this, because by this point the `break;' below has exited from the loop because of `big.pack.intnode_count[i] = 0;' above. */
 #endif
       i <<= 1;
-      i += read_bit_using_bitbuf8();
+      i += read_bit_using_bitbuf8_inline();
       if (i >= big.pack.intnode_count[level]) break;
     }
     i -= big.pack.intnode_count[level];

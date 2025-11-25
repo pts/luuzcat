@@ -648,6 +648,23 @@ unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void);
 /* 0 <= bit_count <= 8. bit_count == 0 is used in decode_distance in unfreeze.c, because big.freeze.d_len[j] can be 0. 8 is used explicitly in unfreeze.c and uncompact.c. */
 unsigned int read_bits_using_bitbuf8(um8 bit_count);
 
+/* Inline version of read_bit_using_bitbuf8(). This is longer than a function call, but it is faster, because it avoids a function call 7 times out of 8. */
+#if IS_X86_16 && defined(__WATCOMC__)
+  static unsigned int read_bit_using_bitbuf8_inline(void);
+#  pragma aux read_bit_using_bitbuf8_inline = \
+      "mov ax, global_bitbuf8"  "add ax, ax"  "jnc save2"  "call read_bit_using_bitbuf8"  "jmp done" \
+      "save2: mov global_bitbuf8, ax"  "rol al, 1"  "and ax, 1"  "done:"  __value [__ax] __modify __exact [__ax]
+#else
+#  if defined(__386__) && defined(__WATCOMC__)
+    static unsigned int read_bit_using_bitbuf8_inline(void);
+#    pragma aux read_bit_using_bitbuf8_inline = \
+        "mov ax, global_bitbuf8"  "add ax, ax"  "jnc save2"  "call read_bit_using_bitbuf8"  "jmp done" \
+        "save2: mov global_bitbuf8, ax"  "rol al, 1"  "and eax, 1"  "done:"  __value [__eax] __modify __exact [__eax]
+#  else
+#    define read_bit_using_bitbuf8_inline() read_bit_using_bitbuf8()
+#  endif
+#endif
+
 /* --- Writing. */
 
 /* WRITE_BUFFER_SIZE and global_write_buffer are used by all decompressors

@@ -68,18 +68,14 @@ void decompress_pack_nohdr(void) {
   if ((node_count >> 1) != 1) goto corrupted_input;  /* gzip-1.2.4/unpack.c and pcat.c don't check it, but gzip-1.14/unpack.c does: too few leaves in the Huffman tree. */
 
   bit_count = write_idx = 0;
+  init_bitbuf8();
   for (;;) {  /* Read and decode the Huffman code bits, and write the decompressed output bytes. */
     for (i = level = 0; ; ++level) {  /* Walk the tree until a leaf is reached. */
 #ifdef USE_CHECK
       if (level == max_level) abort();  /* No need to check this, because by this point the `break;' below has exited from the loop because of `big.pack.intnode_count[i] = 0;' above. */
 #endif
-      if (bit_count-- == 0) {
-        c = get_byte();
-        bit_count = 7;
-      }
       i <<= 1;
-      if (is_bit_7_set(c)) ++i;  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than: i += is_bit_7_set_func(c); */
-      c <<= 1;
+      i += read_bit_using_bitbuf8();
       if (i >= big.pack.intnode_count[level]) break;
     }
     i -= big.pack.intnode_count[level];

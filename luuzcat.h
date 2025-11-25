@@ -423,6 +423,12 @@ typedef unsigned long um32;  /* At least 32 bits. */
 #  define LUUZCAT_MALLOC_OK 1  /* For uncompress.c. */
 #endif
 
+#if defined(__WATCOMC__) && ((IS_X86_16 && (defined(__SMALL__) || defined(__MEDIUM__))) || (defined(__386__) && defined(__FLAT__)))
+#  define LUUZCAT_WATCALL_FROM_ASM __watcall  /* Such a function is called from assembly, so we must fix the calling convention. */
+#else
+#  define LUUZCAT_WATCALL_FROM_ASM
+#endif
+
 /* --- Typedefs etc. */
 
 typedef unsigned char uc8;  /* Always a single byte. For interfacing with read(2) and write(2). */
@@ -626,13 +632,19 @@ __noreturn void fatal_unsupported_feature(void);
 
 #define BEOF (-1U)  /* Returned by read_byte(1) and try_byte(). */
 
-unsigned int read_byte(ub8 is_eof_ok);
+unsigned int LUUZCAT_WATCALL_FROM_ASM read_byte(ub8 is_eof_ok);
 void read_force_eof(void);
 unsigned int get_le16(void);
 
 /* These are fast wrappers around read_byte(...) for speed. */
 #define get_byte() (global_inptr < global_insize ? global_read_buffer[global_inptr++] : (uc8)read_byte(0))  /* Returns uc8. Fails with a fatal error on EOF. */
 #define try_byte() (global_inptr < global_insize ? (unsigned int)global_read_buffer[global_inptr++] : read_byte(1))  /* Returns unsigned int: either 0..255 for a byte or BEOF == (-1U) to indicate EOF. */
+
+extern um16 global_bitbuf8;
+
+#define init_bitbuf8() (global_bitbuf8 = ~(um16)0)
+/* It reads bits in big-endian (most-significant bit first), i.e. the very first bit is (b & 0x80) in the very first byte. */
+unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void);
 
 /* --- Writing. */
 
@@ -646,12 +658,24 @@ unsigned int get_le16(void);
 #ifdef LUUZCAT_SMALLBUF
 #  define global_read_buffer  big.deflate.read_buffer
 #  define global_write_buffer big.deflate.write_buffer
-#  define RW_BUFFER_DEF uc8 write_buffer[WRITE_BUFFER_SIZE]; uc8 read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT + (-(READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT) & 3)];
+#  if IS_X86_16 && defined(__WATCOMC__) && (defined(__SMALL__) || defined(__MEDIUM__))
+#    define GLOBAL_READ_BUFFER_MOV_X86_16  "mov al, [bx+offset big]"  /* Because of this, read_buffer must come first in big and RW_BUFFER_DEF. */
+#  endif
+#  if defined(__386__) && defined(__WATCOMC__) && defined(__FLAT__)  /* Neither __SMALL nor __MEDIUM__ is defined. */
+#    define GLOBAL_READ_BUFFER_MOV_I386   "mov al, [ebx+offset big]"  /* Because of this, read_buffer must come first in big and RW_BUFFER_DEF. */
+#  endif
+#  define RW_BUFFER_DEF uc8 read_buffer[READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT + (-(READ_BUFFER_SIZE + READ_BUFFER_EXTRA + READ_BUFFER_OVERSHOOT) & 3)]; uc8 write_buffer[WRITE_BUFFER_SIZE];
   extern uc8 *global_write_buffer_to_flush;
 #else
   extern uc8 global_read_buffer[];
   extern uc8 global_write_buffer[];
 #  define RW_BUFFER_DEF
+#  if IS_X86_16 && defined(__WATCOMC__)
+#    define GLOBAL_READ_BUFFER_MOV_X86_16  "mov al, [bx+offset global_read_buffer]"
+#  endif
+#  if defined(__386__) && defined(__WATCOMC__) && defined(__FLAT__)  /* Neither __SMALL nor __MEDIUM__ is defined. */
+#    define GLOBAL_READ_BUFFER_MOV_I386    "mov al, [ebx+offset global_read_buffer]"
+#  endif
 #endif
 
 unsigned int flush_write_buffer(unsigned int size);
@@ -722,7 +746,6 @@ struct compact_big {
   struct compact_node dict[COMPACT_NF];
   struct compact_fpoint in[COMPACT_NF];
   struct compact_index dir[COMPACT_NF << 1];
-  um16 bitbuf;
 };
 
 #define OPACK_TREESIZE 1024
@@ -756,7 +779,7 @@ struct deflate_big {
 
 #ifdef LUUZCAT_COMPRESS_FORK
   /* ELKS PIPE_BUFSIZ values: 0.1.4--0.3.0: PIPE_BUF == PAGE_SIZE == 512; 0.4.0: 512; 0.5.0--0.8.1: 80. */
-#  define COMPRESS_FORK_BUFSIZE 0x400  /* As large as possible (for faster char reversing) without increasing .a_total for Minix i86 and ELKS. !!! Increase it to 0x800, 0xc00, 0x1000 etc. if it fits for ELKS 0.4.0 and 0.8.1. */
+#  define COMPRESS_FORK_BUFSIZE 0x400  /* Buffer size used for stdin, stdout, pipe read and pipe write. Char spawning is fast enough even with a small buffer (0x400 bytes), because it uses big.compress_sf.stops. Keeping it small to keep memory usage small for ELKS 0.4.0 and 0.8.1. */
 #  define COMPRESS_FORK_DICTSIZE 13056U  /* # of local dictionary entries: ((1UL << 16) - 256U) == 13056U * 5U. */
 
   struct compress_big_sf {

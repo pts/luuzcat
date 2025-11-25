@@ -53,9 +53,7 @@ unsigned int _mbctoupper(unsigned int c) {
 
 __noreturn void fatal_unsupported_feature(void) { fatal_msg("unsupported feature" LUUZCAT_NL); }
 
-/* --- Common reading. */
-
-/* --- Additional reading. */
+/* --- Reading. */
 
 void read_force_eof(void) {
   global_insize = global_inptr = 0;
@@ -77,7 +75,7 @@ void read_force_eof(void) {
   unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
   um32 global_total_read_size;  /* read_byte(...) increses it after each read from the filehandle to global_read_buffer. */
 
-  unsigned int read_byte(ub8 is_eof_ok) {
+  unsigned int LUUZCAT_WATCALL_FROM_ASM read_byte(ub8 is_eof_ok) {
     int got;
     if (global_inptr < global_insize) return global_read_buffer[global_inptr++];
     if (global_read_had_eof) goto already_eof;
@@ -92,6 +90,45 @@ void read_force_eof(void) {
     global_inptr = 1;
     return global_read_buffer[0];
   }
+
+#endif
+
+um16 global_bitbuf8;
+
+#if defined(__WATCOMC__) && ((IS_X86_16 && (defined(__SMALL__) || defined(__MEDIUM__))) || (defined(__386__) && defined(__FLAT__)))
+#  define LUUZCAT_WATCALL_FROM_ASM __watcall  /* Such a function is called from assembly, so we must fix the calling convention. */
+#else
+#  define LUUZCAT_WATCALL_FROM_ASM
+#endif
+
+#if IS_X86_16 && defined(__WATCOMC__) && (defined(__SMALL__) || defined(__MEDIUM__))
+  static unsigned int read_bit_using_bitbuf8_impl(void);
+#  pragma aux read_bit_using_bitbuf8_impl = \
+      "mov ax, global_bitbuf8"  "add ax, ax"  "jnc save2"  "mov ax, global_inptr"  "cmp ax, global_insize"  "jae full"  "push bx"  "xchg bx, ax" \
+      GLOBAL_READ_BUFFER_MOV_X86_16  "inc bx"  "mov global_inptr, bx"  "pop bx"  "jmp fromnewbyte"  "full: xor ax, ax"  "call read_byte" \
+      "fromnewbyte: mov ah, 1"  "save2: mov global_bitbuf8, ax"  "rol al, 1"  "and ax, 1" __value [__ax] __modify __exact [__ax]
+  unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void) { return read_bit_using_bitbuf8_impl(); }
+#else
+#if defined(__386__) && defined(__WATCOMC__) && defined(__FLAT__)
+    static unsigned int read_bit_using_bitbuf8_impl(void);
+#    pragma aux read_bit_using_bitbuf8_impl = \
+      "mov ax, global_bitbuf8"  "add ax, ax"  "jnc save2"  "mov eax, global_inptr"  "cmp eax, global_insize"  "jae full" \
+      "push ebx"  "xchg ebx, eax"  GLOBAL_READ_BUFFER_MOV_I386  "inc ebx"  "mov global_inptr, ebx"  "pop ebx"  "jmp fromnewbyte" \
+      "full: xor eax, eax"  "call read_byte"  "fromnewbyte: mov ah, 1"  "save2: mov global_bitbuf8, ax"  "rol al, 1"  "and eax, 1" \
+      __value [__eax] __modify __exact [__eax]
+    unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void) { return read_bit_using_bitbuf8_impl(); }
+#  else
+    unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void) {
+      /* !! Add longer but faster implementation (no call) with inline assembly for __WATCOMC__ IS_X86_17 and __386__: is_bit_15_set(global_bitbuf8) ? ... : read_bit_using_bitbuf8(). */
+      register unsigned int bb = global_bitbuf8;
+      if (is_bit_15_set(bb)) {  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_15_set_func(bb). */
+        bb = add_set_higher_byte_1(get_byte());
+      } else {
+        bb <<= 1;
+      }
+      return is_bit_7_set_func(global_bitbuf8 = bb);  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_7_set(bb). */
+    }
+#  endif
 #endif
 
 unsigned int get_le16(void) {

@@ -239,29 +239,19 @@ static void uptree(unsigned int ch) {
 /* typedef char assert_son_size[sizeof(big.compact.dict[0].sons[0]) == 8 ? 1 : -1]; */  /* True, but not important. */
 /* typedef char assert_dict0_size[sizeof(big.compact.dict[0]) == 20 ? 1 : -1]; */  /* True, but not important. */
 
-static ub8 read_bit(void) {  /* For decompress. */
-  register unsigned int bb = big.compact.bitbuf;
-  if (is_bit_15_set(bb)) {  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_15_set_func(bb). */
-    bb = add_set_higher_byte_1(get_byte());
-  } else {
-    bb <<= 1;
-  }
-  return is_bit_7_set_func(big.compact.bitbuf = bb);  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than is_bit_7_set(bb). */
-}
-
-#if IS_X86_16 && defined(__WATCOMC__) && 0  /* This works and looks smart, but it makes the code longer. */
-  static unsigned int read_8_bits(void);
-#  pragma aux read_8_bits = "push bx"  "mov bx, 0xff00"  "next: add bx, bx"  "call read_bit"  "cbw"  "add bx, ax"  "js next"  "xchg ax, bx"  "pop bx"  __value [__ax] __modify __exact []
-#  define IS_READ_8_BITS_FUNCTION 1
+#if IS_X86_16 && defined(__WATCOMC__) && 0  /* This works and looks smart, but it makes the code 7 bytes longer. */
+  static unsigned int read_8_bits_using_bitbuf8_inline(void);
+#  pragma aux read_8_bits_using_bitbuf8_inline = "push bx"  "mov bx, 0xff00"  "next: add bx, bx"  "call read_bit_using_bitbuf8"  "add bx, ax"  "js next"  "xchg ax, bx"  "pop bx"  __value [__ax] __modify __exact []
+#  define IS_READ_8_BITS_INLINE 1
 #else
-#  define IS_READ_8_BITS_FUNCTION 0
+#  define IS_READ_8_BITS_INLINE 0
 #endif
 
 /* !! Test this by calling it twice, for different input streams. */
 void decompress_compact_nohdr(void) {
   unsigned int write_idx;
   register dicti_t pdi;  /* For decompress. */
-  ub8 b;  /* 0 or 1 -- or RLEAF or LLEAF. For decompress. */
+  unsigned int b;  /* 0 or 1 -- or RLEAF or LLEAF. For decompress. */
   unsigned int decompress_word;  /* Must be at least 16 bits. */
   um8 data_byte;  /* 0..255. */
 
@@ -322,20 +312,20 @@ void decompress_compact_nohdr(void) {
   big.compact.dict[1  /* bottomdi */].sons[RIGHT].spdii = EF;  /* Sets the ini_t of spdii. */
 
   /* Decompress subsequent data bytes using adaptive Huffman code. */
-  for (pdi = 0, big.compact.bitbuf = ~(um16)0; ;) {
-    b = read_bit();
+  for (pdi = 0, init_bitbuf8(); ;) {
+    b = read_bit_using_bitbuf8();
     decompress_word = CHECK_DI(big.compact.dict[pdi].sons[b].spdii);  /* b is 0 or 1. Uses the ini_t of spdii. */
     if (big.compact.dict[pdi].fath.flags & (b ? RLEAF : LLEAF))  {
       if (decompress_word == EF) break;
       if (decompress_word == NC) {
         uptree(NC);
-#if IS_READ_8_BITS_FUNCTION
-        insert(decompress_word = read_8_bits());
+#if IS_READ_8_BITS_INLINE
+        insert(decompress_word = read_8_bits_using_bitbuf8_inline());
 #else
         decompress_word = 0xffU << ((sizeof(decompress_word) * 8 - 8));  /* Set the 8 highest bits to 1. */
         while (is_high_bit_set(decompress_word)) {  /* Read 8 bits to decompress_word. */
           decompress_word <<= 1;
-          if (read_bit()) decompress_word++;
+          decompress_word += read_bit_using_bitbuf8();
         }
         insert(decompress_word);
 #endif

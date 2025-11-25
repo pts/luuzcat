@@ -149,37 +149,25 @@
 
 #define MAX_FREQ (um16)0x8000U  /* For Adaptive Huffman tree update timing. */
 
-/* The bitbuf implementation is slower than Freeze 2.5.0, but it doesn't do
+/* The bitbuf8 implementation is slower than Freeze 2.5.0, but it doesn't do
  * any overruns (i.e. reading more bytes than absolutely necessary).
  */
 
-static uc8 bitbuf;  /* Bit input buffers. Valid bits are the high bits */
-static unsigned int bitlen;  /* Number of valid bits in `bitbuf'. 0 <= bitlen <= 7. */
-
-#define InitIO() bitbuf = bitlen = 0
-
-#undef DO_FILL_BITS  /* Decompression code below has to call FillBits() to make sure there is at least 8 bits in bitbuf to read. */
-
-/* 0 <= bit_count <= 8. */
-static unsigned int GetNBits(um8 bit_count) {
-  unsigned int result;
-  unsigned int tmp_bitbuf;
-  /* bitlen <= 8, and the buffered bits start between bits 8 and 7, i.e.
-   * they are in bitbuf >> (8 - bitlen). The lower bits are 0.
-   */
-  if (bitlen < bit_count) {
-    tmp_bitbuf = (unsigned int)bitbuf << bitlen;
-    tmp_bitbuf += get_byte();
-    tmp_bitbuf <<= bit_count - bitlen;
-    bitlen += 8 - bit_count;
-  } else {
-    tmp_bitbuf = (unsigned int)bitbuf << bit_count;
-    bitlen -= bit_count;
+#if IS_X86_16 && defined(__WATCOMC__)
+  static unsigned int read_bits_using_bitbuf8_inline(um8 bit_count);
+#  pragma aux read_bits_using_bitbuf8_inline = "xor dx, dx"  "xchg cx, ax"  "jcxz done"  "next: add dx, dx"  "call read_bit_using_bitbuf8"  "add dx, ax"  "loop next"  "done: xchg ax, dx" __parm [__al] __value [__ax] __modify __exact [__ax __cx __dx]
+  static unsigned int __watcall read_bits_using_bitbuf8(um8 bit_count) { return read_bits_using_bitbuf8_inline(bit_count); }
+#else
+  /* 0 <= bit_count <= 8. */
+  static unsigned int read_bits_using_bitbuf8(um8 bit_count) {  /* !!! enable and use it in uncompat.c instead of read_8_bits_using_bitbuf8_inline() */
+    unsigned int result = 0;
+    while (bit_count-- != 0) {
+      result <<= 1;
+      result += read_bit_using_bitbuf8();
+    }
+    return result;
   }
-  result = tmp_bitbuf >> 8;
-  bitbuf = (uc8)tmp_bitbuf;
-  return result;
-}
+#endif
 
 static unsigned int huffman_t, huffman_r, chars;
 
@@ -286,27 +274,10 @@ static void update(register unsigned int c) {
 static unsigned int decode_token(void) {
   register unsigned int c = huffman_r;
 
-#ifdef DO_FILL_BITS
-  /* As far as MAX_FREQ == 32768, maximum length of a Huffman
-   * code cannot exceed 23 (consider Fibonacci numbers),
-   * so we don't need additional FillBits while decoding
-   * if sizeof(bitbuf) == 4.
-   */
-  FillBits();
-#endif
   /* trace from root to leaf,
      got bit is 0 to small(big.freeze.child[]), 1 to large (big.freeze.child[]+1) child node */
   while ((c = big.freeze.child[c]) < huffman_t) {
-    /* c += GetBit(); */
-    if (bitlen-- == 0) {
-      bitbuf = get_byte();
-      bitlen = 7;
-    }
-    if (is_bit_7_set(bitbuf)) ++c;  /* For IS_X86_16 && defined(__WATCOMC__), this is shorter here than: c += is_bit_7_set_func(bitbuf); */
-    bitbuf <<= 1;
-#ifdef DO_FILL_BITS
-    if (sizeof(bitbuf) < 3 && bitlen == 0) FillBits();
-#endif
+    c += read_bit_using_bitbuf8();
   }
   update(c -= huffman_t);
   return c;
@@ -319,14 +290,8 @@ static unsigned int decode_token(void) {
 static unsigned int decode_distance(um8 freeze12_code67) {
   register unsigned int i;
 
-#ifdef DO_FILL_BITS
-  FillBits();
-#endif
-  i = GetNBits(8);
-#ifdef DO_FILL_BITS
-  if (sizeof(bitbuf) < 3) FillBits();
-#endif
-  return (big.freeze.code[i] << freeze12_code67) | ((i << big.freeze.d_len[i]) & (freeze12_code67 == 6 ? 0x3f : 0x7f)) | GetNBits(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
+  i = read_bits_using_bitbuf8(8);
+  return (big.freeze.code[i] << freeze12_code67) | ((i << big.freeze.d_len[i]) & (freeze12_code67 == 6 ? 0x3f : 0x7f)) | read_bits_using_bitbuf8(big.freeze.d_len[i]);  /* Always 0 <= big.freeze.d_len[i] <= 7. */
 }
 
 #if defined(__WATCOMC__) && defined(IS_X86_16) && (defined(_PROGX86_CSEQDS) || defined(_DOSCOMSTART) || defined(__COM__))  /* Hack to avoid alignment NUL byte before it. */
@@ -390,7 +355,7 @@ static void decompress_freeze_common(unsigned int match_distance_limit, um8 free
    * formats, match_distance limit is 0 here.
    */
   memset_void(global_write_buffer + WRITE_BUFFER_SIZE - match_distance_limit, ' ', match_distance_limit);
-  InitIO();
+  init_bitbuf8();
   write_idx = 0;
   for (;;) {
     if ((c = decode_token()) == ENDOF) break;

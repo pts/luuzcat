@@ -126,7 +126,7 @@
     __noreturn void fatal_out_of_memory(void) { fatal_msg("out of memory" LUUZCAT_NL); }
 #  endif
 
-  unsigned int read_byte(ub8 is_eof_ok) {
+  unsigned int LUUZCAT_WATCALL_FROM_ASM read_byte(ub8 is_eof_ok) {
     int got;
     if (global_inptr < global_insize) return global_read_buffer[global_inptr++];
     if (global_read_had_eof) goto already_eof;

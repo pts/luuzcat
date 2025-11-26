@@ -203,11 +203,23 @@ static void build_huffman_table(unsigned int size, um8 bit_count_ary_ptr[], unsi
 
 /* --- huf.c: dynamic Huffman coding */
 
+#if IS_X86_16 && defined(__WATCOMC__)
+#  define I_SPECIAL_ARG_DECL , unsigned int i_special
+#  define I_SPECIAL_ARGN , 3  /* i_special == -1U will never match i. */
+#  define I_SPECIAL_ARG , -1U  /* i_special == -1U will never match i. */
+#  define I_SPECIAL_COND (i == i_special)
+#else  /* Shorter for #if defined(__386__) && defined(__WATCOMC__). */
+#  define I_SPECIAL_ARG_DECL
+#  define I_SPECIAL_ARGN
+#  define I_SPECIAL_ARG
+#  define I_SPECIAL_COND (i == 3 && size == NT)
+#endif
+
 /* Argument size is either NT == 19 or NP == 14. */
-static void read_pt_len(unsigned int size, unsigned int nbit, unsigned int i_special) {
+static void read_pt_len(unsigned int size, unsigned int nbit I_SPECIAL_ARG_DECL) {
   unsigned int i, n, c, mask;
 
-  n = read_bits(nbit);  /* nbit == TBIT == 5 for size == NT == 19; nbit == PBIT == 4 for size == NP == 14. !!! nbit == 4 + (size & 1). */
+  n = read_bits(nbit);  /* nbit == TBIT == 5 for size == NT == 19; nbit == PBIT == 4 for size == NP == 14. */
   if (n == 0) {
     c = read_bits(nbit);  /* Only a single possible value c. This code path is untested. */
     if (c >= size) fatal_corrupted_input();  /* Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Report this missing check to gzip-1.14/unlzh.c. */
@@ -233,7 +245,7 @@ static void read_pt_len(unsigned int size, unsigned int nbit, unsigned int i_spe
       discard_bits((c < 7) ? 3 : c - 3);
       /* if (c >= size) fatal_corrupted_input(); */  /* No need to check this. It can be proven that if the 100% coverage check to build_huffman_table...) doesn't fail, then `c < size' is true here. */
       big.scolzh.pt_len[i++] = c;  /* When the function returns, all big.scolzh.pt_len[...] values are 0..16. big.scolzh.pt_len[i] means that value won't be present. */
-      if (i == i_special) {
+      if (I_SPECIAL_COND) {
         c = read_bits(2);
         if (c > n - i) fatal_corrupted_input();  /* Check i < n. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
         while (c-- != 0) big.scolzh.pt_len[i++] = 0;
@@ -303,9 +315,9 @@ void decompress_scolzh_nohdr(void) {
   write_idx = match_distance_limit = 0;
   while ((block_size = bitbuf16) != 0) {
     discard_bits(16);  /* Discard 16 bits for the block size. */
-    read_pt_len(NT, TBIT, 3);    /* NT == 19, thus this makes bit lengths and decoded values in the big.scolzh.pt_* Huffman tree 0..18. */
+    read_pt_len(NT, TBIT I_SPECIAL_ARGN);  /* NT == 19, thus this makes bit lengths and decoded values in the big.scolzh.pt_* Huffman tree 0..18. */
     read_c_len_using_pt();  /* This makes bit lengths in the big.scolzh.c_* Huffman tree 0..16, and the values 0..510. */
-    read_pt_len(NP, PBIT, -1U);  /* NP == 14, thus this makes bit lengths and decoded values in the big.scolzh.pt_* Huffman tree 0..13. i_special == -1U will never match i. */
+    read_pt_len(NP, PBIT I_SPECIAL_ARG);  /* NP == 14, thus this makes bit lengths and decoded values in the big.scolzh.pt_* Huffman tree 0..13. */
     while (block_size-- != 0) {
       c = big.scolzh.c_table[bitbuf16 >> (16 - 12)];  /* Peek at the next 12 bits. */
 #if USE_DEBUG

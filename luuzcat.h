@@ -716,7 +716,7 @@ unsigned int flush_write_buffer(unsigned int size);
 #  define invalidate_deflate_crc32_table() do {} while (0)
 #endif
 
-#define SCOLZH_NC (255 + 1 + 256 + 2 - 3)
+#define SCOLZH_NC (255 + 1 + 256 + 2 - 3)  /* 511. */
 #define SCOLZH_NPT 19
 
 /* We specify this struct in the .h file so what we overlap it in memory with other big struct in `big' below. */
@@ -726,10 +726,10 @@ struct scolzh_big {
   um16 right[2 * SCOLZH_NC - 1];
 
   um8  c_len[SCOLZH_NC];
-  um16 c_table[1U << 12];
+  um16 c_table[1U << 12];  /* Huffman table for quick decoding of the first 12 Huffman-coded bits of the 16 bits of a token (literal byte or LZ match length specifier) (0..511). */
 
-  um8  pt_len[SCOLZH_NPT];  /* gzip-1.14/unlzh.c has pt_len[1 << TBIT] here, which is larger. It doesn't seem to be needed, there are checks below for indexing. */
-  um16 pt_table[1U << 8];
+  um8  pt_len[SCOLZH_NPT];  /* Values are 0..16. big.scolzh.pt_len[0] means that the value i will never appear in the stram; big.scolzh.pt_len[i] == j > 0 means that the value i is encoded with a bit string of length j. gzip-1.14/unlzh.c has pt_len[1 << TBIT] here, which is larger. Larger doesn't seem to be needed, there are checks for indexing. */
+  um16 pt_table[1U << 8];  /* Huffman table for quick decoding of the first 8 Huffman-coded bits of the 16 bits of an LZ match distance bit length (0..12) or an element of big.scolzh.c_len[...] (0..18). */
 };
 
 #define COMPACT_NF 258

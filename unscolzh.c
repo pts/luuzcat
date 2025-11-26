@@ -18,12 +18,7 @@
 
 #include "luuzcat.h"
 
-/* huf.c */
-static void read_pt_len(unsigned int size, unsigned int nbit, unsigned int i_special);
-static void read_c_len_using_pt_len(void);
-
 /* io.c */
-static void discard_bits(um8 bit_count);
 static unsigned int read_bits(um8 bit_count);
 
 /* maketbl.c */
@@ -45,7 +40,7 @@ static unsigned int read_bits(um8 bit_count);
 
 /* huf.c */
 
-#define NC (255 + 1 + MAXMATCH + 2 - THRESHOLD)
+#define NC (255 + 1 + MAXMATCH + 2 - THRESHOLD)  /* 511. */
 #if NC != SCOLZH_NC  /* Same value as above, change SCOLZH_NC in luuzcat.h if needed. */
 #  error Bad SCOLZH_NC.
 #endif
@@ -53,8 +48,8 @@ static unsigned int read_bits(um8 bit_count);
 #define CBIT 9  /* $\lfloor \log_2 NC \rfloor + 1$ */
 #define CODE_BIT  16  /* codeword length */
 
-#define NP (DICBIT + 1)
-#define NT (CODE_BIT + 3)
+#define NP (DICBIT + 1)  /* 14. */
+#define NT (CODE_BIT + 3)  /* 19. */
 #define PBIT 4  /* smallest integer suc8 that (1U << PBIT) > NP */
 #define TBIT 5  /* smallest integer suc8 that (1U << TBIT) > NT */
 #if NT > NP
@@ -70,7 +65,7 @@ static unsigned int read_bits(um8 bit_count);
 
 static um16 bitbuf16;  /* The low 16 bits (typically all bits) are valid, higher bits are 0. First bit to read is bit 15, with mask 1U << 15 == 0x8000U. */
 static ub8 subbitbuf8;  /* Contains some extra bits already read (at their original position whan read) beyond the 16 bits in bitbuf16. */
-static um8 subbitcount;  /* Number of valid bits in subbitbuf8: 0..7. Temporarily, within discard_bits, subbitcount can also be 8.  */
+static um8 subbitcount;  /* Number of valid bits in subbitbuf8: 0..7. Temporarily, within discard_bits, subbitcount can also be 8. */
 
 #if USE_DEBUG
   static um8 max_bit_count;
@@ -100,7 +95,13 @@ static void discard_bits(um8 bit_count) {  /* Shift bitbuf16 bit_count bits left
 
 /* 0 <= bit_count <= 16. */
 static unsigned int read_bits(um8 bit_count) {
+  /* There is no easy way to unify this function with
+   * read_bits_using_bitbuf8(...) and read_bit_using_bitbuf8(...) used by
+   * uncompat.c, unpack.c and unfreeze.c? discard_bits(...) is complicated.
+   * Also for the others we have to prevent reading too many bytes.
+   */
   const unsigned int result = bitbuf16 >> (16 - bit_count);
+
   discard_bits(bit_count);
   return result;
 }
@@ -124,20 +125,20 @@ static void build_huffman_table(unsigned int size, um8 bit_count_ary_ptr[], unsi
 
   start[0] = total = 0;
   for (i = 1; i < 16; ++i) {
-    if ((histogram[i] >> i) != 0) fatal_corrupted_input();  /* Check for no overflow incoverage. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
+    if ((histogram[i] >> i) != 0) fatal_corrupted_input();  /* Check for no overflow in coverage. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. !! Report bug for gzip 1.14? */
     if ((delta = histogram[i] << (16 - i)) != 0) {
       total += delta;
       if ((total & 0xffffU) == 0) {  /* Overflow. No need to set start[i] and beyond. */
         if (i <= table_bit_count) start[table_bit_count] = 0;
         for (++i; i < 16; ++i) {
-          if (histogram[i] != 0) fatal_corrupted_input();  /* Check for no overflow incoverage. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
+          if (histogram[i] != 0) fatal_corrupted_input();  /* Check for no overflow in coverage. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. !! Report bug for gzip 1.14? */
         }
         break;
       }
 #ifdef USE_DEBUG
       if (0) fprintf(stderr, "i=%u total=0x%04x delta=0x%04x\n", i, total, delta);
 #endif
-      if (total < delta) fatal_corrupted_input();  /* Check for no overflow incoverage. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
+      if (total < delta) fatal_corrupted_input();  /* Check for no overflow in coverage. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
     }
     start[i] = total;
   }
@@ -200,18 +201,20 @@ static void build_huffman_table(unsigned int size, um8 bit_count_ary_ptr[], unsi
 #endif
 }
 
-/* --- huf.c -- static Huffman */
+/* --- huf.c: dynamic Huffman coding */
 
-/* Size is either NT == 19 or NP == 14. */
+/* Argument size is either NT == 19 or NP == 14. */
 static void read_pt_len(unsigned int size, unsigned int nbit, unsigned int i_special) {
   unsigned int i, n, c, mask;
 
-  n = read_bits(nbit);
+  n = read_bits(nbit);  /* nbit == TBIT == 5 for size == NT == 19; nbit == PBIT == 4 for size == NP == 14. !!! nbit == 4 + (size & 1). */
   if (n == 0) {
     c = read_bits(nbit);  /* Only a single possible value c. This code path is untested. */
-    for (i = 0; i < size; i++) big.scolzh.pt_len[i] = 0;
+    /* !!! if (c >= size) fatal_corrupted_input(); */ /* Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Report this missing check to gzip-1.14/unlzh.c. */
+    big.scolzh.pt_len[c] = 0;  /* No need to set any other value in big.scolzch.c_len[...]. */
     for (i = 0; i < 256; i++) big.scolzh.pt_table[i] = c;
   } else {  /* Dynamic Huffman. */
+    /* !!! if (n > size) fatal_corrupted_input(); */ /*  Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Report this missing check to gzip-1.14/unlzh.c. */
     i = 0;
     while (i < n) {
       /* bit_count (== big.scolzh.c_len[...]) value decoding:
@@ -219,16 +222,18 @@ static void read_pt_len(unsigned int size, unsigned int nbit, unsigned int i_spe
        * 1110 -> 7; 11110 -> 8; 111110 -> 9; 1111110 -> 10; 11111110 -> 11; 111111110 -> 12; 1111111110 -> 13; 11111111110 -> 14; 111111111110 -> 15;
        * 1111111111110 -> 16; 11111111111110.
        */
-      c = bitbuf16 >> (16 - 3);  /* Peek at the next 3 bits. */
+      c = bitbuf16 >> (16 - 3);  /* Peek at the next 3 bits. After this, 0 <= c <= 7. */
       if (c == 7) {
         mask = 1U << (16 - 1 - 3);
         while (mask & bitbuf16) {
           mask >>= 1;
-          if (++c > 16) fatal_corrupted_input();  /* Check that bit_count is at most 16. Without this check, the `bitbuf16 & mask' loop in read_c_len_using_pt_len(...) wouldn't work. Having no check is a bug in gzip-1.2.4/unlzh.c, but gzip-1.14/unlzh.c has the check. */
+          if (++c > 16) fatal_corrupted_input();  /* Check that bit_count is at most 16. Without this check, the `bitbuf16 & mask' loop in read_c_len_using_pt(...) wouldn't work. Having no check is a bug in gzip-1.2.4/unlzh.c, but gzip-1.14/unlzh.c has the check. */
         }
       }
+      /* Now: 0 <= c <= 16. */
       discard_bits((c < 7) ? 3 : c - 3);
-      big.scolzh.pt_len[i++] = c;
+      /* if (c >= size) fatal_corrupted_input(); */  /* No need to check this. It can be proven that if the 100% coverage check to build_huffman_table...) doesn't fail, then `c < size' is true here. */
+      big.scolzh.pt_len[i++] = c;  /* When the function returns, all big.scolzh.pt_len[...] values are 0..16. big.scolzh.pt_len[i] means that value won't be present. */
       if (i == i_special) {
         c = read_bits(2);
         if (c > n - i) fatal_corrupted_input();  /* Check i < n. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
@@ -240,35 +245,43 @@ static void read_pt_len(unsigned int size, unsigned int nbit, unsigned int i_spe
   }
 }
 
-static void read_c_len_using_pt_len(void) {
-  unsigned int i, c, n, mask;
+static unsigned int decode_huffman_using_pt(unsigned int limit) {
+  unsigned int c = big.scolzh.pt_table[bitbuf16 >> (16 - 8)];  /* Peek at the next 8 bits. */
+  unsigned int mask;
 
-  n = read_bits(CBIT);
+  if (c >= limit) {
+    mask = 1U << (16 - 1 - 8);
+    do {  /* Reads up to limit - 1 - 8 (== 10; or 5) extra bits. */
+      c = (bitbuf16 & mask) ? big.scolzh.right[c] : big.scolzh.left[c];
+      mask >>= 1;
+    } while (c >= limit);
+  }
+  discard_bits(big.scolzh.pt_len[c]);  /* This works only if big.scolzh.pt_len[c] <= 16, which is ensured by read_pt_len(...) above. */
+  return c; /* Now 0 <= c < limit. */
+}
+
+static void read_c_len_using_pt(void) {
+  unsigned int i, c, n;
+
+  n = read_bits(CBIT);  /* CBIT == 9. */
   if (n == 0) {
     c = read_bits(CBIT);  /* Only a single possible value c. This code path is untested. */
-    for (i = 0; i < NC; i++) big.scolzh.c_len[i] = 0;
-    for (i = 0; i < 4096; i++) big.scolzh.c_table[i] = c;
-  } else {  /* Dynamic Huffman. */
+    /* !!! if (c >= NC) fatal_corrupted_input(); */  /* NC == 511. Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Add this missing check to gzip-1.14/unlzh.c. */
+    big.scolzh.c_len[c] = 0;  /* No need to set any other value in big.scolzch.c_len[...]. */
+    for (i = 0; i < (1U << 12); i++) big.scolzh.c_table[i] = c;
+  } else {  /* Dynamic Huffman with RLE-compressed 0 bit length values. */
+    /* if (n > NC) fatal_corrupted_input(); */  /* NC == 511. Also to avoid a buffer overflow in big.scolzh.pt_len[...]. Check not needed, this is never true, becaue n == read_bits(9) <= 511 == NC. */
     i = 0;
     while (i < n) {
-      c = big.scolzh.pt_table[bitbuf16 >> (16 - 8)];  /* Peek at the next 8 bits. */
-      if (c >= NT) {
-        mask = 1U << (16 - 1 - 8);
-        do {  /* This works only if big.scolzh.pt_len[c] <= 16, which is ensured by read_pt_len(...) above. */
-          c = (bitbuf16 & mask) ? big.scolzh.right[c] : big.scolzh.left[c];
-          mask >>= 1;
-        } while (c >= NT);
-      }
-      /* Now 0 <= c <= NT - 1 == 18. */
-      discard_bits(big.scolzh.pt_len[c]);
-      /* Now: 0 <= c <= 18. That's because of how the pt Huffman tree was constructed before this call to read_c_len_using_pt_len(...). */
+      c = decode_huffman_using_pt(NT);  /* NT == 19. After this, 0 <= c <= 18 == NT - 1. */
+      /* Now: 0 <= c <= NT - 1 == 18. That's because of how the pt Huffman tree was constructed before this call to read_c_len_using_pt(...). */
       /* The maximum c value in the test input file is 16. */
       if (c <= 2) {
         c = (c == 0) ? 1 : (c == 1) ? read_bits(4) + 3 : read_bits(CBIT) + 20;
         if (c > n - i) fatal_corrupted_input();  /* Check i < n. Having no check is a bug in gzip-1.2.4/unlzh.c and gzip-1.14/unlzh.c. */
         while (c-- != 0) big.scolzh.c_len[i++] = 0;
       } else {
-        big.scolzh.c_len[i++] = c - 2;  /* The value is 0..16. */
+        big.scolzh.c_len[i++] = c - 2;  /* The value is 0..16: 0 <= c - 2 < = 16. */
       }
     }
     while (i < NC) big.scolzh.c_len[i++] = 0;
@@ -292,9 +305,9 @@ void decompress_scolzh_nohdr(void) {
   write_idx = match_distance_limit = 0;
   while ((block_size = bitbuf16) != 0) {
     discard_bits(16);  /* Discard 16 bits for the block size. */
-    read_pt_len(NT, TBIT, 3);  /* NT == 19, thus this makes values in the pt Huffman tree 0..18. */
-    read_c_len_using_pt_len();
-    read_pt_len(NP, PBIT, -1U);  /* i_special == -1U will never match i. */
+    read_pt_len(NT, TBIT, 3);    /* NT == 19, thus this makes bit lengths and decoded values in the big.scolzh.pt_* Huffman tree 0..18. */
+    read_c_len_using_pt();  /* This makes bit lengths in the big.scolzh.c_* Huffman tree 0..16, and the values 0..510. */
+    read_pt_len(NP, PBIT, -1U);  /* NP == 14, thus this makes bit lengths and decoded values in the big.scolzh.pt_* Huffman tree 0..13. i_special == -1U will never match i. */
     while (block_size-- != 0) {
       c = big.scolzh.c_table[bitbuf16 >> (16 - 12)];  /* Peek at the next 12 bits. */
 #if USE_DEBUG
@@ -318,15 +331,7 @@ void decompress_scolzh_nohdr(void) {
       } else {
         match_length = c - 256 + THRESHOLD;
         /* Now decode the LZ match distance to i. */
-        match_distance = big.scolzh.pt_table[bitbuf16 >> (16 - 8)];  /* Peek at the next 8 bits. */
-        if (match_distance >= NP) {
-          mask = 1U << (16 - 1 - 8);
-          do {  /* Reads up to 8 extra bits. */
-            match_distance = (bitbuf16 & mask) ? big.scolzh.right[match_distance] : big.scolzh.left[match_distance];
-            mask >>= 1;
-          } while (match_distance >= NP);
-        }
-        discard_bits(big.scolzh.pt_len[match_distance]);
+        match_distance = decode_huffman_using_pt(NP);  /* NP == 14. */  /* After this, 0 <= match_distane <= 13. */
         if (match_distance != 0) match_distance = (1U << (match_distance - 1)) + read_bits(match_distance - 1);
         /* Now match_length contains the LZ match length and match_distance contains the LZ match distance. */
         if (match_distance >= match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */

@@ -151,7 +151,7 @@ static um32 global_usize;
 static unsigned int (*global_flush_write_buffer_func)(unsigned int size);
 
 #define MAX_TMP_SIZE 19
-#define MAX_INCOMPLETE_BRANCH_COUNT (7 + 15 + 15)  /* Because of DO_CHECK_HUFFMAN_TREE_100_PERCENT_COVERAGE == 1. */
+#define MAX_INCOMPLETE_BRANCH_COUNT (7 + 15 + 15)  /* We need this many extra nodes, because these are the incomplete and dangling nodes (i.e. which don't have 2 children yet), because the Huffman tree doesn't have 100% coverage. */
 #define MAX_LITERAL_AND_LEN_SIZE (0x100 + 32)
 #define MAX_DISTANCE_SIZE 30
 #define MAX_TREE_SIZE ((6U - (3 << 2)) + ((MAX_TMP_SIZE + MAX_LITERAL_AND_LEN_SIZE + MAX_DISTANCE_SIZE) << 1 << 1) + (MAX_INCOMPLETE_BRANCH_COUNT << 2))  /* <<1 is for the max node_count/leaf_node_count for a tree. <<1 is for node_count/element_count. */
@@ -368,8 +368,8 @@ static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rf
       read_bit_count_ary(big.deflate.huffman_bit_count_ary, literal_and_len_size + distance_size);
      common_compressed_block:
       big.deflate.huffman_trees_ary[TREE_LITERAL_AND_LEN_ROOT_IDX] = big.deflate.huffman_trees_ary[TREE_DISTANCE_ROOT_IDX] = LEAF_IDX;
-      build_huffman_tree(big.deflate.huffman_bit_count_ary, literal_and_len_size, TREE_LITERAL_AND_LEN_ROOT_IDX);  /* All literal_and_len elements are in 0..15. */
-      build_huffman_tree(big.deflate.huffman_bit_count_ary + literal_and_len_size, distance_size, TREE_DISTANCE_ROOT_IDX);  /* All distance elements are in 0..15. */
+      build_huffman_tree(big.deflate.huffman_bit_count_ary, literal_and_len_size, TREE_LITERAL_AND_LEN_ROOT_IDX);  /* All big.deflate.huffman_bit_count_ary[...] literal_and_len elements are in 0..15. */
+      build_huffman_tree(big.deflate.huffman_bit_count_ary + literal_and_len_size, distance_size, TREE_DISTANCE_ROOT_IDX);  /* All big.deflate.huffman_bit_count_ary[...] distance elements are in 0..15. */
       for (;;) {
         token = read_using_huffman_tree(TREE_LITERAL_AND_LEN_ROOT_IDX);
         if (token < 0x100) { /* LZ literal token. */

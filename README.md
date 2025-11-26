@@ -251,31 +251,54 @@ Tricks done to reduce memory usage for (n)compress on i86 (16-bit x86) targets:
   * Reducing the read and write buffer sizes to a few KiB.
   * fork()ing multiple processes for maxbits >= 15 (in total there are, 1 parent + 3 child processes for maxbits =\= 15 and 1 parent + 4 child processes for maxbits =\= 16), and using pipe()s for communication between the processes. Using multiple processes is needed to exeed the per-process limit of  a_data + a_bss + stack < 64 KiB in Minix i86. The implementation is based on [decomp16.c](https://web.archive.org/web/20251122213226/https://raw.githubusercontent.com/ghaerr/elks/e083ab36cd28bcfa62cb275bb86e1d2c8d7f69d0/elkscmd/minix1/decomp16.c), with substantial speed improvements and memory usage improvements.
 
-### Compression methods
+## Compression methods
 
 General introduction of compression algorithms used in the methods supported
 by luuzcat:
 
+* [variable-length
+  encoding](https://en.wikipedia.org/wiki/Variable-length_encoding) of
+  integers (varint): The input of the encoder is a sequence of unsigned
+  integer values, the output is a sequene of bit strings. The mapping is
+  reversible. The encoder and the decoder have agreed on the mapping before
+  the encoder has sent the first bit. Typically less frequent values (or
+  larger values) have longer corresponding bit strings.
 * [run-length encoding](https://en.wikipedia.org/wiki/Run-length_encoding) (RLE):
-  It encodes consecutive runs of the same input
-  value as a (repeat_count, value) pair. It doesn't make it shorter if a
-  string longer than 1 value is repeating. Some byte-level framing (such as
-  storing lengths) ensures that the decompressor can distinguish pairs
-  from literal bytes.
+  The encoder encodes consecutive runs of the same input
+  value as a (repeat_count, value) pair. It makes no changes (thus it
+  provides no size reduction) if a string longer than 1 value is repeating.
+  Some byte-level framing (such as sending lengths) ensures that the
+  decompressor can distinguish pairs from literal bytes.
 * [Huffman coding](https://en.wikipedia.org/wiki/Huffman_coding):
-  Variable-length encoding of bytes or other values: more
-  frequent values are assigned shorter code bit strings.
-  * dynamic Huffman: First the Huffman table (specifying the code bit string
-    for each value) is sent, then the code bit strings. The actual
+  Variable-length encoding of bytes or other values, typically unsigned
+  integers: more frequent values are assigned shorter code bit strings. The
+  code bit strings form a prefix code, and they can be visualized in a
+  binary tree, called the Huffman tree. Traversing the Huffman tree (i.e.
+  moving down left or right depending on the next input bit) is a simple
+  (but not the fastest) way of decoding.
+  * dynamic Huffman coding: First the Huffman table (specifying the code bit
+    string for each value) is sent, then the code bit strings. The actual
     encoding of the Huffman table can make a big difference in size. A
     typical smart encoding is sending the code bit lengths for each byes,
     and letting the decompressor build the bit strings from their lengths.
-    There are even smarter ones (see Deflate below).
-  * fixed Huffman: The same Huffman table is hardcoded to the compressor and
-    the decompressor, it is not sent.
+    There are even smarter ones (see Deflate below). After the Huffman table
+    has been sent, dynamic Huffman is a special case of variable-length
+    encoding.
+  * partial dynamic Huffman coding: The first few bits of each value is
+    Huffman-coded, and the remaining bits are sent literally. Example: LZ
+    match distances in the Freeze 2 method are 13 bits (the actual range
+    is 0..7935). The first 6 bits (values 0..61) are Huffman-coded, and the
+    actual value is the Huffman-coded value multiplied by 128, and to that a
+    fixed 7-bit unsigned integer read from the input is added, thus the
+    maximum is 61 * 128 + 127 == 7935. It's also possible to have a
+    different number of extra bits, based on the Huffman-coded value.
+  * fixed Huffman coding: Like dynamic Huffman coding, but the same Huffman
+    table is hardcoded to the compressor and the decompressor, it is not
+    sent. Example: LZ match distances in Freeze 1 emthod.
   * adaptive Huffman: No Huffman table is sent, the decompressor builds and
     updates its Huffman table based on the frequencies of values received so
-    far.
+    far. Example: tokens (including literals and LZ match length) in Freeze
+    1 and 2.
 * [LZSS](https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Storer%E2%80%93Szymanski)
   (similar to LZ77):
   A byte string which is a copy of a string is already sent is called
@@ -328,41 +351,143 @@ Some of the more modern methods (most of them invented after 1995):
 Specific details of compression methods supported by luuzcat:
 
 * Deflate (used by gzip, zlib, raw Deflate, ZIP, 4.3BSD-Quasijarus Strong
-  compression):
-  LZSS + Huffman; LZSS with 32 KiB window; supports Huffman reset; first
-  Huffman table for (literal bytes, lengths and Huffman reset); second Huffman
-  table for distances; efficient encoding of the Huffman tables using bit
-  lengths, RLE and (another) Huffman coding; supports uncompressed blocks;
-  supports both fixed and dynamic Huffman; both Huffman tables are optimized
-  by the compressor to fit the input. Mostly because of all these
-  features and a relatively large window size, Deflate typically compresses
-  better than anything else below.
+  compression): LZSS + Huffman; LZSS with 32 KiB window; supports Huffman
+  reset; first Huffman table for fixed or partial dynamic Huffman coding of
+  (literal bytes, LZ match lengths and Huffman reset); second Huffman table
+  for fixed or partial dynamic Huffman coding of LZ match distances;
+  efficient encoding of the Huffman tables using bit lengths, RLE and
+  (another) Huffman coding; supports uncompressed blocks; supports both
+  fixed and dynamic Huffman coding; both Huffman tables are optimized by the
+  compressor to fit the input.
+  Mostly because of all these features and a relatively large window size,
+  Deflate typically compresses better than anything else below.
 * Unix (n)compress (LZW); LZW; indexes are sent in 9 bits, which can grow up
   to maxbits, which can be between 9 and 16; reset code is supported;
   doesn't support concatenation, the compressed LZW stream continues until the
   end of the compressed input stream (end of file, EOF).
-* old Unix pack and new Unix pack: Huffman coding; only the encoding of
-  the Huffman table is different between old and new, both do it less
-  efficiently than Deflate.
-* BSD compact: adaptive Huffman coding; slow to decompress, because per-code
-  updates to the Huffman tree (Huffman table in binary tree structure) are
-  slow.
-* SCO compress LZH: LZSS + Huffman; LZSS with 8 KiB window; supports Huffman
-  reset; same as the *\-lh5\-* method in ar002 and LHA; first
-  Huffman table for (literal bytes and lengths); second Huffman table for
-  distances; efficient encoding of the Huffman tables using bit lengths, RLE
-  and (another) Huffman coding; doesn't support uncompressed blocks;
-  supports both fixed and dynamic Huffman.
+* old Unix pack and new Unix pack: dynamic Huffman coding of the input
+  bytes; the encoding of the Huffman table is different between old and
+  new, both do it less efficiently than Deflate.
+* BSD compact: adaptive Huffman coding of the input bytes using the
+  [Faller–Gallager–Knuth (FGK)
+  algorithm](https://en.wikipedia.org/wiki/Adaptive_Huffman_coding#FGK_Algorithm);
+  slow to decompress, because per-code updates to the Huffman tree (Huffman
+  table in binary tree structure) are slow; adapts less precisely than the
+  Vitter algorithm in Freeze 2.
+* SCO compress LZH: LZSS + Huffman; LZSS with 8 KiB window; same as the
+  *\-lh5\-* method in ar002 and LHA; dynamic Huffman coding of (literal
+  bytes and LZ match lengths); partial dynamic Huffman coding of LZ match
+  distances: the Huffman-coded value just specifies the number of extra
+  literally sent bits; efficient encoding of the literal-and-length Huffman
+  table using bit lengths, RLE and (another) Huffman coding; supports
+  Huffman reset by counting the number of remaining tokens in the current
+  block; doesn't support uncompressed blocks; both Huffman tables are
+  optimized by the compressor to fit the input.
 * Freeze 1 and 2: LZSS + adaptive Huffman; LZSS with 4 KiB window for Freeze
   1, and ~8 KiB (7936 byte) window for Freeze 2; doesn't support Huffman
-  reset; adaptive Huffman coding for (literal bytes and lengths); fixed
-  (Freeze 1.x) or dynamic Huffman coding for distances; efficient encoding
-  of the dynamic Huffman table using RLE of increasing bit lengths;
-  doesn't support uncompressed blocks; the Huffman table for distances is
-  usually not optimized to fit the input, but manual and inconvenient
-  user action is needed for that (this is suboptimal);
-  the adaptive Huffman format is derived from LZHUF, and is faster and less
+  reset; adaptive Huffman coding for (literal bytes and lengths) using the
+  [Vitter
+  algorithm](https://en.wikipedia.org/wiki/Adaptive_Huffman_coding#Vitter_algorithm),
+  same as in LZHUF; fixed (Freeze 1.x) or partial dynamic Huffman coding for
+  distances; efficient encoding of the dynamic Huffman table using RLE of
+  increasing bit lengths; doesn't support uncompressed blocks; the Huffman
+  table for distances is usually not optimized to fit the input, but manual
+  and inconvenient user action is needed for that (this is suboptimal); the
+  adaptive Huffman format is derived from LZHUF, and is faster and less
   complex than in BSD compact.
 
-!! document variable-length integer (varint) coding (same as fixed Huffman)
-!! document partial dynamic Huffman coding (with extra literal bits for match lengths and distances); which method uses it?
+## The success story of Deflate
+
+Why was the Deflate compression method the clear winner of general-purpose,
+lossless compression between 1991 and 1995, outperforming its competitors,
+including all other methods supported by luuzcat? The quick answer: because
+not only its file format design was better, but it had a few excellent
+compressor implementations, which were in general faster, and produced
+smaller compressed output than the competitors. Here is the full story.
+
+Deflate compression was invented and implemented by Phil Katz in 1990--1991,
+building upon his own previous compression methods (most specifically the
+implode method in PKZIP) and best practices of other compressors in the last
+~8 years. Deflate debuted in [PKZIP
+1.93a](http://cd.textfiles.com/bbox4/archiver/pkz193a.exe) beta (1991-10-15)
+with DOS executable program *pkzip.exe* containing the compressor, and
+*pkunzip.exe* containing the decompressor, and *appnote.txt* containing a
+description of the file format of the Deflate-compressed stream. The name
+Deflate wasn't mentioned in the documentation, but *pkzip.exe* displayed the
+message *deflating*, and *pkunzip.exe* displayed the message *inflating*.
+PKZIP is closed-source, proprietary software.
+
+Deflate was was quickly adapted in the following open source software:
+
+* The Deflate file format has been thoroughly documented in [RFC
+  1951](https://www.rfc-editor.org/rfc/rfc1951.txt) (1996-05).
+* gzip 0.1 alpha (1992-10-31) by Jean-loup Gailly: A tool for compressing
+  and decompressing single files using Deflate. It has introduced its own
+  container format (gzip), documented in [RFC
+  1952](https://www.rfc-editor.org/rfc/rfc1952.txt). Both the compressor and
+  the decompressor has written by Jean-loup Gailly and has been released as
+  free software under the GNU GPL; it doesn't contain any code from PKZIP.
+* Zip 1.5 (1992-02-17) by Mark Adler and UnZip 5.0 (1992-08-22) by Mark
+  Adler, both the predecessors of Info-Zip (both 1992-08-22). ZIP archive
+  creator (updater) and extractor tool. Deflate (method 8) support has been
+  added to Zip 1.4 (compression) and UnZip 5.0 (decompression).
+* zlib 0.8 (1995-04-29) by Jean-loup Gailly (focusing on the compression
+  routines) and Mark Adler (focusing on the decompression routines): a C
+  library to do streaming Deflate compression and decompression. It
+  introduced its own container format (zlib), documented in
+  [RFC 1950](https://www.rfc-editor.org/rfc/rfc1950.txt) (1996-05).
+* libpng 0.5 (1995-05) by Guy Eric Schalnat: C library for creating and
+  decoding PNG images. It uses zlib for both compression and decompression
+  of the image data. It has added 6 predictors (filters). The PNG file
+  format is documented in
+  [RFC 2087](https://www.rfc-editor.org/rfc/rfc2083.txt) (1997-03).
+
+Why did the Deflate file format win?
+
+* It supports both LZSS and dynamic Huffman coding. Some competitiors only
+  do one of them.
+* LZSS (also used by Deflate) typically provides the size savings much more
+  quickly than LZW. For example, if the uncompressed input is
+  *abcdef-bcdef*, then the compressed LZW stream can indicate that *bc* and
+  *de* are repeating (and nothing more found), but the compresses LZSS
+  stream can indicate that the entire *bcdef* is repeating.
+* LZSS (also used by Deflate) wastes fewer bits on literals than LZW.
+* It supports separate Huffman tables for (literal bytes and LZ match
+  lengths) ad for LZ match distances. These typically have different
+  distributions, and it's also beneficial that the LZ match distances code
+  is only used for a match (not for literals).
+* Its window size of 32 KiB is larger than of most of the competitors (so it
+  leads to better compression ratio), but still not too large so that a
+  decompressor using less than 64 KiB of data can be written. This has been
+  important between 1985 and 1993, where some Unix systems had a 64 KiB
+  limit on (data) memory per process.
+* It supports resetting of the Huffman codes. This is important for
+  compressing a long input file whose content changes over time: compressing
+  its parts with Huffman codes optimized for each part makes the output
+  smaller. It is debatable whether adaptive Huffman coding (which Deflate
+  doesn't use) can provide these benefits. With a smart Deflate compressor,
+  Deflate can adapt to changes in the input faster, but it also needs extra
+  bytes to send the new Huffman codes.
+* It supports partial dynamic Huffman coding for both Huffman codes, so the
+  very precise distribution of the lower bits of LZ match lengths and
+  distances doesn't pollute the Huffman codes.
+* It encodes both Huffman tables very efficiently by sending only the
+  lengths of each code bit string, and also doing RLE compression and also
+  Huffman coding on the list of bit lengths.
+* It supports uncompressed blocks, so it can send uncompressible data with
+  <0.0077% of overhead. It still adds the end of the data to the ring buffer
+  window, so that if parts of the uncompressible data gets repeated, this
+  can be encoded by a (short) LZSS match.
+* It supports both fixed and dynamic Huffman coding. So for some common
+  distributions of input, the Huffman table doesn't have to be sent at all,
+  and the fixed Huffman code can be used instead.
+
+What features does the gzip tool have to achieve good compression ratio and
+high speed?
+
+* It uses hashing to find matches. It won't find all matches though, the
+  accuracy can be configured with the *level* parameter between 1 and 9:
+  level 1 is the fastest, it finds fewer and/or shorter matches;
+  level 9 is the slowest, it finds the best matches.
+* It optimizes both Huffman tables, fitting them to the uncompressed input.
+* It finds cleverly where the Huffman tables should be reset.

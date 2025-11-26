@@ -210,13 +210,12 @@ static void read_pt_len(unsigned int size, unsigned int nbit, unsigned int i_spe
   n = read_bits(nbit);  /* nbit == TBIT == 5 for size == NT == 19; nbit == PBIT == 4 for size == NP == 14. !!! nbit == 4 + (size & 1). */
   if (n == 0) {
     c = read_bits(nbit);  /* Only a single possible value c. This code path is untested. */
-    /* !!! if (c >= size) fatal_corrupted_input(); */ /* Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Report this missing check to gzip-1.14/unlzh.c. */
+    if (c >= size) fatal_corrupted_input();  /* Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Report this missing check to gzip-1.14/unlzh.c. */
     big.scolzh.pt_len[c] = 0;  /* No need to set any other value in big.scolzch.c_len[...]. */
-    for (i = 0; i < 256; i++) big.scolzh.pt_table[i] = c;
+    for (i = 0; i < (1U << 8); i++) big.scolzh.pt_table[i] = c;
   } else {  /* Dynamic Huffman. */
-    /* !!! if (n > size) fatal_corrupted_input(); */ /*  Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Report this missing check to gzip-1.14/unlzh.c. */
-    i = 0;
-    while (i < n) {
+    if (n > size) fatal_corrupted_input();  /*  Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Report this missing check to gzip-1.14/unlzh.c. */
+    for (i = 0; i < n;) {
       /* bit_count (== big.scolzh.c_len[...]) value decoding:
        * 000 -> 0; 001 -> 1; 010 --> 2; 011 -> 3; 100 -> 4; 101 -> 5; 110 -> 6;
        * 1110 -> 7; 11110 -> 8; 111110 -> 9; 1111110 -> 10; 11111110 -> 11; 111111110 -> 12; 1111111110 -> 13; 11111111110 -> 14; 111111111110 -> 15;
@@ -266,13 +265,12 @@ static void read_c_len_using_pt(void) {
   n = read_bits(CBIT);  /* CBIT == 9. */
   if (n == 0) {
     c = read_bits(CBIT);  /* Only a single possible value c. This code path is untested. */
-    /* !!! if (c >= NC) fatal_corrupted_input(); */  /* NC == 511. Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Add this missing check to gzip-1.14/unlzh.c. */
+    if (c >= NC) fatal_corrupted_input();  /* NC == 511. Also to avoid a buffer overflow in big.scolzh.pt_len[...]. !! Report this missing check to gzip-1.14/unlzh.c. */
     big.scolzh.c_len[c] = 0;  /* No need to set any other value in big.scolzch.c_len[...]. */
     for (i = 0; i < (1U << 12); i++) big.scolzh.c_table[i] = c;
   } else {  /* Dynamic Huffman with RLE-compressed 0 bit length values. */
-    /* if (n > NC) fatal_corrupted_input(); */  /* NC == 511. Also to avoid a buffer overflow in big.scolzh.pt_len[...]. Check not needed, this is never true, becaue n == read_bits(9) <= 511 == NC. */
-    i = 0;
-    while (i < n) {
+    if ((1U << CBIT) > (NC + 1) && n > NC) fatal_corrupted_input();  /* NC == 511. Also to avoid a buffer overflow in big.scolzh.pt_len[...]. The check is optimized away, because the condition is never true, becaue n == read_bits(9) <= 511 == NC. */
+    for (i = 0; i < n;) {
       c = decode_huffman_using_pt(NT);  /* NT == 19. After this, 0 <= c <= 18 == NT - 1. */
       /* Now: 0 <= c <= NT - 1 == 18. That's because of how the pt Huffman tree was constructed before this call to read_c_len_using_pt(...). */
       /* The maximum c value in the test input file is 16. */

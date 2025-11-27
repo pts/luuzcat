@@ -238,6 +238,16 @@
       "sbb ax, ax"  "ok:"  \
       __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
 
+  /* Like write(...), but count must be nonzero.
+   *
+   * MS-DOS 3.30 returns CF == 0 (success) and AX == 0 (no bytes written)
+   * when writing \x1a (^Z) to the console. By `mov ax, cx', we simulate
+   * returning maximum value in this case. !! Modify other write(...) calls.
+   */
+  int write_nonzero_binary(int fd, const void *buf, unsigned int count);
+#  pragma aux write_nonzero_binary = "mov ah, 40h"  "int 21h"  "jnc noerr"  "sbb ax, ax"  "jmp done"  "noerr: test ax, ax"  "jnz done"  "mov ax, cx"  "done:" \
+      __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
+
   int write(int fd, const void *buf, unsigned count);
 #  pragma aux write = "xor ax, ax"  "jcxz ok"  "mov ah, 40h"  "int 21h" \
       "jnc ok"  "sbb ax, ax"  "ok:"  \
@@ -490,12 +500,16 @@ __noreturn void fatal_unsupported_feature(void);
  * 0xfc03...0xfc04: ub8 global_read_had_eof;
  * 0xfc04...0xfc06: unsigned int global_insize;
  * 0xfc06...0xfc08: unsigned int global_inptr;
- * 0xfc08...0xfc0c: unsigned int global_total_read_size;
- * 0xfc0c...0xfc0e: __segment tab_suffix_seg;
- * 0xfc0e...0xfc10: __segment tab_prefix0_seg;
- * 0xfc10...0xfc12: __segment tab_prefix1_seg;
- * 0xfc12...0xfc14: unsigned int uncompress_ducml_write_buffer_size;
- * 0xfc14...0x10000: stack: 0xc0 bytes reserved for DOS etc. (https://retrocomputing.stackexchange.com/a/31813), 0x3ec bytes (plenty) can be used by the program.
+ * 0xfc08...0xfc0c: um32 global_total_read_size;
+ * 0xfc0c...0xfc0e: unsigned int global_write_idx;
+ * 0xfc0e...0xfc10: void LUUZCAT_WATCALL_FROM_ASM (*global_update_checksum_func)(unsigned int write_idx);
+ * 0xfc10...0xfc11: ub8 global_do_ignore_flush_write_error;
+ * 0xfc11...0xfc12: ub8 global_unused;
+ * 0xfc12...0xfc14: __segment tab_suffix_seg;
+ * 0xfc14...0xfc16: __segment tab_prefix0_seg;
+ * 0xfc16...0xfc18: __segment tab_prefix1_seg;
+ * 0xfc18...0xfc1a: unsigned int uncompress_ducml_write_buffer_size;
+ * 0xfc1a...0x10000: stack: 0xc0 bytes reserved for DOS etc. (https://retrocomputing.stackexchange.com/a/31813), 0x3e6 bytes (plenty) can be used by the program.
  */
 #ifdef LUUZCAT_DUCML
 #  ifndef __WATCOMC__
@@ -620,6 +634,24 @@ __noreturn void fatal_unsupported_feature(void);
     extern um32 global_total_read_size;
 #    pragma aux global_total_read_size "global_total_read_size__FIXOFS_0xfc08"
 #  endif
+#  if 0
+#    define global_write_idx (*(unsigned int*)0xfc0cU)
+#  else
+    extern unsigned int global_write_idx;
+#    pragma aux global_write_idx "global_write_idx__FIXOFS_0xfc0c"
+#  endif
+#  if 0
+#    define global_update_checksum_func (*(void LUUZCAT_WATCALL_FROM_ASM (*)(unsigned int size))0xfc0eU)
+#  else
+    extern void LUUZCAT_WATCALL_FROM_ASM (*global_update_checksum_func)(unsigned int size);
+#    pragma aux global_update_checksum_func "global_update_checksum_func__FIXOFS_0xfc0e"
+#  endif
+#  if 0
+#    define global_do_ignore_flush_write_error (*(ub8*)0xfc10U)
+#  else
+    extern ub8 global_do_ignore_flush_write_error;
+#    pragma aux global_do_ignore_flush_write_error "global_do_ignore_flush_write_error__FIXOFS_0xfc10"
+#  endif
 #else
 #  ifndef LUUZCAT_SMALLBUF
     extern uc8 global_read_buffer[];
@@ -628,6 +660,9 @@ __noreturn void fatal_unsupported_feature(void);
   extern unsigned int global_insize; /* Number of valid bytes in global_read_buffer. */
   extern unsigned int global_inptr;  /* Index of next byte to be processed in global_read_buffer. */
   extern um32 global_total_read_size;  /* read_byte(...) increses it after each read from the filehandle to global_read_buffer. */
+  extern unsigned int global_write_idx;
+  extern void LUUZCAT_WATCALL_FROM_ASM (*global_update_checksum_func)(unsigned int size);  /* Typically NULL. When called by flush_write_buffer(), it updates a global checksum variable with bytes from global_write_buffer[:size]. */
+  extern ub8 global_do_ignore_flush_write_error;
 #endif
 
 #define BEOF (-1U)  /* Returned by read_byte(1) and try_byte(). */
@@ -642,7 +677,8 @@ unsigned int get_le16(void);
 
 extern um16 global_bitbuf8;
 
-#define init_bitbuf8() (global_bitbuf8 = ~(um16)0)
+#define init_bitbuf8_before_decompress() (global_bitbuf8 = ~(um16)0)
+#define init_bitbuf8() ((void)0)
 /* It reads bits in big-endian (most-significant bit first), i.e. the very first bit is (b & 0x80) in the very first byte. */
 unsigned int LUUZCAT_WATCALL_FROM_ASM read_bit_using_bitbuf8(void);
 /* 0 <= bit_count <= sizeof(unsigned int) * 8 >= 16. bit_count == 0 is used in decode_distance in unfreeze.c, because big.freeze.d_len[j] can be 0. 8 is used explicitly in unfreeze.c and uncompact.c. */
@@ -697,9 +733,22 @@ unsigned int read_bits_using_bitbuf8(unsigned int bit_count);
 #  endif
 #endif
 
-unsigned int flush_write_buffer(unsigned int size);
+unsigned int flush_write_buffer_at(unsigned int size);  /* Calls global_update_checksum_func(size), and flushes global_write_buffer[:size] to stdout. After flushing, it sets global_write_idx = 0, and returns 0. */
+unsigned int flush_write_buffer(void);  /* Calls global_update_checksum_func(global_write_idx). and flushes global_write_buffer[:global_write_idx] to stdout. After flushing, it sets global_write_idx = 0, and returns 0. */
 
-#define flush_full_write_buffer_in_the_beginning() do {} while (0)  /* Usually this is a no-op, because the write buffer is not full in the beginning. */
+#if 0  /* Unused. */
+#  define write_byte_using_write_idx_noupdate_unused(b) do { global_write_buffer[write_idx] = (b); if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer_at(write_idx); } while (0)
+#endif
+/* This is better than write_byte_using_write_idx(b), because it updates global_write_idx for a longer flush in a subsequent fatal_*(...). */
+#define write_byte_using_write_idx(b) do { global_write_buffer[write_idx] = (b); global_write_idx = ++write_idx; if (write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(); } while (0)
+
+/* --- Writing the LZ match. */
+
+extern unsigned int global_lz_match_distance_limit;
+
+#define increment_lz_match_distance_limit() do { if (global_lz_match_distance_limit < 0x8000U) ++global_lz_match_distance_limit; } while (0)
+
+unsigned int copy_and_write_lz_match(unsigned int match_length, unsigned int match_distance, unsigned write_idx);  /* Requires match_length >= 1. match_distance == 0 means the previously emitted byte. Returns the new write_idx. */
 
 /* --- Decompression. */
 
@@ -859,7 +908,7 @@ extern union big_big {
 #endif
 } big;
 
-/* This is always true, otherwise there is no way to communicate the write_idx. !! Add global_write_idx. */
+/* This is always true, otherwise there is no way to communicate the write_idx. */
 #define LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS 1
 /* These functions decompress from stdin (fd STDIN_FILENO == 0) to stdout. */
 void decompress_scolzh_nohdr(void);

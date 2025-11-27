@@ -277,11 +277,8 @@ void decompress_compact_nohdr(void) {
 
   /* Setup. */
   data_byte = get_byte();
-  write_idx = 0;
-#if 0  /* Not needed, write_idx is always 0 here (LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS). */
-  if (write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(WRITE_BUFFER_SIZE);
-#endif
-  global_write_buffer[write_idx++] = data_byte;
+  global_write_idx = write_idx = 1;  /* Assumes LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS. */
+  global_write_buffer[0] = data_byte;  /* Assumes LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS. */
 
   /* !! This is per-file initialization basd on the first byte read from data_byte. !! What does this first byte mean? Do we need to special-case it? */
   big.compact.dict[0].sons[LEFT].spdii = bottomdi = 1;  /* Sets the dicti_t of spdii. */
@@ -329,12 +326,10 @@ void decompress_compact_nohdr(void) {
 #endif
       }
       uptree(decompress_word);
-      global_write_buffer[write_idx] = (uc8)decompress_word;
-      if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
+      write_byte_using_write_idx((uc8)decompress_word);
       pdi = 0;
     } else {
       pdi = decompress_word;
     }
   }
-  flush_write_buffer(write_idx);
 }

@@ -4,6 +4,7 @@ set -ex
 test "$0" = "${0%/*}" || cd "${0%/*}"
 
 gcc -m64 -fsanitize=address -g -O2 -ansi -pedantic -W -Wall -Wextra -Wstrict-prototypes -Werror-implicit-function-declaration -o luuzcat luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
+# Do a full test.
 ./luuzcat <XFileMgro.sz >XFileMgro
     cmp XFileMgro.good XFileMgro
 ./luuzcat <test_C1.bin.C >test_C1.bin
@@ -12,8 +13,7 @@ gcc -m64 -fsanitize=address -g -O2 -ansi -pedantic -W -Wall -Wextra -Wstrict-pro
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1_pack_old.z >test_C1.bin
     cmp test_C1.good test_C1.bin
-# test_C1_pack_old3.z created using pack.c in https://github.com/pts/pts-opack-port
-./luuzcat <test_C1_pack_old3.z >test_C1.bin
+./luuzcat <test_C1_pack_old3.z >test_C1.bin  # test_C1_pack_old3.z created using pack.c in https://github.com/pts/pts-opack-port
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1.advdef.gz >test_C1.bin
     cmp test_C1.good test_C1.bin
@@ -29,19 +29,32 @@ gcc -m64 -fsanitize=address -g -O2 -ansi -pedantic -W -Wall -Wextra -Wstrict-pro
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1.F >test_C1.bin
     cmp test_C1.good test_C1.bin
+./luuzcat <test_C1_old13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat <test_C1_old14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat <test_C1_old15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1_old16.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1_new16.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
+./luuzcat <test_C1_new13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat <test_C1_new14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat <test_C1_new15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat <test_C1_new16.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1.zip >test_C1.bin
     cmp test_C1.good test_C1.bin
-./luuzcat -m <test_C1_split.zip >test_C1.bin
+./luuzcat -m <test_C1_split.zip >test_C1.bin  # -m is needed because test_C1.split.zip has multiple archive members.
     cmp test_C1.good test_C1.bin
 exit_code=0; ./luuzcat <test_C1_split.zip >test_C1.bin || exit_code="$?"; test "$exit_code" != 0
     cmp test_C1_1of2.good test_C1.bin
-
 # !! Add test for concatenated streams.
 
 ~/Downloads/pts_osxcross_10.10/x86_64-apple-darwin14/bin/gcc -m64 -mmacosx-version-min=10.5 -nodefaultlibs -lSystem -O2 -W -Wall -Wextra -Wstrict-prototypes -Werror-implicit-function-declaration -ansi -pedantic -o luuzcat.da6 luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
@@ -182,7 +195,6 @@ wcc    $wcc16args $wcc16minixargs $common_wccargs $minixi86defs -fo=unfreezem_16
 perl=tools/miniperl-5.004.04.upx
 "$perl" -e0 || perl=perl  # Use the system perl(1) if tools is not available.
 fi=0
-# luuzcat_16.o               luuzcatt_16.o luuzcatd_16.o unscolzh_16.o uncompact_16.o unopack_16.o unpack_16.o undeflate_16.o uncompress_16.o uncompressd_16.o uncompressn_16.o unfreeze_16.o
 for f in luuzcat_32.o  luuzcatw_32.o luuzcatr_32.o unscolzh_32.o  uncompact_32.o  unopack_32.o  unpack_32.o  undeflate_32.o  uncompress_32.o  unfreeze_32.o \
                                      luuzcatc_16.o unscolzhc_16.o uncompactc_16.o unopackc_16.o unpackc_16.o undeflatec_16.o uncompressc_16.o unfreezec_16.o \
                                      luuzcatm_16.o unscolzhm_16.o uncompactm_16.o unopackm_16.o unpackm_16.o undeflatem_16.o uncompressm_16.o unfreezem_16.o; do
@@ -261,6 +273,60 @@ wlink op q form elf ru freebsd disa 1080 op noext op d op nored op start=_start 
     cmp test_C1.good test_C1.bin
 ibcs-us ./luuzcaty.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
+
+nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatw_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                       -o luuzcat.elf   progx86.nasm
+chmod +x luuzcat.elf
+# Do a full test.
+./luuzcat.elf <XFileMgro.sz >XFileMgro
+    cmp XFileMgro.good XFileMgro
+./luuzcat.elf <test_C1.bin.C >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_pack.z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_pack_old.z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_pack_old3.z >test_C1.bin  # test_C1_pack_old3.z created using pack.c in https://github.com/pts/pts-opack-port
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1.advdef.gz >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1.advdef.qz >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1.advdef.zlib >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf -r <test_C1.advdef.deflate >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf -r <test_C1.advdef.gz >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_old.F >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1.F >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_old13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_old14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_old15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_old16.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new16.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new9.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new13.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new14.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new15.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1_new16.Z >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf <test_C1.zip >test_C1.bin
+    cmp test_C1.good test_C1.bin
+./luuzcat.elf -m <test_C1_split.zip >test_C1.bin  # -m is needed because test_C1.split.zip has multiple archive members.
+    cmp test_C1.good test_C1.bin
+exit_code=0; ./luuzcat.elf <test_C1_split.zip >test_C1.bin || exit_code="$?"; test "$exit_code" != 0
+    cmp test_C1_1of2.good test_C1.bin
 
 # We pass -DFULL_BSS so that global_insize, global_inptr and global_total_read_size will be zero-initialized.
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressm_16.nasm','luuzcatm_16.nasm','unscolzhm_16.nasm','uncompactm_16.nasm','unopackm_16.nasm','unpackm_16.nasm','undeflatem_16.nasm','unfreezem_16.nasm'" -DMINIXI86 -DMINIX_STACK_SIZE=0x600 -o luuzcat.mi8 progx86.nasm
@@ -408,29 +474,6 @@ dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcat.exe -cd <t
 dosbox.nox.static --cmd luuzcat.exe -cd <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./kvikdos luuzcat.exe <test_C1_new9.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-
-nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'luuzcatw_32.nasm','unscolzh_32.nasm','uncompact_32.nasm','unopack_32.nasm','unpack_32.nasm','undeflate_32.nasm','uncompress_32.nasm','unfreeze_32.nasm'"                                       -o luuzcat.elf   progx86.nasm
-chmod +x luuzcat.elf
-./luuzcat.elf <test_C1_new9.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./luuzcat.elf <test_C1_new13.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./luuzcat.elf <test_C1_new14.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./luuzcat.elf <test_C1_new15.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./luuzcat.elf <test_C1_new16.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./luuzcat.elf <test_C1_old13.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./luuzcat.elf <test_C1_old14.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./luuzcat.elf <test_C1_old15.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./luuzcat.elf <test_C1_old16.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-ibcs-us ./luuzcat.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 
 rm -f luuzcat.3b

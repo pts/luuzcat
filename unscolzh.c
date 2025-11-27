@@ -302,7 +302,7 @@ static void read_c_len_using_pt(void) {
 /* --- decode.c */
 
 void decompress_scolzh_nohdr(void) {
-  unsigned int write_idx, match_distance, match_length, c, mask, block_size, match_distance_limit;
+  unsigned int write_idx, match_distance, match_length, c, mask, block_size;
 
 #if 0  /* The caller has already done this. */
   i = try_byte();
@@ -312,7 +312,7 @@ void decompress_scolzh_nohdr(void) {
   subbitbuf8 = subbitcount = 0;
   /* Prefill bitbuf16 with 16 bits. From then on, keep it fully prefilled. */
   bitbuf16 = get_byte() << 8; bitbuf16 |= get_byte();
-  write_idx = match_distance_limit = 0;
+  write_idx = 0;  /* Assumes LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS. */
   while ((block_size = bitbuf16) != 0) {
     discard_bits(16);  /* Discard 16 bits for the block size. */
     read_pt_len(NT, TBIT I_SPECIAL_ARGN);  /* NT == 19, thus this makes bit lengths and decoded values in the big.scolzh.pt_* Huffman tree 0..18. */
@@ -335,25 +335,17 @@ void decompress_scolzh_nohdr(void) {
       }
       discard_bits(big.scolzh.c_len[c]);  /* This may discard fewer bits than 12, actually all 3..12 happened. */
       if (c <= 255) {  /* Append LZ literal byte. */
-        global_write_buffer[write_idx] = c;
-        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
-        if (match_distance_limit < 0x8000U) ++match_distance_limit;
+        write_byte_using_write_idx(c);
+        increment_lz_match_distance_limit();
       } else {
         match_length = c - 256 + THRESHOLD;
         /* Now decode the LZ match distance to i. */
         match_distance = decode_huffman_using_pt(NP);  /* NP == 14. */  /* After this, 0 <= match_distane <= 13. */
         if (match_distance != 0) match_distance = (1U << (match_distance - 1)) + read_bits(match_distance - 1);
         /* Now match_length contains the LZ match length and match_distance contains the LZ match distance. */
-        if (match_distance >= match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */
-        if ((match_distance_limit += match_length) >= 0x8000U) match_distance_limit = 0x8000U;  /* This doesn't overflow an um16, because old match_distance_limit <= 0x8000U and match_length < 0x8000U. */
-        match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
-        do {
-          global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
-          if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
-        } while (--match_length != 0);
+        write_idx = copy_and_write_lz_match(match_length, match_distance, write_idx);
       }
     }
   }
   /* Now: bitbuf16 is empty, and subbitbuf8 contains 0..7 bits of the last, partially processed byte. All subsequent bytes are in global_read_buffer. */
-  flush_write_buffer(write_idx);  /* !! Flush it even when fatal_msg(...). Do it everywhere. */
 }

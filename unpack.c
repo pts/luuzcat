@@ -67,7 +67,7 @@ void decompress_pack_nohdr(void) {
   /* Now: all big.pack.leaf_count[i...] are 0..254; node_count is 0..509. */
   if ((node_count >> 1) != 1) goto corrupted_input;  /* gzip-1.2.4/unpack.c and pcat.c don't check it, but gzip-1.14/unpack.c does: too few leaves in the Huffman tree. */
 
-  bit_count = write_idx = 0;
+  write_idx = 0;  /* Assumes LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS. */
   init_bitbuf8();
   for (;;) {  /* Read and decode the Huffman code bits, and write the decompressed output bytes. */
     for (i = level = 0; ; ++level) {  /* Walk the tree until a leaf is reached. */
@@ -84,9 +84,7 @@ void decompress_pack_nohdr(void) {
 #endif
     if ((i += big.pack.byte_indexes[level]) == eof_idx) break;  /* End-of-stream marker found. */
     if (usize-- == 0) goto corrupted_input;  /* Too many outbut bytes before end-of-stream marker. gzip-1.2.4/unpack.c and pcat.c doen't have this error check, but they do it only later. */
-    global_write_buffer[write_idx] = big.pack.bytes[i];
-    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
+    write_byte_using_write_idx(big.pack.bytes[i]);
   }
   if (usize != 0) goto corrupted_input;
-  flush_write_buffer(write_idx);
 }

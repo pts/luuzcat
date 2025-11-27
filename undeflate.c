@@ -40,7 +40,7 @@
   static um32 crc32_table[256];  /* By putting it outside `big', we can keep it across different decompressor calls. */
 #endif
 
-#if defined(__WATCOMC__) && defined(_M_I86) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation. */
+#if IS_X86_16 && defined(__WATCOMC__) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation. */
 static void build_crc32_table_if_needed_inline(um32 __near *our_crc32_table);
 #  pragma aux build_crc32_table_if_needed_inline = \
       "push ds"  "pop es"  "xor bx, bx"  "cmp byte ptr [di+4], bl" \
@@ -84,28 +84,27 @@ static um32 global_usize;
 #define CRC32_INITIAL ((um32)0xffffffffUL)
 #define crc32_init() do { global_checksum.crc32 = CRC32_INITIAL; } while (0)
 
-#if defined(__WATCOMC__) && defined(_M_I86) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation of CRC-32. */
+#if IS_X86_16 && defined(__WATCOMC__) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation of CRC-32. */
   static um32 append_crc32(const uc8 *p, unsigned int size, long old_crc32, const um32 *crc32_table_arg);   /* size must be nonzero. */
 #  pragma aux append_crc32 = \
       "next: lodsb"  "mov ah, 0"  "xor al, bl"  "add ax, ax"  "add ax, ax"  "xchg ax, bx"  "mov al, ah"  "mov ah, dl"  "mov dl, dh"  "mov dh, 0"  "xor dx, [di+bx+2]"  "xor ax, [di+bx]"  "xchg bx, ax"  "loop next" \
       __parm [__si] [__cx] [__dx __bx] [__di]  /* DX is the high word, no matter which order they are specified. */ [__di] __value [__dx __bx] __modify [__ax __si __cx]
-  static unsigned int flush_write_buffer_and_crc32_usize(unsigned int size) {
-    if (size == 0) return 0;  /* append_crc32(...) doesn't support size == 0, so we avoid it. */
-    global_usize += size;
-    global_checksum.crc32 = append_crc32(global_write_buffer, size, global_checksum.crc32, crc32_table);
-    return flush_write_buffer(size);
+  static void LUUZCAT_WATCALL_FROM_ASM update_checksum_crc32_usize(unsigned int size) {
+    if (size != 0) {  /* append_crc32(...) doesn't support size == 0, so we avoid it. */
+      global_usize += size;
+      global_checksum.crc32 = append_crc32(global_write_buffer, size, global_checksum.crc32, crc32_table);
+    }
   }
 #else
-  static unsigned int flush_write_buffer_and_crc32_usize(unsigned int size) {
+  static void LUUZCAT_WATCALL_FROM_ASM update_checksum_crc32_usize(unsigned int size) {
     const uc8 *p = global_write_buffer;
     um32 crc32_value = global_checksum.crc32;
     global_usize += size;
 
-    while (size-- != 0) {
+    while (size-- != 0) {  /* !! Add assembly implementation for defined(__386__) && defined(__WATCOMC__). */
       crc32_value = crc32_table[(uc8)crc32_value ^ *p++] ^ (crc32_value >> 8);
     }
     global_checksum.crc32 = crc32_value;
-    return flush_write_buffer(p - global_write_buffer);
   }
 #endif
 
@@ -113,19 +112,19 @@ static um32 global_usize;
 #define ADLER32_INITIAL_S2 0U
 #define adler32_init() do { global_checksum.adler32_s12[1] = ADLER32_INITIAL_S1; global_checksum.adler32_s12[0] = ADLER32_INITIAL_S2; } while (0)
 
-#if defined(__WATCOMC__) && defined(_M_I86) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation of Adler-32. */
+#if IS_X86_16 && defined(__WATCOMC__) && (defined(__SMALL__) || defined(__MEDIUM__))  /* Optimized assembly implementation of Adler-32. */
   static um32 append_adler32(const uc8 *p, unsigned int size, long old_adler32);   /* size must be nonzero. */
 #  pragma aux append_adler32 = \
       "mov di, 65521"  "mov ah, 0"  "next: lodsb"  "add dx, ax"  "jc sub1"  "cmp dx, di"  "jc asub1"  "sub1: sub dx, di"  "asub1: add bx, dx"  "jc sub2"  "cmp bx, di"  "jc asub2"  "sub2: sub bx, di"  "asub2: loop next" \
       __parm [__si] [__cx] [__dx __bx]  /* DX is the high word, no matter which order they are specified. */ __value [__dx __bx] __modify [__ax __si __cx __di]
-  static unsigned int flush_write_buffer_and_adler32(unsigned int size) {
-    if (size == 0) return 0;  /* append_adler3232(...) doesn't support size == 0, so we avoid it. */
-    /* By updating global_checksum.crc32 (as written below), we actually update global_checksum.adler32_s12[:], because global_checksum is a union. */
-    global_checksum.crc32 = append_adler32(global_write_buffer, size, global_checksum.crc32);
-    return flush_write_buffer(size);
+  static void LUUZCAT_WATCALL_FROM_ASM update_checksum_adler32(unsigned int size) {
+    if (size != 0) {  /* append_adler3232(...) doesn't support size == 0, so we avoid it. */
+      /* By updating global_checksum.crc32 (as written below), we actually update global_checksum.adler32_s12[:], because global_checksum is a union. */
+      global_checksum.crc32 = append_adler32(global_write_buffer, size, global_checksum.crc32);
+    }
   }
 #else
-  static unsigned int flush_write_buffer_and_adler32(unsigned int size) {  /* https://www.rfc-editor.org/rfc/rfc1950.txt */
+  static void LUUZCAT_WATCALL_FROM_ASM update_checksum_adler32(unsigned int size) {  /* https://www.rfc-editor.org/rfc/rfc1950.txt */
     const uc8 *p = global_write_buffer;
     unsigned int s1 = global_checksum.adler32_s12[1], s2 = global_checksum.adler32_s12[0], byte_value;
 
@@ -133,7 +132,7 @@ static um32 global_usize;
       byte_value = 0;  /* Avoid warning about possible use by (void)byte_value below. */
       (void)byte_value;
     }
-    while (size-- != 0) {
+    while (size-- != 0) {  /* !! Add assembly implementation for defined(__386__) && defined(__WATCOMC__). */
       if (sizeof(s1) > 2) {
         if ((s1 += *p++) >= 65521U) s1 -= 65521U;
         if ((s2 += s1) >= 65521U) s2 -= 65521U;
@@ -144,11 +143,8 @@ static um32 global_usize;
       }
     }
     global_checksum.adler32_s12[1] = s1; global_checksum.adler32_s12[0] = s2;
-    return flush_write_buffer(p - global_write_buffer);
   }
 #endif
-
-static unsigned int (*global_flush_write_buffer_func)(unsigned int size);
 
 #define MAX_TMP_SIZE 19
 #define MAX_INCOMPLETE_BRANCH_COUNT (7 + 15 + 15)  /* We need this many extra nodes, because these are the incomplete and dangling nodes (i.e. which don't have 2 children yet), because the Huffman tree doesn't have 100% coverage. */
@@ -302,12 +298,10 @@ static void build_huffman_tree(const deflate_huffman_bit_count_t *bit_count_ary_
 }
 
 static unsigned int copy_uncompressed(um32 usize, unsigned int write_idx) {
-  write_idx = 0;
-  while (usize-- != 0) {
-    global_write_buffer[write_idx] = get_byte();  /* !! Faster, use memcpy(global_write_buffer + ..., global_read_buffer + ..., ...). Do it everywhere. */
-    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(write_idx);
+  while (usize-- != 0) {  /* !!! Make it faster, use memcpy(global_write_buffer + ..., global_read_buffer + ..., ...). Do it everywhere. */
+    write_byte_using_write_idx(get_byte());
   }
-  return write_idx;
+  return global_write_idx = write_idx;
 }
 
 static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt */
@@ -321,13 +315,11 @@ static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rf
   unsigned int match_length;
   unsigned int match_distance_extra_bits;
   unsigned int match_distance;
-  unsigned int match_distance_limit;
   unsigned int write_idx;
   deflate_huffman_bit_count_t tmp_bit_count_ary[19];
 
   global_bitbuf_bits_remaining = 0;
-  write_idx = 0;
-  match_distance_limit = 0;
+  write_idx = 0;  /* Assumes LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS. */
   do {  /* Decompress next block. */
     bfinal = read_bits_max_8(1);  /* BFINAL. */  /* This would be the only caller of prog_decompress_read_bit(). We don't waste code size on the short implementation. */
     switch (read_bits_max_8(2)) {  /* BTYPE. */
@@ -335,7 +327,7 @@ static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rf
       global_bitbuf_bits_remaining = 0;  /* Discard partially read byte. */
       uncompressed_block_size = read_bits_max_16(16);  /* LEN. */
       if (read_bits_max_16(16) != ((um16)~uncompressed_block_size & 0xffffU)) { corrupted_input: fatal_corrupted_input(); }  /* NLEN. */
-      if (uncompressed_block_size >= 0x8000U || ((match_distance_limit += uncompressed_block_size) >= 0x8000U)) match_distance_limit = 0x8000U;
+      if (uncompressed_block_size >= 0x8000U || ((global_lz_match_distance_limit += uncompressed_block_size) >= 0x8000U)) global_lz_match_distance_limit = 0x8000U;
       write_idx = copy_uncompressed(uncompressed_block_size, write_idx);
       break;
      case 1:  /* Block compressed with fixed Huffman codes. */
@@ -373,9 +365,8 @@ static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rf
       for (;;) {
         token = read_using_huffman_tree(TREE_LITERAL_AND_LEN_ROOT_IDX);
         if (token < 0x100) { /* LZ literal token. */
-          if (match_distance_limit < 0x8000U) ++match_distance_limit;
-          global_write_buffer[write_idx] = token;
-          if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(write_idx);
+          write_byte_using_write_idx(token);
+          increment_lz_match_distance_limit();
           continue;
         }
         token -= 0x101;
@@ -398,24 +389,17 @@ static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rf
         }
         /* Now we have the final value of match_distance: 0..32767 == 0..0x7fff. */
         /* Now match_length contains the LZ match length and match_distance contains the LZ match distance. */
-        if (match_distance >= match_distance_limit) goto corrupted_input;  /* LZ match refers back too much, before the first (literal) byte. */
-        if ((match_distance_limit += match_length) >= 0x8000U) match_distance_limit = 0x8000U;  /* This doesn't overflow an um16, because old match_distance_limit <= 0x8000U and match_length < 0x8000U. */
-        match_distance = (write_idx - 1 - match_distance);  /* After this, match_distance doesn't contain the LZ match distance. */
-        do {
-          global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
-          if (++write_idx == WRITE_BUFFER_SIZE) write_idx = global_flush_write_buffer_func(write_idx);
-        } while (--match_length != 0);
+        write_idx = copy_and_write_lz_match(match_length, match_distance, write_idx);
       }
       break;
      default:  /* case 3. Reserved block type (error). */
       goto corrupted_input;
     }
   } while (!bfinal);
-  global_flush_write_buffer_func(write_idx);
+  flush_write_buffer();  /* This also calls global_update_checksum_func(...). */
 }
 
 void decompress_deflate(void) {  /* https://www.rfc-editor.org/rfc/rfc1951.txt */
-  global_flush_write_buffer_func = flush_write_buffer;
   decompress_deflate_low();
 }
 
@@ -444,7 +428,7 @@ void decompress_zlib_nohdr(void) {
   if (((b = get_byte()) & 0xf) != 8 || (b >> 4) > 7) fatal_corrupted_input();  /* CM byte. Check that CM == 8, check that CINFO <= 7, otherwise ignore CINFO (sliding window size). */
   if (((b = get_byte()) & 0x20)) fatal_corrupted_input();  /* FLG byte. Check that FDICT == 0. Ignore FLEVEL and FCHECK. */
 #endif
-  global_flush_write_buffer_func = flush_write_buffer_and_adler32;
+  global_update_checksum_func = update_checksum_adler32;
   adler32_init();
   decompress_deflate_low();
   if (get_be16() != global_checksum.adler32_s12[0] ||  /* Bad Adler-32 s2 in ADLER32. */
@@ -489,7 +473,7 @@ void decompress_gzip_nohdr(void) {  /* https://www.rfc-editor.org/rfc/rfc1952.tx
   /* Now we could ignore the 2-byte CRC16 if (flg & 2), but we've disallowed it above. */
   if ((flg & 32) != 0) read_and_ignore(12);  /* Ignore gzip(1) the encryption header. */
   build_crc32_table_if_needed();
-  global_flush_write_buffer_func = flush_write_buffer_and_crc32_usize;
+  global_update_checksum_func = update_checksum_crc32_usize;
   crc32_init();
   global_usize = 0;
   decompress_deflate_low();
@@ -547,6 +531,7 @@ void decompress_zip_struct_nohdr(uc8 b) {  /* https://pkwaredownloads.blob.core.
     build_crc32_table_if_needed();
     crc32_init();
     global_usize = 0;
+    global_update_checksum_func = update_checksum_crc32_usize;
     if (method == ZIP_METHOD_STORED) {
       if ((flags & 8) != 0) goto corrupted_input;  /* Data descriptor not supported with ZIP_METHOD_STORED. */
       if (((usize - 1U) & (um32)-1UL) <= 1U) {  /* Use csize if usize was filled incorrectly. */
@@ -555,10 +540,10 @@ void decompress_zip_struct_nohdr(uc8 b) {  /* https://pkwaredownloads.blob.core.
       } else {
         if (usize != csize) goto corrupted_input;
       }
-      /* !! Merge final calls to global_flush_write_buffer_func(...) so even a multi-stream output file can be written on disk block boundary. */
-      global_flush_write_buffer_func(copy_uncompressed(usize, 0));
+      /* !! Merge final calls to global_flush_write_buffer(...) so even a multi-stream output file can be written on disk block boundary. This would break LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS. */
+      copy_uncompressed(usize, 0);
+      flush_write_buffer();  /* This also calls global_update_checksum_func(...). */
     } else {  /* method == ZIP_METHOD_DEFLATED. */
-      global_flush_write_buffer_func = flush_write_buffer_and_crc32_usize;
       global_total_read_size = 0;
       csize -= global_insize - global_inptr;
       decompress_deflate_low();

@@ -68,7 +68,7 @@ void decompress_opack_nohdr(void) {
     *t++ = tp;
   }
   bit_count = 0;
-  write_idx = 0;
+  write_idx = 0;  /* Assumes LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS. */
   while (usize-- != 0) {
 #ifdef USE_DEBUG
     fprintf(stderr, "/%lu\n", (unsigned long)usize);
@@ -95,11 +95,6 @@ void decompress_opack_nohdr(void) {
       if (bits_remaining-- == 0) fatal_corrupted_input();  /* Fail on infinite loop in the tree pointers. */
     }
     if ((dp = big.opack.tree[tp + 1]) > 0xffU) fatal_corrupted_input();
-    global_write_buffer[write_idx] = dp;
-    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
-#ifdef USE_DEBUG
-    flush_write_buffer(write_idx); write_idx = 0;
-#endif
+    write_byte_using_write_idx(dp);
   }
-  flush_write_buffer(write_idx);
 }

@@ -109,11 +109,13 @@
    * when writing \x1a (^Z) to the console. By `mov ax, cx', we simulate
    * returning maximum value in this case. !! Modify other write(...) calls.
    */
-  int luuzcat_ducml_write_nonzero_or_fatal(int fd, const void *buf, unsigned int count);
-#  pragma aux luuzcat_ducml_write_nonzero_or_fatal = "mov ah, 40h"  "int 21h"  "jnc noerr"  "jmp fatal_write_error"  "noerr: test ax, ax"  "jnz ok"  "mov ax, cx"  "ok:" \
+  int luuzcat_ducml_write_nonzero_binary(int fd, const void *buf, unsigned int count);
+#  pragma aux luuzcat_ducml_write_nonzero_binary = "mov ah, 40h"  "int 21h"  "jnc noerr"  "sbb ax, ax"  "jmp done"  "noerr: test ax, ax"  "jnz done"  "mov ax, cx"  "done:" \
       __value [__ax] __parm [__bx] [__dx] [__cx] __modify __exact [__ax]
 
   __noreturn void fatal_msg(const char *msg) {
+    ++global_do_ignore_flush_write_error;  /* Prevent a write_nonzero(...) error in the flush_write_buffer() below from making the process exit with fatal_write_error(). We want to report our `msg' in this case. */
+    flush_write_buffer();
     luuzcat_ducml_write_nonzero(STDERR_FILENO, WRITE_PTR_ARG_CAST(msg), strlen(msg));
     exit(EXIT_FAILURE);
   }
@@ -143,26 +145,38 @@
   }
 
   /* A shorter, assembly implementation of flush_write_buffer(...) below. */
-  static unsigned int flush_write_buffer_inline(unsigned int size);
-#  pragma aux flush_write_buffer_inline = \
-      "push dx"  "mov dx, offset global_write_buffer"  "push cx"  "push bx"  "mov bx, 1"  "xchg cx, ax" \
-      "again: mov ah, 40h"  "int 21h"  "jnc noerr"  "jmp fatal_write_error"  "noerr: test ax, ax"  "jnz ok"  "mov ax, cx" \
-      "ok: add dx, ax"  "sub cx, ax" "jnz again"  "xor ax, ax"  "pop bx"  "pop cx"  "pop dx" \
+  static unsigned int flush_write_buffer_at_inline_helper(unsigned int size);
+#  pragma aux flush_write_buffer_at_inline_helper = \
+      "push dx"  "mov dx, offset global_write_buffer"  "push cx"  "mov cx, ax"  "cmp word ptr ds:[0xfc0e], 0"  /* (unsigned int)&global_update_checksum_func == 0xfc0e. */ \
+      "je donechecksum"  "call word ptr ds:[0xfc0e]"  /* (unsigned int)&global_update_checksum_func == 0xfc0e. */ \
+      "donechecksum: push bx"  "mov bx, 1" \
+      "again: mov ah, 40h"  "int 21h"  "jnc noerr"  "cmp ds:[0xfc10], bh"  /* (unsigned int)&global_do_ignore_flush_write_error == 0xfc10. BH is 0 now. */ \
+      "jne done"  "jmp fatal_write_error"  "noerr: test ax, ax"  "jnz ok"  "mov ax, cx" \
+      "ok: add dx, ax"  "sub cx, ax" "jnz again"  "done: xor ax, ax"  \
+      "mov ds:[0xfc0c], ax"  /* (unsigned int)&global_write_idx == 0xfc0c. */   "pop bx"  "pop cx"  "pop dx" \
       __value [__ax] __parm [__ax] __modify __exact []
-  /* Always returns 0, which is the new buffer write index.
-   * flush_write_buffer(...) uses a buffer different from flush_write_buffer(...) uses.
-   */
-  unsigned int flush_write_buffer(unsigned int size) {
+  /* Always returns 0, which is the new buffer write index. May use a different buffer for decompress_uncompress_nohdr(...). */
+  unsigned int flush_write_buffer_at(unsigned int size) {
 #  if 1
-    return flush_write_buffer_inline(size);
+    return flush_write_buffer_at_inline_helper(size);
 #  else
     unsigned int size_i;
+    int got;
+    if (global_update_checksum_func) global_update_checksum_func(size);
     for (size_i = 0; size_i < size; ) {
       /* MS-DOS 3.00 works with size as large as 0xffff. */
-      size_i += luuzcat_ducml_write_nonzero_or_fatal(STDOUT_FILENO, WRITE_PTR_ARG_CAST((is_uncompress_now ? uncompress_ducml_write_buffer : global_write_buffer) + size_i), size - size_i);
+      size_i += got;
+      if ((got = luuzcat_ducml_write_nonzero_binary(STDOUT_FILENO, WRITE_PTR_ARG_CAST((is_uncompress_now ? uncompress_ducml_write_buffer : global_write_buffer) + size_i), size - size_i) == -1) {
+        if (!global_do_ignore_flush_write_error) fatal_write_error();
+        break;
+      }
     }
-    return 0;
+    return global_write_idx = 0;
 #  endif
+  }
+
+  unsigned int flush_write_buffer(void) {
+    return flush_write_buffer_at(global_write_idx);
   }
 
   struct uncompress_ducml_big_14 {
@@ -198,7 +212,7 @@
   };
   typedef char assert_sizeof_struct_uncompress_ducml_big_u[sizeof(union uncompress_ducml_big_u) == 0xe000U ? 1 : -1];
   /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
-#  define uncompress_ducmp_write_buffer_asm "mov word ptr ds:[flush_write_buffer+2], 0xc00"
+#  define uncompress_ducmp_write_buffer_asm "mov word ptr ds:[flush_write_buffer_at+2], 0xc00"  /* Self-modifying code: sets the argument of the `mov dx, ...' in flush_write_buffer_at() to uncompress_ducml_write_buffer. */
   extern uc8 uncompress_ducml_write_buffer[];
 #  pragma aux uncompress_ducml_write_buffer "uncompress_ducml_write_buffer__FIXOFS_0xc00"
 #  if 1  /* This one happens to produce a smaller program file.. */
@@ -208,21 +222,23 @@
 #    pragma aux uncompress_ducml_big "uncompress_ducml_big__FIXOFS_0xc00"
 #endif
   extern unsigned int uncompress_ducml_write_buffer_size;
-#  pragma aux uncompress_ducml_write_buffer_size "uncompress_ducml_write_buffer_size__FIXOFS_0xfc12"  /* Unfortunately there is no way to generate this with `wcc -za'. Without `-xa', there is _Pragma("..."). */
+#  pragma aux uncompress_ducml_write_buffer_size "uncompress_ducml_write_buffer_size__FIXOFS_0xfc18"  /* Unfortunately there is no way to generate this with `wcc -za'. Without `-xa', there is _Pragma("..."). */
 
 #  define COMPRESS_READ_BUFFER_SIZE READ_BUFFER_SIZE
-#  define read_force_eof() exit(EXIT_SUCCESS)
 #  define compress_read(fd, buf, count) luuzcat_ducml_read(fd, buf, count)
 #  define compress_write_buffer uncompress_ducml_write_buffer
+#  define decompress_compress_done() do { flush_write_buffer(); exit(EXIT_SUCCESS); } while (0)
 #else
 #  ifdef LUUZCAT_SMALLBUF
 #    define COMPRESS_READ_BUFFER_SIZE COMPRESS_SMALLBUF_READ_BUFFER_SIZE
 #    define compress_read(fd, buf, count) read(fd, buf, count)
 #    define compress_write_buffer big.compress_sn.sn_write_buffer
+#    define decompress_compress_done() do { flush_write_buffer(); exit(EXIT_SUCCESS); } while (0)
 #  else
 #    define COMPRESS_READ_BUFFER_SIZE READ_BUFFER_SIZE
 #    define compress_read(fd, buf, count) read(fd, buf, count)
 #    define compress_write_buffer global_write_buffer
+#    define decompress_compress_done() do { read_force_eof(); } while (0)
 #  endif
 #endif  /* #else LUUZCAT_DUCML. */
 
@@ -301,18 +317,18 @@
 #  define lzw_stack_size sizeof(lzw_stack)
 #  define use_lzw_stack(maxbits) 0
 #  if 0
-#    define tab_suffix_seg  (*(__segment*)0xfc0c)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
-#    define tab_prefix0_seg (*(__segment*)0xfc0e)
-#    define tab_prefix1_seg (*(__segment*)0xfc10)
+#    define tab_suffix_seg  (*(__segment*)0xfc12)  /* We must have CONST, CONST2, _DATA and _BSS empty for LUUZCAT_DUCML uncompress.c. Thus we use absolute addresses for these variables. */
+#    define tab_prefix0_seg (*(__segment*)0xfc14)
+#    define tab_prefix1_seg (*(__segment*)0xfc16)
 #  else
     extern __segment tab_suffix_seg, tab_prefix0_seg, tab_prefix1_seg;
-#    pragma aux tab_suffix_seg   "tab_suffix_seg__FIXOFS_0xfc0c"
-#    pragma aux tab_prefix0_seg  "tab_prefix0_seg__FIXOFS_0xfc0e"
-#    pragma aux tab_prefix1_seg  "tab_prefix1_seg__FIXOFS_0xfc10"
+#    pragma aux tab_suffix_seg   "tab_suffix_seg__FIXOFS_0xfc12"
+#    pragma aux tab_prefix0_seg  "tab_prefix0_seg__FIXOFS_0xfc14"
+#    pragma aux tab_prefix1_seg  "tab_prefix1_seg__FIXOFS_0xfc16"
 #  endif
-#  define tab_suffix_seg_asm  "mov es, ds:[0xfc0c]"  /* The OpenWatcom C compiler will omit the `ds:' prefix byte. Good. */
-#  define tab_prefix0_seg_asm "mov es, ds:[0xfc0e]"
-#  define tab_prefix1_seg_asm "mov es, ds:[0xfc10]"
+#  define tab_suffix_seg_asm  "mov es, ds:[0xfc12]"  /* The OpenWatcom C compiler will omit the `ds:' prefix byte. Good. */
+#  define tab_prefix0_seg_asm "mov es, ds:[0xfc14]"
+#  define tab_prefix1_seg_asm "mov es, ds:[0xfc16]"
   static um16 tab_prefix_get(um16 code);
   /* tab_prefix_get(...) works with __modify [__es] and __modify [__es __bx], but it doesn't work with __modify __exact [es __bx] */
   /* The manual register allocation of __value [__bx] __parm [__bx] is useful for the code = tab_prefix_get(code) below. */
@@ -324,7 +340,7 @@
   static unsigned short get_ds(void);
 #  pragma aux get_ds = "mov ax, ds" __value [__ax] __modify __exact []
   static void set_uncompress_ducml_write_buffer(void);
-#  pragma aux set_uncompress_ducml_write_buffer = uncompress_ducmp_write_buffer_asm __modify __exact []  /* Sets the argument of the `mov dx' in flush_write_buffer(...) to uncompress_ducml_write_buffer. */
+#  pragma aux set_uncompress_ducml_write_buffer = uncompress_ducmp_write_buffer_asm __modify __exact []  /* Self-modifying code: sets the argument of the `mov dx, ...' in flush_write_buffer_at() to uncompress_ducml_write_buffer. */
   static void tab_init(maxbits) {
     unsigned short segment = get_ds();
 #  if 0  /* Not needed. */
@@ -1255,8 +1271,8 @@ typedef unsigned int uint;
     }
   }
 
-#  define decompress_noreturn __noreturn
-  decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte);
+#  define DECOMPRESS_COMPRESS_NORETURN __noreturn
+  DECOMPRESS_COMPRESS_NORETURN void decompress_compress_nohdr_low(um8 hdrbyte);
   void decompress_compress_nohdr(void) {
     um8 hdrbyte;
 
@@ -1265,10 +1281,9 @@ typedef unsigned int uint;
     if ((hdrbyte & BITMASK) > BITS) decompress_compress_with_fork(hdrbyte);
     decompress_compress_nohdr_low(hdrbyte);  /* This is faster for small maxbits values. */
   }
-#  define read_force_eof() exit(EXIT_SUCCESS)
 #else
 #  define decompress_compress_nohdr_low(arg) decompress_compress_nohdr(void)
-#  define decompress_noreturn
+#  define DECOMPRESS_COMPRESS_NORETURN
 #endif
 
 #ifdef LUUZCAT_SMALLBUF
@@ -1290,8 +1305,6 @@ typedef unsigned int uint;
     global_write_buffer_to_flush = compress_write_buffer;
   }
 
-#  undef  read_force_eof
-#  define read_force_eof() exit(EXIT_SUCCESS)
 #  define compress_read_buffer big.compress_sn.sn_read_buffer
 #  define compress_incur compress_incurp[0]
 #  define compress_incurii compress_incurp++[0]
@@ -1304,6 +1317,8 @@ typedef unsigned int uint;
 #  define compress_add_inreadp(delta) (compress_inendp += (delta))
 #  define compress_debug_inptr 0  /* Not useful. */
 #  define compress_debug_insize compress_inremaining  /* Partially useful. */
+#  define compress_write_byte_using_write_idx(b) do { compress_write_buffer[write_idx] = (b); if (++write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer_at(write_idx); } while (0)
+#  define compress_save_to_global_write_idx() do { global_write_idx = write_idx; } while (0)
 #else
 #  define compress_read_buffer global_read_buffer
 #  define compress_incur global_read_buffer[global_inptr]
@@ -1317,9 +1332,11 @@ typedef unsigned int uint;
 #  define compress_add_inreadp(delta) (global_insize += (delta))
 #  define compress_debug_inptr global_inptr
 #  define compress_debug_insize global_insize
+#  define compress_write_byte_using_write_idx(b) write_byte_using_write_idx(b)
+#  define compress_save_to_global_write_idx() do {} while (0)
 #endif
 
-decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
+DECOMPRESS_COMPRESS_NORETURN void decompress_compress_nohdr_low(um8 hdrbyte) {
   uint code, incode, oldcode;  /* 0 <= ... <= 0ffffU. */
   ub8 is_very_first_code;
   uc8 finchar;
@@ -1390,7 +1407,7 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
   oldcode = 0;  /* Not needed. */
   is_very_first_code = 1;
   finchar = 0;
-  write_idx = 0;
+  write_idx = 0;  /* Assumes LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS. */
   posbiti = 0;
   free_ent1 = FIRST - 1;
   if (!block_mode) --free_ent1;
@@ -1463,8 +1480,12 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
       if (code >= 256U) abort();  /* Implied by the assignment above. */
 #endif
       --is_very_first_code;  /* = 0. */
-      flush_full_write_buffer_in_the_beginning();  /* Usually this is a no-op, because the write buffer is not full in the beginning. */
-      compress_write_buffer[write_idx++] = (finchar = (uc8)(oldcode = code));
+#if !LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS
+#  error LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS must be true .
+      write_idx = flush_full_write_buffer_in_the_beginning();  /* Usually this is a no-op, because the write buffer is not full in the beginning. */
+#endif
+      compress_write_buffer[0  /* write_idx */] = (finchar = (uc8)(oldcode = code));
+      global_write_idx = write_idx = 1;
       if (--code_count == 0) continue;
     }
    maybe_next_code:
@@ -1560,27 +1581,28 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
         *--stack_top = tab_suffix_get(code);  /* Generate characters of the code string in reverse order. */
       }
       *--stack_top = finchar = (uc8)code;
-#if defined(LUUZCAT_COMPRESS_FORK) && defined(LUUZCAT_SMALLBUF)  /* This works, but it is slower. */
+#if defined(LUUZCAT_COMPRESS_FORK) && defined(LUUZCAT_SMALLBUF)  /* This works, but it is slower than the alternative with memcpy(...) below. */
       while (stack_top != lzw_stack + lzw_stack_size) {
-        compress_write_buffer[write_idx++] = *stack_top++;
-        if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
+        compress_write_byte_using_write_idx(*stack_top++);
       }
+      compress_save_to_global_write_idx();
 #else
       w_size = lzw_stack + lzw_stack_size - stack_top;
       if (w_size <= 4) {  /* Write a few bytes quickly, without memcpy(...) etc. */
         while (stack_top != lzw_stack + lzw_stack_size) {
-          compress_write_buffer[write_idx++] = *stack_top++;
-          if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
+          compress_write_byte_using_write_idx(*stack_top++);
         }
+        compress_save_to_global_write_idx();
       } else {
         while (w_size >= (w_skip = COMPRESS_WRITE_BUFFER_SIZE - write_idx)) {
           memcpy(compress_write_buffer + write_idx, stack_top, w_skip);
-          write_idx = flush_write_buffer(COMPRESS_WRITE_BUFFER_SIZE);
+          write_idx = flush_write_buffer_at(COMPRESS_WRITE_BUFFER_SIZE);
           stack_top += w_skip;
           w_size -= w_skip;
         }
         memcpy(compress_write_buffer + write_idx, stack_top, w_size);
         write_idx += w_size;  /* It doesn't fill it fully. */
+        global_write_idx = write_idx;  /* For a longer flush in a subsequent fatal_*(...). */
 #ifdef USE_CHECK
         if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) abort();  /* Must not be full. */
 #endif
@@ -1639,9 +1661,10 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
         if (code >= 256U) code = tab_suffix_get(code);
         compress_write_buffer[w_idx] = code;   /* Last code is always a literal. */
         if (w_skip != 0) break;  /* This was the last iteration, the entire string has been printed. */
-        write_idx = flush_write_buffer(COMPRESS_WRITE_BUFFER_SIZE);
+        write_idx = flush_write_buffer_at(COMPRESS_WRITE_BUFFER_SIZE);
       }
-      if ((write_idx += w_size) == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
+      global_write_idx = write_idx += w_size;
+      if (write_idx == COMPRESS_WRITE_BUFFER_SIZE) write_idx = flush_write_buffer();
     }
     if (free_ent1 < maxmaxcode1) {  /* Generate the new entry. */
       ++free_ent1;  /* Never overflows 0xffffU. */
@@ -1654,12 +1677,15 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
     if (code_count != 0) goto maybe_next_code;
   }
   if (compress_inremaining != (posbiti > 0)) fatal_corrupted_input();  /* Unexpected EOF. */
-  flush_write_buffer(write_idx);
-  read_force_eof();
+  decompress_compress_done();
 }
 
 #ifdef _DOSCOMSTART_UNCOMPRC  /* Code copied from luuzcat.c for uncomprc.com. */
+  ub8 global_do_ignore_flush_write_error;
+
   __noreturn void fatal_msg(const char *msg) {
+    ++global_do_ignore_flush_write_error;  /* Prevent a write_nonzero(...) error in the flush_write_buffer() below from making the process exit with fatal_write_error(). We want to report our `msg' in this case. */
+    flush_write_buffer();
     write_nonzero_void(STDERR_FILENO, WRITE_PTR_ARG_CAST(msg), strlen(msg));
     exit(EXIT_FAILURE);
   }
@@ -1696,17 +1722,25 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
 
   uc8 global_write_buffer[WRITE_BUFFER_SIZE];
 
+  unsigned int global_write_idx;
+
   /* Always returns 0, which is the new buffer write index. */
-  unsigned int flush_write_buffer(unsigned int size) {
+  unsigned int flush_write_buffer_at(unsigned int size) {
     unsigned int size_i;
     int got;
     for (size_i = 0; size_i < size; ) {
       got = (int)(size - size_i);
-      if (sizeof(int) == 2 && WRITE_BUFFER_SIZE >= 0x8000U && got < 0) got = 0x4000;  /* !! Not needed for DOS. Check for == -1 below instead.  */
-      if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer + size_i), got)) <= 0) fatal_write_error();
+      if ((got = write_nonzero_binary(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer + size_i), got)) == -1) {  /* !! DOS 3.30 */
+        if (!global_do_ignore_flush_write_error) fatal_write_error();
+        break;
+      }
       size_i += got;
     }
-    return 0;
+    return global_write_idx = 0;
+  }
+
+  unsigned int flush_write_buffer(void) {
+    return flush_write_buffer_at(global_write_idx);
   }
 #endif
 
@@ -1747,6 +1781,7 @@ decompress_noreturn void decompress_compress_nohdr_low(um8 hdrbyte) {
     if ((int)(b = try_byte()) >= 0) {  /* zcat in gzip also accepts empty stdin. */
       if (b != 0x1f || get_byte() != 0x9d) fatal_msg(CO_INPUT_MSG);
       decompress_compress_nohdr();  /* Reads stdin until EOF. */
+      flush_write_buffer();
     }
     main0_exit0();  /* return EXIT_SUCCESS; */
   }

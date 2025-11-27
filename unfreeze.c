@@ -344,29 +344,23 @@ static void decompress_freeze_common(unsigned int match_distance_limit, um8 free
    * formats, match_distance limit is 0 here.
    */
   memset_void(global_write_buffer + WRITE_BUFFER_SIZE - match_distance_limit, ' ', match_distance_limit);
+  global_lz_match_distance_limit = match_distance_limit;
   init_bitbuf8();
-  write_idx = 0;
+  write_idx = 0;  /* Assumes LUUZCAT_WRITE_BUFFER_IS_EMPTY_AT_START_OF_DECOMPRESS. */
   for (;;) {
     if ((c = decode_token()) == ENDOF) break;
     if (c < 256) {
-      global_write_buffer[write_idx] = c;
-      if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
-      if (match_distance_limit < 0x8000U) ++match_distance_limit;
+      write_byte_using_write_idx(c);
+      increment_lz_match_distance_limit();
     } else {
       match_length = c - 256 + THRESHOLD;
+      match_distance = decode_distance(freeze12_code67);
       /* Now 3 <= match_length <= 256, corresponding to 257 <= c <= 510. */
       /* Freeze 1.x never generates match_length > 60 here, but we don't check that. The Freeze 2.5 decompressor doesn't check it either. */
       /* Now match_length contains the LZ match length and (after the assignment in the next line match_distance contains the LZ match distance. */
-      if ((match_distance = decode_distance(freeze12_code67)) >= match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */
-      if ((match_distance_limit += match_length) >= 0x8000U) match_distance_limit = 0x8000U;  /* This doesn't overflow an um16, because old match_distance_limit <= 0x8000U and match_length < 0x8000U. */
-      match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
-      do {
-        global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
-        if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer(write_idx);
-      } while (--match_length != 0);
+      write_idx = copy_and_write_lz_match(match_length, match_distance, write_idx);
     }
   }
-  flush_write_buffer(write_idx);
 }
 
 void decompress_freeze1_nohdr(void) {  /* Decompress Freeze 1.x compressed data. */

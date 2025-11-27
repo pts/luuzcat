@@ -28,9 +28,16 @@ unsigned int _mbctoupper(unsigned int c) {
 
 #ifdef LUUZCAT_DUCML  /* This functionality is implemented in uncompress.c. */
 #else
+  ub8 global_do_ignore_flush_write_error;
+
   __noreturn void fatal_msg(const char *msg) {
 #  if USE_WRITE_FIX  /* Workaround for write(2) failing with EFAULT on OpenBSD 7.3--7.8 i386. (It works on 6.0, 7.0 and 7.2.). https://stackoverflow.com/q/79806755 */
-    const unsigned size = strlen(msg);
+    unsigned size;
+#  endif
+    ++global_do_ignore_flush_write_error;  /* Prevent a write_nonzero(...) error in the flush_write_buffer() below from making the process exit with fatal_write_error(). We want to report our `msg' in this case. */
+    flush_write_buffer();
+#  if USE_WRITE_FIX  /* Workaround for write(2) failing with EFAULT on OpenBSD 7.3--7.8 i386. (It works on 6.0, 7.0 and 7.2.). https://stackoverflow.com/q/79806755 */
+    size = strlen(msg);
     memcpy(global_write_buffer, msg, size);
     write_nonzero_void(STDERR_FILENO, global_write_buffer, size);
 #  else
@@ -175,19 +182,45 @@ unsigned int get_le16(void) {
 
 #ifdef LUUZCAT_DUCML  /* For LUUZCAT_DUCML, flush_write_buffer(...) is implemented in uncompress.c. */
 #else
-  /* Always returns 0, which is the new buffer write index. */
-  unsigned int flush_write_buffer(unsigned int size) {
+  unsigned int global_write_idx;
+  void LUUZCAT_WATCALL_FROM_ASM (*global_update_checksum_func)(unsigned int write_idx);
+
+  unsigned int flush_write_buffer_at(unsigned int size) {
     unsigned int size_i;
     int got;
+    if (global_update_checksum_func) global_update_checksum_func(size);
     for (size_i = 0; size_i < size; ) {
       got = (int)(size - size_i);
       if (sizeof(int) == 2 && WRITE_BUFFER_SIZE >= 0x8000U && got < 0) got = 0x4000;  /* !! size optimization elsewhere: Not needed for DOS 3.00 if we check for == -1 below, and we return on == 0.  */
-      if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer_to_flush + size_i), got)) <= 0) fatal_write_error();
+      if ((got = write_nonzero(STDOUT_FILENO, WRITE_PTR_ARG_CAST(global_write_buffer_to_flush + size_i), got)) <= 0) {
+        if (!global_do_ignore_flush_write_error) fatal_write_error();
+        break;
+      }
       size_i += got;
     }
-    return 0;
+    return global_write_idx = 0;
+  }
+
+  unsigned int flush_write_buffer(void) {
+    return flush_write_buffer_at(global_write_idx);
   }
 #endif
+
+/* --- Writing the LZ match. */
+
+unsigned int global_lz_match_distance_limit;
+
+unsigned int copy_and_write_lz_match(unsigned int match_length, unsigned int match_distance, unsigned int write_idx) {
+  global_write_idx = write_idx;  /* For correct flushing in the fatal_corrupted_input() call below. */
+  if (match_distance >= global_lz_match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */
+  if ((global_lz_match_distance_limit += match_length) >= 0x8000U) global_lz_match_distance_limit = 0x8000U;  /* This doesn't overflow an um16, because old global_lz_match_distance_limit <= 0x8000U and match_length < 0x8000U. */
+  match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
+  do {
+    global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
+    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer_at(write_idx);
+  } while (--match_length != 0);
+  return global_write_idx = write_idx;
+}
 
 /* --- main. */
 
@@ -251,10 +284,17 @@ main0() {
   setmode(STDOUT_FILENO, O_BINARY);  /* Prevent writing (in write(2)) LF as CRLF on DOS, Windows (Win32) and OS/2. */
 #endif
   /* !! Test reinitialization by decompressing the same file again, and also a different file. */
-  while ((int)(b = try_byte()) >= 0) {  /* zcat in gzip also accepts empty stdin. */
-    /* !! Display different error message if subsequent bytes have a bad signature. */
-    /* !! Skip over NUL bytes. */
-    if (b == 0x1f) {
+  goto first_iteration;  /* Some zero-initialization can be skipped, because the variables are in .bss. */
+  for (;;) {
+    global_lz_match_distance_limit = 0;
+    global_update_checksum_func = NULL;
+    flush_write_buffer();
+   first_iteration:
+    init_bitbuf8_before_decompress();
+   next_byte:
+    if ((int)(b = try_byte()) < 0) {
+      break;  /* zcat in gzip also accepts empty stdin. */
+    } else if (b == 0x1f) {
       if ((b = try_byte()) == 0xa0) {
         decompress_scolzh_nohdr();  /* This is based on Deflate, no need for invalidate_deflate_crc32_table(). */
       } else if (b == 0x8b) {
@@ -301,6 +341,7 @@ main0() {
         goto bad_signature;
       }
     } else if (b == 0) {  /* Allow NUL bytes. */
+      goto next_byte;
     } else { bad_signature:
       fatal_msg(MORE_MSG + 5 - (flags & MAIN_FLAG_SUBSEQUENT));
     }

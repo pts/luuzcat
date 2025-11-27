@@ -297,10 +297,29 @@ static void build_huffman_tree(const deflate_huffman_bit_count_t *bit_count_ary_
 #endif
 }
 
+/* Reads usize bytes from stdin via global_read_buffer, and writes thse bytes to stdout via global_write_buffer. */
 static unsigned int copy_uncompressed(um32 usize, unsigned int write_idx) {
-  while (usize-- != 0) {  /* !!! Make it faster, use memcpy(global_write_buffer + ..., global_read_buffer + ..., ...). Do it everywhere. */
+#if 0  /* This is slower than the alternative below. */
+  while (usize-- != 0) {
     write_byte_using_write_idx(get_byte());
   }
+#else
+  unsigned int size, rsize;
+
+  for (;;) {
+    size = WRITE_BUFFER_SIZE - write_idx;
+#  if USE_CHECK
+    if (size == 0) abort();
+#  endif
+    if (usize < size && (size = (unsigned int)usize) == 0) break;
+    for (; (rsize = global_insize - global_inptr) == 0; read_byte(0  /* is_eof_ok */), --global_inptr) {}  /* We call read_byte(...) for its side effect of reading many bytes to global_read_buffer. */
+    if (size > rsize) size = rsize;
+    memcpy(global_write_buffer + write_idx, global_read_buffer + global_inptr, size);
+    usize -= size;
+    global_inptr += size;
+    if ((global_write_idx = write_idx += size) == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer();
+  }
+#endif
   return global_write_idx = write_idx;
 }
 

@@ -32,7 +32,7 @@ unsigned int _mbctoupper(unsigned int c) {
 #  if USE_WRITE_FIX  /* Workaround for write(2) failing with EFAULT on OpenBSD 7.3--7.8 i386. (It works on 6.0, 7.0 and 7.2.). https://stackoverflow.com/q/79806755 */
     const unsigned size = strlen(msg);
     memcpy(global_write_buffer, msg, size);
-    write_nonzero_void(STDOUT_FILENO, global_write_buffer, size);
+    write_nonzero_void(STDERR_FILENO, global_write_buffer, size);
 #  else
     write_nonzero_void(STDERR_FILENO, WRITE_PTR_ARG_CAST(msg), strlen(msg));
 #  endif

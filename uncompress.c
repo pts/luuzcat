@@ -156,7 +156,7 @@
       "mov ds:[0xfc0c], ax"  /* (unsigned int)&global_write_idx == 0xfc0c. */   "pop bx"  "pop cx"  "pop dx" \
       __value [__ax] __parm [__ax] __modify __exact []
   /* Always returns 0, which is the new buffer write index. May use a different buffer for decompress_uncompress_nohdr(...). */
-  unsigned int flush_write_buffer_at(unsigned int size) {
+  unsigned int LUUZCAT_WATCALL_FROM_ASM flush_write_buffer_at(unsigned int size) {
 #  if 1
     return flush_write_buffer_at_inline_helper(size);
 #  else
@@ -1725,7 +1725,7 @@ DECOMPRESS_COMPRESS_NORETURN void decompress_compress_nohdr_low(um8 hdrbyte) {
   unsigned int global_write_idx;
 
   /* Always returns 0, which is the new buffer write index. */
-  unsigned int flush_write_buffer_at(unsigned int size) {
+  unsigned int LUUZCAT_WATCALL_FROM_ASM flush_write_buffer_at(unsigned int size) {
     unsigned int size_i;
     int got;
     for (size_i = 0; size_i < size; ) {

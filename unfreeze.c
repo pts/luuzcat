@@ -113,14 +113,11 @@
 #  define um16 unsigned long  /* Works even with this in luuzcat.h. */
 #endif
 
-#define LOOKAHEAD 256  /* pre-sence buffer size */
+#define LOOKAHEAD 256  /* Maximum match_length for Freeze 2.x. */
 #define MAXDIST 7936
 #define WINSIZE (MAXDIST + LOOKAHEAD)  /* Ring buffer windows size for Freeze 2. Must be a power of 2. */
 #if WINSIZE > WRITE_BUFFER_SIZE
 # error Write buffer too small.
-#endif
-#if !WRITE_BUFFER_SIZE || (WRITE_BUFFER_SIZE) & (WRITE_BUFFER_SIZE - 1)
-#  error Size of write buffer is not a power of 2.  /* This is needed for `& (WRITE_BUFFER_SIZE - 1U)' below. */
 #endif
 #define WINMASK (WINSIZE - 1)
 
@@ -135,7 +132,7 @@
 # error Bad T2.
 #endif
 
-#define ENDOF 256  /* pseudo-literal */
+#define ENDOF 256  /* End-of-stream token value. */
 
 /* big.freeze.dh_len is really the number of bits to read to complete literal
  * part of position information.
@@ -143,7 +140,7 @@
  * big.freeze.dh_plen and big.freeze.dh_len are built from values in the header of the frozen file.
  */
 
-#define F1 60  /* Lookahead. */
+#define F1 60  /* Maximum match_length for Freeze 1.x. */
 #define N1 4096  /* Ring buffer window size for Freeze 1. */
 #define N_CHAR1 (256 - THRESHOLD + F1 + 1)
 
@@ -254,7 +251,7 @@ static void update(register unsigned int c) {
   } while ((c = big.freeze.th_parent[c]) != 0);  /* loop until reach to root */
 }
 
-/* Decodes the literal or length info and returns its value. Returns ENDOF, if the file is corrupt. */
+/* Decodes the literal or length info and returns its value. Returns ENDOF on end-of-stream. */
 static unsigned int decode_token(void) {
   register unsigned int c = huffman_r;
 
@@ -355,7 +352,8 @@ static void decompress_freeze_common(unsigned int match_distance_limit, um8 free
     } else {
       match_length = c - 256 + THRESHOLD;
       match_distance = decode_distance(freeze12_code67);
-      /* Now 3 <= match_length <= 256, corresponding to 257 <= c <= 510. */
+      /* Now, for Freeze 1.x, 3 <= match_length <= 60,  corresponding to 257 <= c <= 315 == N_CHAR1 - 1. */
+      /* Now, for Freeze 2.x, 3 <= match_length <= 256, corresponding to 257 <= c <= 510 == N_CHAR2 - 1. */
       /* Freeze 1.x never generates match_length > 60 here, but we don't check that. The Freeze 2.5 decompressor doesn't check it either. */
       /* Now match_length contains the LZ match length and (after the assignment in the next line match_distance contains the LZ match distance. */
       write_idx = copy_and_write_lz_match(match_length, match_distance, write_idx);

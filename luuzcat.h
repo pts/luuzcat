@@ -363,6 +363,20 @@
 #  endif
 #endif
 
+#ifndef memcpy_forward_bytewise
+#  if IS_X86_16 && defined(__WATCOMC__) && (defined(__SMALL__) || defined(__MEDIUM__))
+    void memcpy_forward_bytewise(void *dest, const void *src, unsigned int n);
+#    pragma aux memcpy_forward_bytewise = "push ds"  "pop es"  "rep movsb"  __parm [__di] [__si] [__cx] __modify __exact [__es __si __di __cx]
+#    define memcpy_forward_bytewise(dest, src, n) memcpy_forward_bytewise(dest, src, n)
+#  else
+#    if defined(__386__) && defined(__WATCOMC__) && defined(__FLAT__)
+      void memcpy_forward_bytewise(void *dest, const void *src, unsigned int n);
+#      pragma aux memcpy_forward_bytewise = "rep movsb"  __parm [__edi] [__esi] [__ecx] __modify __exact [__esi __edi __ecx]
+#      define memcpy_forward_bytewise(dest, src, n) memcpy_forward_bytewise(dest, src, n)
+#    endif
+#  endif
+#endif
+
 #if (INT_MAX >> 15 >> 15 || __INT_MAX__ >> 15 >> 15 || __SIZEOF_INT__ >= 4 || __INTSIZE >= 4 || defined(__LP64__) || defined(_LP64) \
      || defined(vax) || defined(sun) \
      || defined(_WIN32) || defined(_WIN64) || defined(__NT__) || defined(WIN32) || defined(__WIN32__) || defined(__DOS32__) \
@@ -733,7 +747,7 @@ unsigned int read_bits_using_bitbuf8(unsigned int bit_count);
 #  endif
 #endif
 
-unsigned int flush_write_buffer_at(unsigned int size);  /* Calls global_update_checksum_func(size), and flushes global_write_buffer[:size] to stdout. After flushing, it sets global_write_idx = 0, and returns 0. */
+unsigned int LUUZCAT_WATCALL_FROM_ASM flush_write_buffer_at(unsigned int size);  /* Calls global_update_checksum_func(size), and flushes global_write_buffer[:size] to stdout. After flushing, it sets global_write_idx = 0, and returns 0. */
 unsigned int flush_write_buffer(void);  /* Calls global_update_checksum_func(global_write_idx). and flushes global_write_buffer[:global_write_idx] to stdout. After flushing, it sets global_write_idx = 0, and returns 0. */
 
 #if 0  /* Unused. */
@@ -748,7 +762,12 @@ extern unsigned int global_lz_match_distance_limit;
 
 #define increment_lz_match_distance_limit() do { if (global_lz_match_distance_limit < 0x8000U) ++global_lz_match_distance_limit; } while (0)
 
-unsigned int copy_and_write_lz_match(unsigned int match_length, unsigned int match_distance, unsigned write_idx);  /* Requires match_length >= 1. match_distance == 0 means the previously emitted byte. Returns the new write_idx. */
+/* This is required (by LZ) before the call: 0 <= match_distance < WRITE_BUFFER_SIZE.
+ * This is required by the current implementation before the call: 1 <= match_length. This is true: 3 <= match_length <= (258 for big.deflate; 256 for big.freeze; 257 for big.scolzh).
+ * This is required by the current implementation before the call: 0 <= write_idx < WRITE_BUFFER_SIZE.
+ * match_distance == 0 means the previously emitted byte. Returns the new write_idx.
+ */
+unsigned int copy_and_write_lz_match(unsigned int match_length, unsigned int match_distance, unsigned write_idx);
 
 /* --- Decompression. */
 

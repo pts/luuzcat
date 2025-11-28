@@ -185,7 +185,7 @@ unsigned int get_le16(void) {
   unsigned int global_write_idx;
   void LUUZCAT_WATCALL_FROM_ASM (*global_update_checksum_func)(unsigned int write_idx);
 
-  unsigned int flush_write_buffer_at(unsigned int size) {
+  unsigned int LUUZCAT_WATCALL_FROM_ASM flush_write_buffer_at(unsigned int size) {
     unsigned int size_i;
     int got;
     if (global_update_checksum_func) global_update_checksum_func(size);
@@ -210,17 +210,164 @@ unsigned int get_le16(void) {
 
 unsigned int global_lz_match_distance_limit;
 
-unsigned int copy_and_write_lz_match(unsigned int match_length, unsigned int match_distance, unsigned int write_idx) {
-  global_write_idx = write_idx;  /* For correct flushing in the fatal_corrupted_input() call below. */
-  if (match_distance >= global_lz_match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */
-  if ((global_lz_match_distance_limit += match_length) >= 0x8000U) global_lz_match_distance_limit = 0x8000U;  /* This doesn't overflow an um16, because old global_lz_match_distance_limit <= 0x8000U and match_length < 0x8000U. */
-  match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
-  do {
-    global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
-    if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer_at(write_idx);
-  } while (--match_length != 0);
-  return global_write_idx = write_idx;
-}
+#if !WRITE_BUFFER_SIZE || (WRITE_BUFFER_SIZE) & (WRITE_BUFFER_SIZE - 1)
+#  error Size of write ring buffer is not a power of 2.  /* This is needed for `& (WRITE_BUFFER_SIZE - 1U)' below. */
+#endif
+#if IS_X86_16 && defined(__WATCOMC__) && (defined(__SMALL__) || defined(__MEDIUM__)) && WRITE_BUFFER_SIZE == 0x8000U  /* Optimized assembly implementation. */
+#  ifdef LUUZCAT_SMALLBUF
+    typedef char assert_sizeof_read_buffer[sizeof(big.deflate.read_buffer) == 0x2004 ? 1 : -1];  /* If READ_BUFFER_SIZE has changed, this won't match. Fix it here and in the line below as well. */
+#    define mov_si_global_write_buffer_asm "mov si, offset big+0x2004"
+#  else
+#    define mov_si_global_write_buffer_asm "mov si, offset global_write_buffer"
+#  endif
+  static unsigned int copy_and_write_lz_match_helper(unsigned int match_length, unsigned int match_distance, unsigned int write_idx);
+#  pragma aux copy_and_write_lz_match_helper = \
+      "cmp dx, ds:global_lz_match_distance_limit" \
+      "jb nofatal" \
+      "jmp fatal_corrupted_input" \
+      "nofatal: push cx" \
+      "push si" \
+      "push di" \
+      "mov cx, 8000h" \
+      "add ds:global_lz_match_distance_limit, ax" \
+      "jns limitok"  /* This jns is an implicit `cmp word ptr ds:global_lz_match_distance_limit, cx ++ jb'. */ \
+      "mov ds:global_lz_match_distance_limit, cx" \
+      "limitok: not dx" \
+      "add dx, bx" \
+      "xchg ax, bx" \
+      "next_copy: and dh, 7fh"  /* This 0x7f is (WRITE_BUFFER_SIZE - 1) >> 8. */ \
+      "mov si, cx" \
+      "sub cx, ax" \
+      "sub si, dx" \
+      "cmp cx, si" \
+      "jbe l_16" \
+      "mov cx, si" \
+      "l_16: cmp cx, bx" \
+      "jbe l_17" \
+      "mov cx, bx" \
+      "l_17: " mov_si_global_write_buffer_asm \
+      "mov di, si" \
+      "add di, ax" \
+      "add si, dx" \
+      "add dx, cx" \
+      "add ax, cx" \
+      "sub bx, cx" \
+      "push ds" \
+      "pop es" \
+      "rep movsb" \
+      "mov ch, 80h"  /* CX := 0x8000. */ \
+      "cmp ax, cx" \
+      "jne l_18" \
+      "call flush_write_buffer_at" \
+      "l_18: test bx, bx" \
+      "jnz next_copy" \
+      "pop di" \
+      "pop si" \
+      "pop cx" \
+      __parm [__ax] [__dx] [__bx] __value [__ax] __modify __exact [__ax __dx __bx]
+  unsigned int copy_and_write_lz_match(unsigned int match_length, unsigned int match_distance, unsigned int write_idx) {
+    global_write_idx = write_idx;  /* For correct flushing in the fatal_corrupted_input() call below. */
+    return global_write_idx = copy_and_write_lz_match_helper(match_length, match_distance, write_idx);
+  }
+#else
+#  if defined(__386__) && defined(__WATCOMC__) && defined(__FLAT__) && WRITE_BUFFER_SIZE == 0x8000U  /* Optimized assembly implementation. */
+  static unsigned int copy_and_write_lz_match_helper(unsigned int match_length, unsigned int match_distance, unsigned int write_idx);
+#    pragma aux copy_and_write_lz_match_helper = \
+        "push esi" \
+        "mov esi, ds:global_lz_match_distance_limit" \
+        "cmp edx, esi" \
+        "jb nofatal" \
+        "jmp fatal_corrupted_input" \
+        "nofatal: push ecx" \
+        "push edi" \
+        "xor ecx, ecx"  "mov ch, 80h"  /* This 0x8000 is WRITE_BUFFER_SIZE. */ \
+        "add si, ax"  /* This is deliberately word-sized, for the cmp below. */ \
+        "jns limitok"  /* This jns is an impliit `cmp si, cx ++ jb'. */ \
+        "mov esi, ecx" \
+        "limitok: mov ds:global_lz_match_distance_limit, esi" \
+        "not edx" \
+        "add edx, ebx" \
+        "xchg eax, ebx" \
+        "next_copy: dec ecx"  "and edx, ecx"  "inc ecx"  /* This 0x7fff is WRITE_BUFFER_SIZE - 1. */ \
+        "mov esi, ecx" \
+        "sub ecx, eax" \
+        "sub esi, edx" \
+        "cmp ecx, esi" \
+        "jbe l_16" \
+        "mov ecx, esi" \
+        "l_16: cmp ecx, ebx" \
+        "jbe l_17" \
+        "mov ecx, ebx" \
+        "l_17: mov esi, offset global_write_buffer" \
+        "lea edi, [esi+eax]" \
+        "add esi, edx" \
+        "add edx, ecx" \
+        "add eax, ecx" \
+        "sub ebx, ecx" \
+        "rep movsb" \
+        "mov ch, 80h"  /* ECX := 0x8000. */ \
+        "cmp eax, ecx" \
+        "jne l_18" \
+        "call flush_write_buffer_at" \
+        "l_18: test ebx, ebx" \
+        "jnz next_copy" \
+        "pop edi" \
+        "pop ecx" \
+        "pop esi" \
+        __parm [__eax] [__edx] [__ebx] __value [__eax] __modify __exact [__eax __edx __ebx]
+    unsigned int copy_and_write_lz_match(unsigned int match_length, unsigned int match_distance, unsigned int write_idx) {
+      global_write_idx = write_idx;  /* For correct flushing in the fatal_corrupted_input() call below. */
+      return global_write_idx = copy_and_write_lz_match_helper(match_length, match_distance, write_idx);
+    }
+#  else
+    unsigned int copy_and_write_lz_match(unsigned int match_length, unsigned int match_distance, unsigned int write_idx) {
+#    ifdef memcpy_forward_bytewise
+#      define IS_SLOW_LZ_COPY 0
+#    else
+#      define IS_SLOW_LZ_COPY 1
+#    endif
+#  if IS_SLOW_LZ_COPY
+#  else
+    unsigned int size;
+#  endif
+
+#    if USE_CHECK
+    if (match_distance >= WRITE_BUFFER_SIZE) abort();  /* Needed by both implementations below. */
+    if (write_idx >= WRITE_BUFFER_SIZE) abort();  /* Needed by both implementations below. */
+    if (match_length == 0) abort();  /* Needed by both implementations below. */
+#    endif
+    global_write_idx = write_idx;  /* For correct flushing in the fatal_corrupted_input() call below. */
+    if (match_distance >= global_lz_match_distance_limit) fatal_corrupted_input();  /* LZ match refers back too much, before the first (literal) byte. */
+    if ((global_lz_match_distance_limit += match_length) >= 0x8000U) global_lz_match_distance_limit = 0x8000U;  /* This doesn't overflow an um16, because old global_lz_match_distance_limit <= 0x8000U and match_length < 0x8000U. */
+    match_distance = write_idx - (match_distance + 1);  /* After this, match_distance doesn't contain the LZ match distance. */
+#    if IS_SLOW_LZ_COPY  /* This is slower than the alternative below. */
+    do {  /* This requires match_length >= 1. */
+      global_write_buffer[write_idx] = global_write_buffer[match_distance++ & (WRITE_BUFFER_SIZE - 1U)];
+      if (++write_idx == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer_at(write_idx);
+    } while (--match_length != 0);
+#    else
+    /* The register allocation by wcc(1) (OpenWatcom C compiler) in this code
+     * is suboptimal, but it seems that any attempt to define
+     * memcpy_forward_bytewise(...) to use other registers only makes it
+     * worse. It looks like the compiler is actively fighting against us: it
+     * insists on using different registers, even if
+     * memcpy_forward_bytewise(...) has a perfect match.
+     */
+    do {
+      match_distance &= (WRITE_BUFFER_SIZE - 1U);
+      size = WRITE_BUFFER_SIZE - write_idx;
+      if (size > WRITE_BUFFER_SIZE - match_distance) size = WRITE_BUFFER_SIZE - match_distance;
+      if (size > match_length) size = match_length;
+      memcpy_forward_bytewise(global_write_buffer + write_idx, global_write_buffer + match_distance, size);  /* The destination and the source overlap. memmove(...) chooses the correct copy direction (forward or backward). */
+      match_length -= size;
+      match_distance += size;
+      if ((write_idx += size) == WRITE_BUFFER_SIZE) write_idx = flush_write_buffer_at(write_idx);  /* No need to adjust match_distane, it's modulo WRITE_BUFFER_SIZE remains correct. */
+    } while (match_length > 0);
+#    endif
+    return global_write_idx = write_idx;
+  }
+#  endif
+#endif
 
 /* --- main. */
 

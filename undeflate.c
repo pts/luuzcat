@@ -21,10 +21,6 @@
 #if 0x8000U > WRITE_BUFFER_SIZE
 # error Write buffer too small.
 #endif
-#if !WRITE_BUFFER_SIZE || (WRITE_BUFFER_SIZE) & (WRITE_BUFFER_SIZE - 1)
-#  error Size of write buffer is not a power of 2.  /* This is needed for `& (WRITE_BUFFER_SIZE - 1U)' below. */
-#endif
-
 /* CRC-32 uses polynomial
  * x^32+x^26+x^23+x^22+x^16+x^12+x^11+x^10+x^8+x^7+x^5+x^4+x^2+x+1 over
  * GF(2). The corresponding 32-bit CRC32_GEN_VALUE is (taking the terms from
@@ -395,11 +391,11 @@ static void decompress_deflate_low(void) {  /* https://www.rfc-editor.org/rfc/rf
           if (token > 28) goto corrupted_input;  /* Old token was BAD_LEAF_VALUE. This can also happen for tokens 286 and 287 in fixed Huffman codes. */
           match_length = 0x102;
         } else if (token < 8) {
-          match_length = 3 + token;
+          match_length = 3 + token;  /* This yields the minimum match_length value, 3. */
         } else {
           match_length = 3 + ((4 + (token & 3)) << ((token >> 2) - 1)) + read_bits_max_8((token >> 2) - 1);
         }
-        /* Now we have the final value of match_length: 1..258. */
+        /* Now (final value) 3 <= match_length <= 258. */
         match_distance = read_using_huffman_tree(TREE_DISTANCE_ROOT_IDX);
         if (match_distance > 29) goto corrupted_input;  /* match_distance == BAD_LEAF_VALUE. This can also happen for distances 30 and 31 in fixed Huffman codes. */
         if (match_distance >= 4) {

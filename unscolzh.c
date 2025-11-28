@@ -29,9 +29,6 @@ static unsigned int read_bits(um8 bit_count);
 #if DICSIZ > WRITE_BUFFER_SIZE
 #  error Write buffer too small.
 #endif
-#if !WRITE_BUFFER_SIZE || (WRITE_BUFFER_SIZE) & (WRITE_BUFFER_SIZE - 1)
-#  error Size of write buffer is not a power of 2.  /* This is needed for `& (WRITE_BUFFER_SIZE - 1U)' below. */
-#endif
 
 /* encode.c and decode.c */
 
@@ -333,12 +330,14 @@ void decompress_scolzh_nohdr(void) {
           mask >>= 1;
         } while (c >= NC);
       }
+      /* Now 0 <= c <= 510 == NC - 1. */
       discard_bits(big.scolzh.c_len[c]);  /* This may discard fewer bits than 12, actually all 3..12 happened. */
       if (c <= 255) {  /* Append LZ literal byte. */
         write_byte_using_write_idx(c);
         increment_lz_match_distance_limit();
       } else {
-        match_length = c - 256 + THRESHOLD;
+        /* Now 256 <= c <= 510. */
+        match_length = c - 256 + THRESHOLD;  /* After this, 3 <= match_length <= 257, corresponding to 256 <= c <= 510. */
         /* Now decode the LZ match distance to i. */
         match_distance = decode_huffman_using_pt(NP);  /* NP == 14. */  /* After this, 0 <= match_distane <= 13. */
         if (match_distance != 0) match_distance = (1U << (match_distance - 1)) + read_bits(match_distance - 1);

@@ -14,24 +14,32 @@ file formats, and luuzcat provides binary releases for more platforms
 
 Decompression support for compressed file formats:
 
-|compressed file format              |luuzcat          |gzip, zcat |extension |signature at start      |
-|------------------------------------|-----------------|-----------|----------|------------------------|
-|gzip                                |yes              |yes        |.gz       |0x1f 0x8b               |
-|zlib                                |yes              |–          |(.zlib)   |(8 start byte options)  |
-|raw Deflate                         |with `-r`        |–          |(.deflate)|(192 start byte options)|
-|first ZIP member                    |yes              |yes        |.zip      |0x50 0x4b 0x03 0x04     |
-|multiple ZIP members                |with `-m`        |–          |.zip      |0x50 0x4b 0x03 0x04     |
-|ZIP with junk in front of records   |–                |–          |.zip      |(anything)              |
-|4.3BSD-Quasijarus Strong compression|yes              |–          |(.Z)      |0x1f 0xa1               |
-|Unix (n)compress (LZW)              |yes              |yes        |.Z        |0x1f 0x9d               |
-|old Unix pack                       |yes              |–          |.z        |0x1f 0x1f               |
-|new Unix pack                       |yes              |yes (*)    |.z        |0x1f 0x1e               |
-|Freeze 1                            |yes              |–          |.F, .lzc  |0x1f 0x9e               |
-|Freeze 2                            |yes              |–          |.F, .lzc  |0x1f 0x9f               |
-|BSD compact                         |yes              |–          |.C        |0x1f 0xff; 0xff 0x1f    |
-|SCO compress LZH                    |yes              |yes        |(.Z)      |0x1f 0xa0               |
+|compressed file format              |luuzcat          |gzip, zcat |extension     |signature at start       |
+|------------------------------------|-----------------|-----------|--------------|-------------------------|
+|gzip                                |yes              |yes        |.gz           |0x1f 0x8b                |
+|zlib                                |yes              |–          |(.zlib)       |(8 start byte options)   |
+|raw Deflate                         |with `-r`        |–          |(.deflate)    |(192 start byte options) |
+|first ZIP member                    |yes              |yes        |.zip          |0x50 0x4b 0x03 0x04      |
+|multiple ZIP members                |with `-m`        |–          |.zip          |0x50 0x4b 0x03 0x04      |
+|ZIP with junk in front of records   |–                |–          |.zip          |(anything)               |
+|4.3BSD-Quasijarus Strong compression|yes              |–          |(.Z)          |0x1f 0xa1                |
+|Unix (n)compress (LZW)              |yes              |yes        |.Z            |0x1f 0x9d                |
+|old Unix pack                       |yes              |–          |.z            |0x1f 0x1f                |
+|new Unix pack                       |yes              |yes (*)    |.z            |0x1f 0x1e                |
+|Freeze 1                            |yes              |–          |.F, .cxf, .lzc|0x1f 0x9e                |
+|Freeze 2                            |yes              |–          |.F, .cxf, .lzc|0x1f 0x9f                |
+|BSD compact                         |yes              |–          |.C            |0x1f 0xff; 0xff 0x1f (**)|
+|SCO compress LZH                    |yes              |yes        |(.Z)          |0x1f 0xa0                |
 
 (*) gzip-1.6 has some bugs in the decompressor, for example it fails with *code out of range* for some valid inputs. This has been fixed in gzip-1.6.
+
+(**) 0xff 0x1f is the more commonly used signature in the wild.
+
+The SCO compress LZH format can be created using *compress -H* on SCO Unix.
+
+The 4.3BSD-Quasijarus Strong compression can be created using *compress -n*
+on 4.3BSD-Quasijarus, or by prepending the 2-byte signature to a raw Deflate
+stream.
 
 See more information about most of these file formats in
 [the 0x1f compression family](http://fileformats.archiveteam.org/wiki/Compress_(Unix)#The_0x1f_compression_family)
@@ -56,6 +64,12 @@ Other features:
 (*): Except that for the i86 targets (8086 CPU or x86 real mode or x86 16-bit protected mode) some tricks are done to use more than 64 KiB of memory for (n)compress decompression with maxbits >= 15. On DOS, the available memory region after the first 64 KIB is used for the (n)compress buffers. On Minix i86 (and ELKS), the process is fork()ed (to 4 processes for maxbits =\= 15 and 5 processes for maxbits =\= 16), and pipe()s are used for communication between the processes; together they have enough memory for the (n)compress decompression.
 
 (**): Only true for gzip >=1.14. Earlier versions of gzip don't implement these checks properly.
+
+luuzcat also supports decompression of a compressed input file which is a
+concatenation of any of files of the supported compressed file formats
+above, except for Unix (n)compress (LZW). That's because it's impossible for
+(n)compress: it spans all the way to the end of the compressed file (EOF),
+it doesn't contain an end-of-stream marker.
 
 The following compressed file formats have been omitted from luuzcat because
 they need much more than 256 KiB of memory to decompress: bzip2, LZMA, lzip,
@@ -285,7 +299,7 @@ by luuzcat:
     has been sent, dynamic Huffman is a special case of variable-length
     encoding.
   * partial dynamic Huffman coding: The first few bits of each value is
-    Huffman-coded, and the remaining bits are sent literally. Example: LZ
+    Huffman-coded, and the remaining bits are sent literally. Example: LZSS
     match distances in the Freeze 2 method are 13 bits (the actual range
     is 0..7935). The first 6 bits (values 0..61) are Huffman-coded, and the
     actual value is the Huffman-coded value multiplied by 128, and to that a
@@ -294,11 +308,11 @@ by luuzcat:
     different number of extra bits, based on the Huffman-coded value.
   * fixed Huffman coding: Like dynamic Huffman coding, but the same Huffman
     table is hardcoded to the compressor and the decompressor, it is not
-    sent. Example: LZ match distances in Freeze 1 emthod.
+    sent. Example: LZSS match distances in Freeze 1 emthod.
   * adaptive Huffman: No Huffman table is sent, the decompressor builds and
     updates its Huffman table based on the frequencies of values received so
-    far. Example: tokens (including literals and LZ match length) in Freeze
-    1 and 2.
+    far. Example: tokens (including literals and LZSS match length) in
+    Freeze 1 and 2.
 * [LZSS](https://en.wikipedia.org/wiki/Lempel%E2%80%93Ziv%E2%80%93Storer%E2%80%93Szymanski)
   (similar to LZ77):
   A byte string which is a copy of a string is already sent is called
@@ -353,36 +367,37 @@ Specific details of compression methods supported by luuzcat:
 * Deflate (used by gzip, zlib, raw Deflate, ZIP, 4.3BSD-Quasijarus Strong
   compression): LZSS + Huffman; LZSS with 32 KiB window; supports Huffman
   reset; first Huffman table for fixed or partial dynamic Huffman coding of
-  (literal bytes, LZ match lengths and Huffman reset); second Huffman table
-  for fixed or partial dynamic Huffman coding of LZ match distances;
+  (literal bytes, LZSS match lengths and Huffman reset); second Huffman
+  table for fixed or partial dynamic Huffman coding of LZSS match distances;
   efficient encoding of the Huffman tables using bit lengths, RLE and
   (another) Huffman coding; supports uncompressed blocks; supports both
   fixed and dynamic Huffman coding; both Huffman tables are optimized by the
-  compressor to fit the input.
-  Mostly because of all these features and a relatively large window size,
-  Deflate typically compresses better than anything else below.
+  compressor to fit the input; supports concatenation. Mostly because of all
+  these features and a relatively large window size, Deflate typically
+  compresses better than anything else below, see details in the section
+  about the success story of Deflate below.
 * Unix (n)compress (LZW); LZW; indexes are sent in 9 bits, which can grow up
   to maxbits, which can be between 9 and 16; reset code is supported;
   doesn't support concatenation, the compressed LZW stream continues until the
   end of the compressed input stream (end of file, EOF).
 * old Unix pack and new Unix pack: dynamic Huffman coding of the input
   bytes; the encoding of the Huffman table is different between old and
-  new, both do it less efficiently than Deflate.
+  new, both do it less efficiently than Deflate; supports concatenation.
 * BSD compact: adaptive Huffman coding of the input bytes using the
   [Faller–Gallager–Knuth (FGK)
   algorithm](https://en.wikipedia.org/wiki/Adaptive_Huffman_coding#FGK_Algorithm);
   slow to decompress, because per-code updates to the Huffman tree (Huffman
   table in binary tree structure) are slow; adapts less precisely than the
-  Vitter algorithm in Freeze 2.
+  Vitter algorithm in Freeze 2; supports concatenation.
 * SCO compress LZH: LZSS + Huffman; LZSS with 8 KiB window; same as the
   *\-lh5\-* method in ar002 and LHA; dynamic Huffman coding of (literal
-  bytes and LZ match lengths); partial dynamic Huffman coding of LZ match
+  bytes and LZSS match lengths); partial dynamic Huffman coding of LZSS match
   distances: the Huffman-coded value just specifies the number of extra
   literally sent bits; efficient encoding of the literal-and-length Huffman
   table using bit lengths, RLE and (another) Huffman coding; supports
   Huffman reset by counting the number of remaining tokens in the current
   block; doesn't support uncompressed blocks; both Huffman tables are
-  optimized by the compressor to fit the input.
+  optimized by the compressor to fit the input; supports concatenation.
 * Freeze 1 and 2: LZSS + adaptive Huffman; LZSS with 4 KiB window for Freeze
   1, and ~8 KiB (7936 byte) window for Freeze 2; doesn't support Huffman
   reset; adaptive Huffman coding for (literal bytes and lengths) using the
@@ -394,16 +409,72 @@ Specific details of compression methods supported by luuzcat:
   table for distances is usually not optimized to fit the input, but manual
   and inconvenient user action is needed for that (this is suboptimal); the
   adaptive Huffman format is derived from LZHUF, and is faster and less
-  complex than in BSD compact.
+  complex than in BSD compact; supports concatenation.
+
+## The 16-bit era of compression
+
+For the years between 1977 and 1993, we can coin the term 16-bit era of
+compression. That's because the popular decompressors used in
+general-purpose, lossless compression methods could be implemented with
+16-bit integer arithmetic (with a very few exceptions such as file size
+stored in 32 bits), and the memory needed for decompression was less than 64
+KiB, so it was addressable with 16-bit pointers. In contrast, the range
+coding decoder in LZMA (2001) uses unsigned 32-bit integers and does a
+32-bit integer multiplication for each input bit. This would have been
+prohibitively slow in the 1997--1993 era with CPUs with only 16-bit
+multiplication support, or even no support for multiplication.
+
+As an illustration, let's break down the memory requirements o Deflate
+(1991) decompression:
+
+* For LZSS decompression, a 32 KiB ring buffer window is needed. The
+  decompressor can use the same buffer as a write output buffer, flushing it
+  after each 32 KiB appended.
+* The two Huffman trees used by Huffman decoding can be stored in an array
+  of 1490 elements (16 bits for each element) and the bit lengths used for
+  creating the Huffman trees can be stored in an array of 318 elements (8
+  bits for each element). That's less than 3.4 KiB in total for Huffman
+  decoding.
+* All other variables (such as number of unflushed bytes in the write output
+  buffer) are small and few, less than 0.1 KiB in total.
+* Total code size of the decompressor is less than 1.7 KiB of written and C
+  and using a decent C compiler (e.g. OpenWatcom C compiler targeting DOS
+  8086, not using the OpenWatcom C library). If fully implemented in
+  hand-optimized 8086 assembly (see [source
+  code](https://github.com/pts/pts-zcat/blob/master/zcatc.nasm)), it can be
+  less than 0.9 KiB.
+* The stack usage is less than 0.8 KiB, of which 0.5 KiB is dedicated to the
+  operating system.
+* Total memory usage: 38 KiB if written in C, of which 32 KiB is the ring
+  buffer window size. Other compression methods tend to use a smaller window
+  (16 KiB, 8 KiB or 4 KiB), which makes their memory usage much smaller, but
+  it also significantly degrades the compression ratio, because only smaller
+  distances can be used in LZSS matches, thus repetitions of earlier data
+  can't be encoded. Reducing the Huffman table sizes could save only ~15%,
+  which is not much saving.
+
+A notable exception which needs more 64 KiB for decompression is Unix
+(n)compress (LZW). Its tables need 24 bits (16 bits in the prefix table and
+8 bits in the suffix table) for each code. The number of codes is `(1 <<
+maxbits) - 256`. So for maxbits == 16, 191.25 KiB is needed (only for the
+LZW tables), for maxbits == 15, 95.25 KiB is needed. For maxbits == 14,
+47.25 KiB is needed. On these 16-bit systems (DOS, Minix i86 and ELKS),
+luuzcat supports maxbits == 14 with less than 64 KiB of data memory usage
+(total, not only the LZW tables), and it uses system-specific methods (far
+pointers on DOS and fork()ed subprocesses communicating over pipe()s on
+Minix i86 and ELKS) for maxbits == 15 and 16. Other implementations of
+(n)compress decompressors are much less ambitious: they typically support
+only maxbits <= 13 (or even just maxbits <= 12) only.
 
 ## The success story of Deflate
 
 Why was the Deflate compression method the clear winner of general-purpose,
-lossless compression between 1991 and 1995, outperforming its competitors,
-including all other methods supported by luuzcat? The quick answer: because
-not only its file format design was better, but it had a few excellent
-compressor implementations, which were in general faster, and produced
-smaller compressed output than the competitors. Here is the full story.
+lossless compression between 1991 and 1995, outperforming its competitors
+released between 1977 and 1995, including all other methods supported by
+luuzcat? The quick answer: because not only its file format design was
+better, but it had a few excellent compressor implementations, which were in
+general faster, and produced smaller compressed output than the competitors.
+Here is the full story.
 
 Deflate compression was invented and implemented by Phil Katz in 1990--1991,
 building upon his own previous compression methods (most specifically the
@@ -427,6 +498,10 @@ Deflate was was quickly adapted in the following open source software:
   1952](https://www.rfc-editor.org/rfc/rfc1952.txt). Both the compressor and
   the decompressor has written by Jean-loup Gailly and has been released as
   free software under the GNU GPL; it doesn't contain any code from PKZIP.
+* gzip 0.2 (1992-12-21) by Jean-loup Gailly: This is the earliest version of
+  gzip whose [source
+  code](https://discmaster.textfiles.com/file/40219/minerva4.zip/minerva4/BBS_UUCP/GZIP05.TAZ)
+  has survived as of 2025-11-30.
 * Zip 1.5 (1992-02-17) by Mark Adler and UnZip 5.0 (1992-08-22) by Mark
   Adler, both the predecessors of Info-Zip (both 1992-08-22). ZIP archive
   creator (updater) and extractor tool. Deflate (method 8) support has been
@@ -452,9 +527,9 @@ Why did the Deflate file format win?
   *de* are repeating (and nothing more found), but the compresses LZSS
   stream can indicate that the entire *bcdef* is repeating.
 * LZSS (also used by Deflate) wastes fewer bits on literals than LZW.
-* It supports separate Huffman tables for (literal bytes and LZ match
-  lengths) ad for LZ match distances. These typically have different
-  distributions, and it's also beneficial that the LZ match distances code
+* It supports separate Huffman tables for (literal bytes and LZSS match
+  lengths) ad for LZSS match distances. These typically have different
+  distributions, and it's also beneficial that the LZSS match distances code
   is only used for a match (not for literals).
 * Its window size of 32 KiB is larger than of most of the competitors (so it
   leads to better compression ratio), but still not too large so that a
@@ -469,7 +544,7 @@ Why did the Deflate file format win?
   Deflate can adapt to changes in the input faster, but it also needs extra
   bytes to send the new Huffman codes.
 * It supports partial dynamic Huffman coding for both Huffman codes, so the
-  very precise distribution of the lower bits of LZ match lengths and
+  very precise distribution of the lower bits of LZSS match lengths and
   distances doesn't pollute the Huffman codes.
 * It encodes both Huffman tables very efficiently by sending only the
   lengths of each code bit string, and also doing RLE compression and also

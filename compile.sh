@@ -328,7 +328,7 @@ exit_code=0; ./luuzcat.elf <test_C1_split.zip >test_C1.bin || exit_code="$?"; te
 nasm-0.98.39 -O999999999 -w+orphan-labels -f bin -DINCLUDES="'uncompressm_16.nasm','luuzcatm_16.nasm','unscolzhm_16.nasm','uncompactm_16.nasm','unopackm_16.nasm','unpackm_16.nasm','undeflatem_16.nasm','unfreezem_16.nasm'" -DMINIXI86 -DMINIX_STACK_SIZE=0x600 -o luuzcat.mi8 progx86.nasm
 chmod +x luuzcat.mi8  # elksemu needs it.
 test -s luuzcat.mi8
-# elksemu.mini and elksemu seem to be unreliable: out of 1000 atempts, 6..14 encounter SIGSTOP.
+# elksemu.mini and elksemu seem to be unreliable: out of 1000 attempts, 6..14 encounter SIGSTOP.
 # for i in $(seq 1 1000); do echo -n "$i "; env -i FOO=bar ./elksemu.mini luuzcat.mi8 <test_C1_pack.z >test_C1.bin; done
 # So we don't run any of these here.
 if false; then

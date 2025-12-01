@@ -145,7 +145,7 @@ wcc16minixargs="-bt=dos -U__DOS__ -D__MINIX__ -DLUUZCAT_SMALLBUF -DLUUZCAT_COMPR
 wcc32args="-bt=linux -3r -zp=4"  # zsh(1) SH_WORD_SPLIT is needed by $wcc32args below.
 dosdefs="-D_PROGX86_ONLY_BINARY -D_PROGX86_CRLF -D_PROGX86_DOSPSPARGV -D_PROGX86_DOSEXIT -D_PROGX86_ISATTYDOSREG -D_PROGX86_REUSE -D_PROGX86_DOSMEM -D_PROGX86_CSEQDS -DLUUZCAT_DUCML"  # zsh(1) SH_WORD_SPLIT is needed by $dosdefs below.
 minixi86defs="-D_PROGX86_ONLY_BINARY"  # zsh(1) SH_WORD_SPLIT is needed by $minixi86defs below.
-rm -f -- *_16.o *_32.o *_16.wasm *_32.wasm *_16.nasm *_32.nasm
+rm -f -- *_16.o *_32.o *_32y.o *_16.wasm *_32.wasm *_16.nasm *_32.nasm
 
 wcc386 $wcc32args $common_wccargs -fo=luuzcat_32.o -D_PROGX86_ONLY_BINARY luuzcat.c
 wcc386 $wcc32args $common_wccargs -fo=luuzcatw_32.o -D_PROGX86_ONLY_BINARY -DUSE_WRITE_FIX luuzcat.c

@@ -463,7 +463,9 @@ nasm-0.98.39 -O999999999 -w+orphan-labels -f obj -DINCLUDES= -D__GLOBAL_G@main_=
 # We omit `op norelocs', otherwise WDOSX wouldn't be able to run it.
 # We omit `op exporta', because we don't need these symbols.
 wlink op q form win nt ru con=3.10 op h=4K com h=0 op st=64K com st=64K disa 1080 op noext op d op nored op start=_start op stub=luuzcatd.exe n luuzcat.exe f luuzcatp.o f luuzcatr_32y.o f unscolzh_32y.o f uncompact_32y.o f unopack_32y.o f unpack_32y.o f undeflate_32y.o f uncompress_32y.o f unfreeze_32y.o
-"$perl" -0777 -pi -e 'substr($_, 0xa, 2) = pack("v", unpack("v", substr($_, 0xa, 2)) + 3)' luuzcat.exe  # Hotfix: Add 3 to .minalloc. wlink(1) has kept it intact, incorrectly. !! Come up with a safer hotfix, reading both files.
+# Hotfix: Add 3 to .minalloc. wlink(1) has kept it intact, incorrectly. !! Come up with a safer hotfix, reading both files.
+# Hotfix: For reproducible builds, change the PE TimeDateStamp header field to 0.
+"$perl" -0777 -wpi -e 'substr($_, 0xa, 2) = pack("v", unpack("v", substr($_, 0xa, 2)) + 3); my $pe_ofs = unpack("v", substr($_, 0x3c, 4)); substr($_, $pe_ofs + 8, 4) = "\0\0\0\0"' luuzcat.exe
 # We need non-empty command-line because dosbox.nox.static incorrectly reports that stdin is a TTY.
 dosbox.nox.static --cmd --mem-mb=2 ~/prg/mwpestub/mwperun.exe luuzcat.exe -cd <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin

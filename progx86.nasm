@@ -1171,8 +1171,10 @@ __prog_section _TEXT
 ; Example invocation: nasm -DINCLUDES="'mysrc1_32.nasm','mysrc2_32.nasm'"
 
 %ifndef INCLUDES
-  %error ERROR_MISSING_INCLUDES  ; Specify it like this: nasm -DINCLUDES="'f1.nasm','f2.nasm'"
-  times -1 nop
+  %ifndef TRUEPROG
+    %error ERROR_MISSING_INCLUDES  ; Specify it like this: nasm -DINCLUDES="'f1.nasm','f2.nasm'"
+    times -1 nop
+  %endif
 %endif
 %macro __prog_force_extern_in_text 1
   %ifnidn __OUTPUT_FORMAT__, bin
@@ -1230,7 +1232,18 @@ __prog_section _TEXT
   %endrep
 %endmacro
 __prog_default_cpu_and_bits
-__prog_do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
+%ifdef INCLUDES
+  __prog_do_includes INCLUDES  ; This also does all the `%define __NEED_...'.
+%elifdef TRUEPROG
+  global main_
+  main_:
+  %if DOSCOM+DOSEXE+MINIXI86
+    xor ax, ax  ; AX := EXIT_SUCCESS (0).
+  %else
+    xor eax, eax  ; EAX := EXIT_SUCCESS (0).
+  %endif
+  ret
+%endif
 __prog_default_cpu_and_bits
 __prog_section _TEXT
 

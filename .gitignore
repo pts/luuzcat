@@ -5,6 +5,7 @@
 *.out
 *.com
 *.elf
+*.tmp
 # SVR3 i386 COFF, iBCS2 executable program.
 *.coff
 # 386BSD 1.0 executable program.
@@ -45,28 +46,30 @@
 
 # --- Test files.
 
+/true.coff
+/true.da6
+/true.c
 *.bin
 *.good
 # SCO LZH test files.
 /XFileMgro*
 # SCO LZH compressed test files.
-*.sz
+/*.sz
 # gzip compressed test files.
 *.gz
 # Compact compressed test files.
-*.bin.C
+/*.bin.C
 # pack (old or new) compressed test files.
-*.z
+/*.z
 # 4.3BSD-Quasijarus strong compression compressed test files.
-*.qz
+/*.qz
 # zlib compressed test files.
-*.zlib
+/*.zlib
 # Freeze compressed test files.
-*.F
+/*.F
 # (n)compress compressed test files.
-*.Z
+/*.Z
 # ZIP compressed test files.
-*.zip
+/*.zip
 # Raw Deflate compressed test files.
-*.deflate
-
+/*.deflate

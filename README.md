@@ -83,11 +83,31 @@ reason: LZO, LZ4, ELKS executable compression.
 
 ## Compiling luuzcat
 
-Most users don't need to compile luuzcat from source. If unsure, just skip this section.
+Most users don't need to compile luuzcat from source. If unsure, just skip
+this section.
 
-To compile luuzcat on a Unix system with a C compiler, clone the repository (`git clone https://github.com/pts/luuzcat.git && cd luuzcat`), and run `make` in the luuzcat directory. The output is the executable program file *luuzcat*. Run it as `./luuzcat <input.gz >output`.
+To compile luuzcat on a Unix system with a C compiler, clone the repository
+(`git clone https://github.com/pts/luuzcat.git && cd luuzcat`), and run
+`make` in the luuzcat directory. The output is the executable program file
+*luuzcat*. Run it as `./luuzcat <input.gz >output`.
 
-Please note that if you do a release build, you may want to add some optimization and flags to your C compiler. See comments in the [Makefile](Makefile) about that.
+Please note that if you do a release build, you may want to add some
+optimization and flags to your C compiler. See comments in the
+[Makefile](Makefile) about that.
+
+To recompile the official executable program files (such as *luuzcat.elf*
+and *luuzcat.com*, see in the next section) on a Linux i386 (or Linux amd64)
+system, run `./release.sh all` in the luuzcat directory. To recompile and
+run the tests as well, run `./release.sh all test` instead. For compiling
+the macOS targets (*luuzcat.da6* and *luuzcat.di3*), a Linux amd64 system is
+needed; if you only have Linux i386, then compile without the macOS targets,
+like this: `./release.sh all nomacos`. These are deterministic and fully
+reproducible builds. Most tools, including the shell, the C compilers, the C
+libraries (libc), the assembler and the emulators for running the tests are
+included in the [tools](tools) directory. The non-bundled tools (currently
+only [pts-osxcross](https://github.com/pts/pts-osxcross) for compiling the
+macOS targets) have to be downloaded, please follow the instructions
+displayed by *release.sh*.
 
 ## Using luuzcat
 

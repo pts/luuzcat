@@ -1,4 +1,14 @@
 #! /bin/sh --
+#
+# compile.sh: developer shell script to compile luuzcat for multiple targets
+# by pts@fazekas.hu at 2025-10-02 23:16:29 +0200
+#
+# compile.sh is undocumente, and it is for internal development and
+# debugging use. Most users should run `make` (using the Makefile) or run
+# release.sh instead of compile.sh. See the documentation in README.md for
+# details.
+#
+
 test "$ZSH_VERSION" && set -y 2>/dev/null  # SH_WORD_SPLIT for zsh(1). It's an invalid option in bash(1), and it's harmful (prevents echo) in ash(1).
 set -ex
 test "$0" = "${0%/*}" || cd "${0%/*}"

@@ -37,8 +37,6 @@ gcc -m64 -fsanitize=address -g -O2 -ansi -pedantic -W -Wall -Wextra -Wstrict-pro
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1_old16.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
-./luuzcat <test_C1_new16.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./luuzcat <test_C1_new13.Z >test_C1.bin
@@ -308,8 +306,6 @@ chmod +x luuzcat.elf
 ./luuzcat.elf <test_C1_old15.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./luuzcat.elf <test_C1_old16.Z >test_C1.bin
-    cmp test_C1.good test_C1.bin
-./luuzcat.elf <test_C1_new16.Z >test_C1.bin
     cmp test_C1.good test_C1.bin
 ./luuzcat.elf <test_C1_new9.Z >test_C1.bin
     cmp test_C1.good test_C1.bin

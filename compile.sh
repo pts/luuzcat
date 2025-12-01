@@ -57,12 +57,12 @@ exit_code=0; ./luuzcat <test_C1_split.zip >test_C1.bin || exit_code="$?"; test "
     cmp test_C1_1of2.good test_C1.bin
 # !! Add test for concatenated streams.
 
-~/Downloads/pts_osxcross_10.10/x86_64-apple-darwin14/bin/gcc -m64 -mmacosx-version-min=10.5 -nodefaultlibs -lSystem -O2 -W -Wall -Wextra -Wstrict-prototypes -Werror-implicit-function-declaration -ansi -pedantic -o luuzcat.da6 luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
+~/Downloads/pts_osxcross_10.10/x86_64-apple-darwin14/bin/gcc -m64 -mmacosx-version-min=10.5 -nodefaultlibs -lSystem -Os -W -Wall -Wextra -Wstrict-prototypes -Werror-implicit-function-declaration -ansi -pedantic -o luuzcat.da6 luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
 ~/Downloads/pts_osxcross_10.10/x86_64-apple-darwin14/bin/strip luuzcat.da6
 test -s luuzcat.da6  # We'd need a macOS emulator to run it.
 
-~/Downloads/pts_osxcross_10.10/i386-apple-darwin14/bin/gcc   -m32 -mmacosx-version-min=10.5 -nodefaultlibs -lSystem -O2 -W -Wall -Wextra -Wstrict-prototypes -Werror-implicit-function-declaration -ansi -pedantic -o luuzcat.di3 luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
-~/Downloads/pts_osxcross_10.10/x86_64-apple-darwin14/bin/strip luuzcat.di3
+~/Downloads/pts_osxcross_10.10/i386-apple-darwin14/bin/gcc   -m32 -mmacosx-version-min=10.5 -nodefaultlibs -lSystem -Os -W -Wall -Wextra -Wstrict-prototypes -Werror-implicit-function-declaration -ansi -pedantic -o luuzcat.di3 luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c
+~/Downloads/pts_osxcross_10.10/i386-apple-darwin14/bin/strip luuzcat.di3
 test -s luuzcat.di3  # We'd need a macOS emulator to run it.
 
 g++ -m32 -s -O2 -ansi -pedantic -W -Wall -Wextra -o luuzcat luuzcat.c unscolzh.c uncompact.c unopack.c unpack.c undeflate.c uncompress.c unfreeze.c

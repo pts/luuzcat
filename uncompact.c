@@ -5,6 +5,8 @@
  * https://www.tuhs.org/Archive/Distributions/UCB/4.4BSD-Alpha/src.tar.gz
  * The file uncompact.c has last modification date 1987-12-21.
  *
+ * The base source files are also part of Unix V8, but not Unix V7.
+ *
  * Direct links to base source files:
  *
  * * https://minnie.tuhs.org/cgi-bin/utree.pl?file=4.4BSD/usr/src/old/compact/common_source/compact.h

@@ -1,4 +1,4 @@
-/* based on and derived from pcat.c written by Steve Zucker earlier than 1977-07-13
+/* decompressor for the old pack format, based on and derived from pcat.c written by Steve Zucker earlier than 1977-07-13
  *
  * pts has ported it to C89 and added lots of extra error handling.
  *
@@ -21,6 +21,16 @@
  * > [ug091377-ar.tar.gz](https://tuhs.v6sh.org/UnixArchiveMirror/Applications/Usenix_77/ug091377-ar.tar.gz)
  * > have a date of September 14, 1977. The files within the archive seem to
  * > have a date of July 13, 1977.
+ *
+ * Some other decompressor implementations for both the old and new pack formats:
+ * [unpack.c](https://web.archive.org/web/20251123001300/https://raw.githubusercontent.com/illumos/illumos-gate/7c478bd95313f5f23a4c958a745db2134aa03244/usr/src/cmd/unpack/unpack.c)
+ * in OpenSolaris (2005-06-14) and illumos, which is based on
+ * [pcat.c](https://minnie.tuhs.org/cgi-bin/utree.pl?file=SysIII/usr/src/cmd/pcat.c)
+ * in Unix System III (1978-04), adapted from a program by Thomas G.
+ * Szymanski in 1978-03. Unlike unpack.c and pcat.c, this code has lots of
+ * extra error handling to make it fail explicitly and safely for any
+ * incorrect compressed data input. unpack.c is
+ * also part of Unix V8, but not Unix V7.
  *
  * This is a Huffman decompressor. Its compressed input file format:
  *

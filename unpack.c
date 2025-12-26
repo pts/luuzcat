@@ -1,22 +1,21 @@
-/* inspired by unpack.c in OpenSolaris (2005-06-14) and illumos
+/* decompressor for the new pack format, based on unpack.c in gzip 1.2.4 (1993-08-18)
  * porting by pts@fazekas.hu at Sat Oct  4 00:14:54 CEST 2025
  *
  * This code is based on unpack.c in
  * [gzip 1.2.4](https://web.archive.org/web/20251122220330/https://mirror.netcologne.de/gnu/gzip/gzip-1.2.4.tar.gz)
+ * (1993-08-18)
  * and [gzip 1.14](https://web.archive.org/web/20250918225753/https://ftp.gnu.org/gnu/gzip/gzip-1.14.tar.gz)
  * by Jean-loup Gailly.
  *
- * Some other implementations:
+ * Some other decompressor implementations for both the old and new pack formats:
  * [unpack.c](https://web.archive.org/web/20251123001300/https://raw.githubusercontent.com/illumos/illumos-gate/7c478bd95313f5f23a4c958a745db2134aa03244/usr/src/cmd/unpack/unpack.c)
  * in OpenSolaris (2005-06-14) and illumos, which is based on
  * [pcat.c](https://minnie.tuhs.org/cgi-bin/utree.pl?file=SysIII/usr/src/cmd/pcat.c)
  * in Unix System III (1978-04), adapted from a program by Thomas G.
  * Szymanski in 1978-03. Unlike unpack.c and pcat.c, this code has lots of
  * extra error handling to make it fail explicitly and safely for any
- * incorrect compressed data input.
- *
- * The base source file was downloaded from
- * https://minnie.tuhs.org/cgi-bin/utree.pl?file=SysIII/usr/src/cmd/pcat.c
+ * incorrect compressed data input. unpack.c is
+ * also part of Unix V8, but not Unix V7.
  *
  * This is a Huffman decompressor.
  */

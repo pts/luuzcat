@@ -85,7 +85,11 @@ static void discard_bits(um8 bit_count) {  /* Shift bitbuf16 bit_count bits left
     subbitbuf8 = get_byte();
     subbitcount = 8;
   }
+#ifdef __WATCOMC__
+  bitbuf16 &= 0xffffU;  /* __WATCOMC__ is smart enough to optimize this away if sizeof(bitbuf16) == 2. We also avoid: Warning! W201: Unreachable code */
+#else
   if (sizeof(bitbuf16) > 2) bitbuf16 &= 0xffffU;
+#endif
   bitbuf16 |= (um16)subbitbuf8 >> (subbitcount -= bit_count);
   /* Now: 0 <= subbitcount <= 7. */
 }

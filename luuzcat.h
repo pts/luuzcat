@@ -325,7 +325,11 @@
 #  define LUUZCAT_NL "\r\n"  /* Line ending for error messages on stderr. */
 #endif
 
-#ifndef LIBC_PREINCLUDED
+#ifdef LIBC_PREINCLUDED
+#  ifndef LUUZCAT_NL
+#    define LUUZCAT_NL "\r\n"  /* Safe bet, it works well on Unix terminals as well. */
+#  endif
+#else
 #  ifdef __MMLIBC386__
 #    include <mmlibc386.h>
 #    define LUUZCAT_NL "\r\n"  /* We want \r\n, and write(STDERR_FILENO, ..., ...) doesn't convert "\n" to "\r\n". */

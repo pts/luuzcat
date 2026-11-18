@@ -36,6 +36,10 @@
 #  define IS_DOS_16 1
 #endif
 
+#if defined(_ALL_LIBC_INCLUDED) && !defined(LIBC_PREINCLUDED)
+#  define LIBC_PREINCLUDED 1
+#endif
+
 #if defined(_PROGX86) && !defined(LIBC_PREINCLUDED)
   /* Expecting an external tiny libc for OpenWatcom C compiler creating
    * system-independent i386 code.
